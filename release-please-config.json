@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "language": "node",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "gscore-adapter",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": false,
+      "include-component-in-tag": false,
+      "changelog-sections": [
+        { "type": "feat", "section": "✨ 新功能" },
+        { "type": "fix", "section": "🐛 问题修复" },
+        { "type": "perf", "section": "⚡ 性能优化" },
+        { "type": "refactor", "section": "♻️ 代码重构" },
+        { "type": "docs", "section": "📝 文档" },
+        { "type": "revert", "section": "⏪ 回退" },
+        { "type": "build", "section": "📦 构建", "hidden": true },
+        { "type": "ci", "section": "👷 CI", "hidden": true },
+        { "type": "test", "section": "✅ 测试", "hidden": true },
+        { "type": "style", "section": "💄 格式", "hidden": true },
+        { "type": "chore", "section": "🔧 杂项", "hidden": true }
+      ]
+    }
+  }
+}

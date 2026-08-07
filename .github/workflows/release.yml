@@ -1,0 +1,127 @@
+name: 发版并推送 release 分支
+
+# 两段式：
+# 1. release-please 依据 Conventional Commits 攒一个「版本 PR」，
+#    维护 CHANGELOG 与 package.json 版本号；
+# 2. 该 PR 合并后（released == true）才编译 js 推到 release 分支并打 tag。
+#
+# preview 分支跟 main 每次推送，release 分支只跟发版，
+# 想要稳定的用户克隆 release，想跟最新的克隆 preview。
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # 取 release-please 刚打的 tag，而不是 main 的当前 HEAD。
+      # 两者在并发推送时可能已经不是同一个提交。
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile=false
+
+      - name: 类型检查
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: 测试
+        run: pnpm test
+
+      - name: 构建
+        run: pnpm run build
+
+      - name: 准备产物
+        run: |
+          set -euo pipefail
+          mkdir -p dist_branch
+
+          for f in $(jq -r '.files[]' package.json); do
+            if [ -e "$f" ]; then
+              dest="dist_branch/$f"
+              mkdir -p "$(dirname "$dest")"
+              cp -R "$f" "$dest"
+              echo "[copy] $f"
+            else
+              echo "[skip] $f 不存在"
+            fi
+          done
+
+          cp package.json dist_branch/package.json
+          echo "node_modules/" > dist_branch/.gitignore
+          echo "config/" >> dist_branch/.gitignore
+
+          # sourcemap 指向不存在的 src/，删掉
+          find dist_branch/lib -name "*.js.map" -delete
+          find dist_branch/lib -name "*.js" -exec \
+            sed -i '/^\/\/# sourceMappingURL=/d' {} +
+
+          # 入口注释里「需执行 pnpm build」是对 main 分支源码说的
+          {
+            echo '// 入口保持为 .js —— 框架 loader 只认 plugins/<name>/index.js。'
+            echo '// 本分支是 main 分支 TypeScript 源码的编译产物，开箱可用，无需构建。'
+            echo 'export * from "./lib/index.js"'
+          } > dist_branch/index.js
+
+      - name: 移除开发依赖
+        run: |
+          cd dist_branch
+          pnpm pkg delete devDependencies scripts.build scripts.build:watch \
+            scripts.typecheck scripts.lint scripts.lint:fix
+
+      - name: 推送到 release
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: release
+          publish_dir: dist_branch
+          force_orphan: false
+          # 不在产物分支另打 tag：release-please 已经打过 vX.Y.Z，
+          # 再拼一个 vX.Y.Z-js 会被 SemVer 当成 X.Y.Z 的预发布版本，
+          # 排序反而低于正式版。
+          full_commit_message: |
+            chore(release): ${{ needs.release-please.outputs.version }}
+
+            源 tag ${{ needs.release-please.outputs.tag }}
