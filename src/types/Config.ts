@@ -27,11 +27,13 @@ export interface ClientConnection {
   exclude?: (string | number)[]
 }
 
-/** 插件运行模式 */
+/**
+ * 插件运行模式
+ *
+ * "server" / "both" 已移除（早柚核心不会主动连云崽），
+ * 但保留在类型里：老配置仍可能写着它们，src/index.ts 会按 client 兼容并提示。
+ */
 export type Mode = "off" | "client" | "server" | "both"
-
-/** 路由冲突处理策略 */
-export type OnConflict = "abort" | "force"
 
 /** 消息过滤，仅影响 client 方向的上报 */
 export interface FilterConfig {
@@ -60,21 +62,6 @@ export interface Config {
     /** 超过多少秒没收到 pong 判定掉线，0 关闭 */
     heartbeat_timeout?: number
     connections?: ClientConnection[]
-  }
-  server?: {
-    /** ws 路由名，最终地址 ws://<云崽地址>/<path> */
-    path?: string
-    /** 适配器 id */
-    id?: string
-    /** 适配器显示名 */
-    name?: string
-    on_conflict?: OnConflict
-    /**
-     * 下行是否发二进制帧，默认 true。
-     * 早柚核心 core.py 用 receive_bytes() 收，只认二进制；
-     * 设为 false 退回框架 conn.sendMsg 的文本帧行为。
-     */
-    binary?: boolean
   }
   filter?: FilterConfig
   /** 适配器 id 或 self_id -> 早柚核心 bot_id 的映射，含 default 兜底 */

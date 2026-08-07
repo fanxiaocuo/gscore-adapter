@@ -17,10 +17,10 @@ export function passFilter(e) {
 
 /** 事件来源是否为早柚核心方向的 Bot（回环防护第 2、3 层） */
 export function isFromGsCore(e) {
+  // 本插件已不含服务端方向，但框架或其他插件仍可能注册早柚核心适配器，
+  // 其回显若不挡就是 Core -> 云崽 -> Core 死循环。这层判断很便宜，保留。
   const adapterId = e.bot?.adapter?.id || e.adapter_id
-  if (adapterId === "GSUIDCore" || adapterId === (config.server?.id || "GsCore")) return true
-  // 本插件 server 打的标记。比查 adapter 更精确，
-  // 且在 prepareEvent 整体 no-op（Bot.bots[self_id] 缺失）时仍有效
+  if (adapterId === "GSUIDCore" || adapterId === "GsCore") return true
   return !!e.gscore_origin
 }
 

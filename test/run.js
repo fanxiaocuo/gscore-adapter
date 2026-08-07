@@ -24,16 +24,8 @@ if (!fs.existsSync(path.join(pluginDir, "lib", "index.js"))) {
 //   modules/     单个模块的行为
 //   apps/        指令类
 //   integration/ 跨模块与真实 ws 往返
-// conflict 只用退出码表达结果，没有「=== 结果 ===」汇总行，
-// 所以这里一律以退出码为准，不去解析各套件的输出格式。
-const suites = [
-  "modules/client",
-  "modules/notice",
-  "modules/server",
-  "apps/admin",
-  "integration/e2e",
-  "integration/conflict",
-]
+// 一律以退出码为准，不去解析各套件的输出格式。
+const suites = ["modules/client", "modules/notice", "apps/admin", "integration/e2e"]
 const failed = []
 
 for (const name of suites) {

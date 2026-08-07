@@ -5,7 +5,6 @@ import { config } from "@/config"
 import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
-import { cfg } from "./framework.js"
 
 let hooked = false
 
@@ -15,22 +14,6 @@ function hook() {
   Bot.on("message", onYunzaiMessage)
   Bot.on("notice", onYunzaiNotice)
   hooked = true
-}
-
-/** both 模式下地址指向自己会消息死循环 */
-function warnSelfLoop(conf) {
-  const localPort = String(cfg.server?.port || "")
-  if (
-    config.mode === "both" &&
-    localPort &&
-    conf.url?.includes(`:${localPort}`) &&
-    /127\.0\.0\.1|localhost/.test(conf.url)
-  )
-    Bot.makeLog(
-      "warn",
-      `连接 ${conf.name} 的地址指向本机 ${localPort} 端口，both 模式下可能造成消息死循环`,
-      "GsCore",
-    )
 }
 
 /** 启动单个连接（已存在同名则跳过） */
@@ -43,7 +26,6 @@ export function startClient(conf) {
   if (clients.some(c => c.name === (conf.name || conf.url))) return null
 
   hook()
-  warnSelfLoop(conf)
   const c = new GsCoreClient(conf)
   clients.push(c)
   c.connect()

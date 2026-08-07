@@ -121,11 +121,15 @@ check("序号定位生效", getConnections()[total - 1].enable === false)
 console.log("\n=== 设置项 ===")
 await a.set(mkEvent("#早柚设置 only_reply_at=true"))
 check("only_reply_at 已改", config.filter.only_reply_at === true)
+// server / both 已移除，client 与 off 是仅剩的两个合法值。
+// 起始为 off（见上方），改成 client 才是一次真实的变更
+await a.set(mkEvent("#早柚设置 mode=client"))
+check("mode 已改", config.mode === "client", config.mode)
 await a.set(mkEvent("#早柚设置 mode=both"))
-check("mode 已改", config.mode === "both", config.mode)
+check("已废弃的 both 被拒绝", replied.includes("失败") || replied.includes("只能是"), replied)
 await a.set(mkEvent("#早柚设置 mode=nonsense"))
 check("非法 mode 被拒绝", replied.includes("失败") || replied.includes("只能是"), replied)
-check("非法值未写入", config.mode === "both", config.mode)
+check("非法值未写入", config.mode === "client", config.mode)
 await a.set(mkEvent("#早柚设置 media_max_size=100"))
 check("过小的 media_max_size 被拒绝", config.media_max_size !== 100)
 

@@ -1,23 +1,29 @@
 # gscore-adapter
 
-Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）双向适配器**。
+Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 
-把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。支持双向：云崽主动连核心（client），或核心主动连云崽（server）。
+把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。
+
+云崽作为 ws 客户端主动连接核心，即文档 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
+
+> **关于「核心主动连云崽」**：本插件曾实现过反向的 server 方向，现已移除。
+> 早柚核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，`gss.connect()`
+> 首句即 `websocket.accept()`，全仓库没有任何出站连接——**核心不会主动来连云崽**，
+> 服务端方向注册了也永远收不到东西。框架自带的 `plugins/adapter/GSUIDCore.js`
+> 是为旧版核心准备的，同样不适用于当前版本。
+> 老配置写着 `mode: server` / `both` 不会报错，会按 `client` 运行并提示改配置。
 
 ---
 
 ## 特性
 
-- **两个方向都支持**，可单开也可同开
-  - `client`：云崽作为 ws 客户端连接核心，即文档 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态
-  - `server`：云崽作为 ws 服务端等核心来连，等价于框架自带的 `plugins/adapter/GSUIDCore.js`。核心送来的 `bot_self_id` 会被注册成一个虚拟 Bot，云崽本地无需登录任何账号
-- **多连接**：client 方向可同时连多个核心，各自独立重连、独立账号绑定
+- **多连接**：可同时连多个核心，各自独立重连、独立账号绑定
 - **消息段双向转换**：文本 / 图片 / 语音 / 视频 / 文件 / @ / 引用 / 按钮 / 合并转发 / markdown
 - **非消息事件**：入群、退群、戳一戳上报为核心的 meta event
 - **控制指令**：核心下发的撤回消息、禁言用户
 - **命令式管理**：`#早柚添加连接` 等指令直接改配置并热启动，不必手改 yaml 重启
-- **回环防护**：四层拦截，避免 `核心 → 云崽 → 核心` 死循环
-- **路由冲突检测**：与 `GSUIDCore.js` 抢同一 ws 路由时主动报错而非静默双收
+- **插件自更新**：`#早柚更新`，转调本体更新逻辑，自动重装依赖并重启
+- **回环防护**：三层拦截，避免 `核心 → 云崽 → 核心` 死循环
 
 ---
 
@@ -97,17 +103,6 @@ client:
 
 地址只填 `host:port` 时会自动补全为 `/ws/Yunzai`。
 
-### 反过来：让核心连云崽
-
-```yaml
-# config/config.yaml
-mode: server
-server:
-  path: GsCore
-```
-
-核心侧填 `ws://<云崽IP>:2536/GsCore`（端口取自云崽 `config/config/server.yaml`）。详见下方 [server](#server) 一节 —— 两个方向的账号模型不同，不是单纯的方向反转。
-
 ---
 
 ## 配置说明
@@ -117,11 +112,9 @@ server:
 | 值 | 含义 |
 |---|---|
 | `client` | 云崽主动连核心（**默认**） |
-| `server` | 核心主动连云崽 |
-| `both` | 同时开启 |
-| `off` | 全部关闭 |
+| `off` | 关闭 |
 
-> ⚠️ `both` 模式下，两个方向不要互相指向自己，否则消息死循环。插件会在地址指向本机端口时打 warn 提醒，但拦不住所有情况。
+> `server` / `both` 已移除（核心不会主动连云崽，见开头说明）。老配置写着它们会按 `client` 运行并提示改配置。
 
 ### client
 
@@ -143,54 +136,7 @@ client:
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
 
-### server
-
-```yaml
-server:
-  path: GsCore        # ws 路由，最终地址 ws://<云崽地址>/GsCore
-  id: GsCore
-  name: 早柚核心
-  on_conflict: abort  # 路由被占用时：abort 放弃注册（推荐）/ force 强行注册
-```
-
-`path` 默认值刻意与框架自带的 `GSUIDCore` 区分。若两者路由相同，云崽的 `Bot.wsf[path]` 会挂两个处理器，**同一条消息被处理两次且完全静默无报错** —— `on_conflict: abort` 就是为了让这种情况直接报错。`force` 仅调试用。
-
-#### 怎么用
-
-云崽的 ws 服务端口取自 `config/config/server.yaml` 的 `port`（默认 **2536**）。所以核心侧要填的地址是：
-
-```
-ws://<云崽IP>:2536/GsCore
-```
-
-路径就是上面配的 `server.path`，**没有 `/ws/` 前缀**（那是 client 方向连核心时才有的路由格式，两边不一样，容易混）。
-
-在核心侧把这个地址配成它要连的适配器，核心会主动连过来。连上后云崽日志出现 `早柚核心(GsCore) 已连接`，`#早柚状态` 里会显示 `服务端：/GsCore 已监听`。
-
-#### 与 client 方向的区别
-
-不只是「谁先发起连接」的差别，两者的**账号模型是反的**：
-
-| | client | server |
-|---|---|---|
-| 谁是 ws 发起方 | 云崽 | 核心 |
-| 消息用哪个账号收发 | 云崽已有的真实账号（QQ 等） | 核心侧送来的 `bot_self_id`，注册成一个**虚拟 Bot** |
-| `Bot.adapter` | 不注册 | 注册一个适配器实例 |
-| 适用场景 | 想让核心插件借用云崽的 QQ 号 | 核心自己管着账号，云崽只做消息中转/渲染 |
-
-server 方向下，`makeBot()` 会用核心送来的 `bot_self_id` 在 `Bot[self_id]` 上凭空建一个 Bot 实例（带 `pickFriend`/`pickGroup`/`fl`/`gl`/`gml`），云崽本地**不需要登录任何账号**也能跑。这就是它和 client 的根本不同。
-
-#### 复合 group_id
-
-核心的 `user_type` 有 `group`/`direct`/`channel`/`sub_channel` 四种，但云崽只有「群/私聊」二元。为了不丢频道信息，收消息时 `group_id` 被拼成 `${user_type}-${真实id}`（如 `group-12345`、`channel-67890`），发送时由 `sendGroupMsg` 按已知 `user_type` 前缀拆回。
-
-**副作用**：你在云崽侧看到的群号会带前缀。若有插件硬编码比对群号，需注意这点。
-
-#### 回环防护
-
-server 方向收到的每个事件都会打上 `gscore_origin: <适配器id>` 标记（[adapter.ts:184](src/modules/server/adapter.ts#L184)），client 方向据此拒绝把它再发回核心。`both` 模式下这是防死循环的关键一环 —— 别去掉它。
-
-### filter（仅影响 client 方向的上报）
+### filter（影响上报到核心的消息）
 
 ```yaml
 filter:
@@ -256,7 +202,7 @@ bot_id_map:
 #早柚添加连接 ws://127.0.0.1:8765/ws/Yunzai
 #早柚添加连接 127.0.0.1:8765 name=主核心 token=abc
 #早柚删除连接 2
-#早柚设置 mode=both
+#早柚设置 only_reply_at=true
 ```
 
 改配置会**保留 yaml 原有注释**。`mode` 的变更需重启生效，其余即时生效。
@@ -286,7 +232,7 @@ bot_id_map:
 
 ## 非消息事件（meta events）
 
-client 方向会把以下事件上报为核心的 meta event：
+以下事件会上报为核心的 meta event：
 
 | 云崽 notice | 上报段 type |
 |---|---|
@@ -318,12 +264,13 @@ client 方向会把以下事件上报为核心的 meta event：
 
 ## 回环防护
 
-`核心 → 云崽 → 核心` 的死循环有四层拦截：
+`核心 → 云崽 → 核心` 的死循环有三层拦截：
 
 1. 适配器回显自己发出的消息（`user_id === self_id` / `message_sent` / `sub_type === "self"`）
-2. 来源 adapter id 是 `GSUIDCore` 或本插件的 server id
-3. `e.gscore_origin` 标记（server.js 打的，比查 adapter 更精确，且在 `prepareEvent` 整体 no-op 时仍有效）
-4. 内容指纹：本插件刚代发出去的内容在 10s 内被回显则丢弃
+2. 来源 adapter id 是 `GSUIDCore` 或 `GsCore`，或事件带 `gscore_origin` 标记
+3. 内容指纹：本插件刚代发出去的内容在 10s 内被回显则丢弃
+
+第 2 层里 `gscore_origin` 由本插件已移除的 server 方向打过；现在保留是为了兼容**其他**早柚核心适配器（如框架自带的 `GSUIDCore.js`）打的同名标记 —— 判断成本极低，挡不住的话就是死循环。
 
 ---
 
@@ -345,13 +292,13 @@ gscore-adapter/
 │   ├── modules/
 │   │   ├── convert/        消息段双向转换（toGscore / toYunzai / buttons）
 │   │   ├── notice/         meta event 转换（纯函数）
-│   │   ├── client/         客户端方向：连接类、生命周期、钩子、回环缓存
-│   │   ├── server/         服务端方向（Bot.adapter 实现，import 即注册）
+│   │   ├── client/         连接类、生命周期、钩子、回环缓存
 │   │   ├── guoba/          锅巴配置面板
 │   │   └── loader/         自动加载 apps
 │   └── apps/
 │       ├── status.ts       #早柚状态 / #早柚重连
-│       └── admin.ts        连接增删改查
+│       ├── admin.ts        连接增删改查
+│       └── update.ts       #早柚更新，转调本体更新插件
 ├── lib/                    编译产物，pnpm build 生成（已 gitignore，勿手改）
 ├── resources/
 │   └── config/
@@ -383,23 +330,19 @@ pnpm test
 或逐个运行。各套件都由自身位置（`import.meta.url`）推出插件目录，在哪执行都一样：
 
 ```bash
-node test/modules/client.js       # 客户端方向端到端（含 1005 重连）
+node test/modules/client.js       # 连接端到端（含 1005 重连）
 node test/modules/notice.js       # 非消息事件
-node test/modules/server.js       # 服务端方向（含帧类型断言）
 node test/apps/admin.js           # 管理指令（yaml 注释保留）
 node test/integration/e2e.js      # 协议与消息段转换、回环防护
-node test/integration/conflict.js # 路由冲突检测
 ```
 
-当前 130 个断言全部通过。各文件末尾打印通过/失败数（`conflict.js` 只打 PASS 行，靠退出码表达结果），失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
+当前 112 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
 
 类型检查（不产出文件）：
 
 ```bash
 pnpm run typecheck
 ```
-
-> `modules/notice.js` 与 `modules/server.js` 都用 18766 端口，**别并行跑这两个**，逐个执行即可。
 
 **验证边界**：测试证明发出的包符合已核实的协议规格，但不覆盖真实核心插件对 meta 事件名的接受情况 —— 核心用事件名匹配插件注册的触发器、自身不做校验，认不认 `user_join_group` 这三个名字取决于装了哪些核心插件。这部分只能连真实核心验证。
 
@@ -414,7 +357,7 @@ pnpm run typecheck
 核心侧看是否收到消息。若消息到了但插件没触发，多半是 `bot_id` 不对 —— 核心用它区分平台，改 `bot_id_map` 或连接的 `bot_id`。
 
 **每条消息被处理两次**
-`server` 方向的路由和框架自带的 `GSUIDCore.js` 撞了。`on_conflict: abort`（默认）会直接报错阻止；若你改成了 `force`，改回来，或者改 `server.path`，或者删掉 `plugins/adapter/GSUIDCore.js`。
+同一条消息被两个早柚核心适配器上报了。检查是否还装着框架自带的 `plugins/adapter/GSUIDCore.js` 或其他核心适配器（如 ws-plugin 的相关功能），只留一个。也可能是同一个核心配了多条连接，用 `#早柚连接列表` 查。
 
 **图片发不出去 / 核心拿到占位图**
 核心跑在 Docker 里而 `link://` 外链指向 `127.0.0.1`。把云崽的 `cfg.server.url` 配成核心可达的地址；或调大 `media_max_size` 让图片走 base64 内联。
@@ -454,5 +397,5 @@ pnpm run typecheck
   而非按字面直觉修正。
 
 - **TRSS-Yunzai 自带的 `plugins/adapter/GSUIDCore.js`**
-  —— server 方向（核心主动连云崽）的行为基准。本插件的 `server.path`
-  默认值刻意与其区分，并加了路由冲突检测，避免两者同时启用时同一条消息被静默处理两次。
+  —— 消息段映射的早期参照。该适配器面向的是旧版核心（等核心来连云崽），
+  与当前核心的实际行为已不一致，本插件未沿用其连接方向。

@@ -2,9 +2,9 @@ import { config, saveConfig, getConnections } from "@/config"
 import { clients, startClient, stopClient } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
 
-/** 客户端模式才需要（也才能）热启动连接 */
+/** 关闭状态下不热启动连接 */
 function clientMode() {
-  return config.mode === "client" || config.mode === "both"
+  return config.mode !== "off"
 }
 
 /** 单条连接的字段，由 #早柚添加连接 / #早柚修改连接 消费 */
@@ -96,9 +96,12 @@ export default class GsCoreAdmin extends plugin {
         "#早柚开启连接 <名字或序号>",
         "#早柚关闭连接 <名字或序号>",
         "",
-        "#早柚设置 mode=client|server|both|off",
+        "#早柚设置 mode=client|off",
         "#早柚设置 only_reply_at=true",
         "  可设：mode / only_reply_at / notify_master / media_max_size",
+        "",
+        "#早柚更新 / #早柚强制更新 —— 更新插件",
+        "#早柚更新日志",
       ].join("\n"),
     )
   }
@@ -240,8 +243,8 @@ export default class GsCoreAdmin extends plugin {
         for (const [k, v] of Object.entries(kv)) {
           switch (k) {
             case "mode":
-              if (!["client", "server", "both", "off"].includes(v)) {
-                errs.push(`mode 只能是 client/server/both/off，收到 ${v}`)
+              if (!["client", "off"].includes(v)) {
+                errs.push(`mode 只能是 client/off，收到 ${v}`)
                 break
               }
               doc.setIn(["mode"], v)

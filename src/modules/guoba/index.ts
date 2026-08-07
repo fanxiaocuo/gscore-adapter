@@ -11,7 +11,6 @@ import { config, configFile, saveConfig } from "@/config"
 import { reloadClients } from "@/modules/client"
 import { baseSchemas } from "./schemas/base.js"
 import { clientSchemas } from "./schemas/client.js"
-import { serverSchemas } from "./schemas/server.js"
 import { filterSchemas } from "./schemas/filter.js"
 
 /** 锅巴按点号路径读值 */
@@ -25,7 +24,7 @@ export function supportGuoba() {
       name: PluginName,
       title: "早柚核心适配器",
       author: "@fanxiaocuo",
-      description: "早柚核心（gsuid_core）适配器，支持云崽主动连接与被动接入双方向",
+      description: "早柚核心（gsuid_core）适配器，云崽主动连接核心",
       // 仅用于面板展示，取不到时锅巴自己会兜底
       iconColor: "#7c69ef",
       isV3: true,
@@ -33,16 +32,11 @@ export function supportGuoba() {
       showInMenu: true,
     },
     configInfo: {
-      schemas: [...baseSchemas, ...clientSchemas, ...serverSchemas, ...filterSchemas],
+      schemas: [...baseSchemas, ...clientSchemas, ...filterSchemas],
 
       getConfigData() {
         const data: Record<string, any> = {}
-        for (const schema of [
-          ...baseSchemas,
-          ...clientSchemas,
-          ...serverSchemas,
-          ...filterSchemas,
-        ]) {
+        for (const schema of [...baseSchemas, ...clientSchemas, ...filterSchemas]) {
           // Divider 没有 field
           if (!("field" in schema) || !schema.field) continue
           data[schema.field] = getValue(schema.field)
@@ -51,7 +45,7 @@ export function supportGuoba() {
       },
 
       setConfigData(data: Record<string, any>, { Result }) {
-        // mode 与 server.* 改动需要重启才生效（适配器注册发生在 import 时），
+        // mode 改动需要重启才生效（连接在 online 时拉起），
         // client.* 可以靠 reloadClients 热生效，这里据此给出不同提示
         let needRestart = false
         let touchedClient = false
@@ -63,7 +57,7 @@ export function supportGuoba() {
               const path = field.split(".")
               // 值没变就不写，避免把用户手写的等价格式（如 'a' vs "a"）改掉
               if (JSON.stringify(getValue(field)) === JSON.stringify(value)) continue
-              if (field === "mode" || path[0] === "server") needRestart = true
+              if (field === "mode") needRestart = true
               if (path[0] === "client") touchedClient = true
               doc.setIn(path, value)
             }
@@ -74,7 +68,7 @@ export function supportGuoba() {
         }
 
         if (touchedClient) reloadClients()
-        if (needRestart) return Result.ok({}, "保存成功，运行模式或服务端设置需重启云崽生效")
+        if (needRestart) return Result.ok({}, "保存成功，运行模式需重启云崽生效")
         return Result.ok({}, "保存成功~")
       },
     },
