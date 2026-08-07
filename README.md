@@ -44,19 +44,38 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 | `preview` | 编译好的 js，跟 `main` 每次提交 | 想尝鲜最新改动 |
 | `main` | TypeScript 源码 | 参与开发 |
 
-### 直接使用（release / preview）
+### 稳定版（release，推荐）
+
+随发版更新，改动经过一轮发版把关，适合日常使用。
 
 ```bash
 cd plugins
 git clone -b release https://github.com/fanxiaocuo/gscore-adapter.git
 ```
 
-克隆下来就能跑，**不需要 `pnpm install`，也不需要编译**。重启云崽即可。
+### 预览版（preview）
 
-后续更新：
+跟 `main` 每次提交自动构建，想尝鲜最新改动用它。相应地，没经过发版把关，可能带上刚引入的问题。
+
+```bash
+cd plugins
+git clone -b preview https://github.com/fanxiaocuo/gscore-adapter.git
+```
+
+以上两个分支克隆下来就能跑，**不需要 `pnpm install`，也不需要编译**。重启云崽即可。
+
+后续更新（两者相同）：
 
 ```bash
 cd plugins/gscore-adapter && git pull
+```
+
+想在两者之间切换，不必重新克隆：
+
+```bash
+cd plugins/gscore-adapter
+git fetch origin
+git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 ```
 
 ### 参与开发（main）
