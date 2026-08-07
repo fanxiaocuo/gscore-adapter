@@ -1,0 +1,21 @@
+# 用户配置：首次运行由 resources/config/default_config.yaml 自动生成
+# 整个目录不入库，升级时不会覆盖你的改动
+config/
+
+node_modules/
+
+# TypeScript 编译产物（源码在 src/，用 pnpm build 生成）
+# 本地开发直接跑编译好的 js，但产物只由 CI 推到 js 分支，不进主分支
+lib/
+*.tsbuildinfo
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志与临时文件
+*.log
+temp/
+.temp/

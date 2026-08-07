@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2024"],
+
+    "paths": {
+      "@/*": ["./src/*"],
+      "~/*": ["./src/*"]
+    },
+
+    "rootDir": "./src",
+    "outDir": "./lib",
+
+    "strict": true,
+    // 插件大量 JSON 透传、平台差异字段、动态 Bot 对象访问，
+    // 逐个标注成本高且阻碍快速迭代，先关闭最严格的三项。
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictPropertyInitialization": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // 生成 .d.ts 与 sourcemap，方便其它插件引用与调试
+    "declaration": true,
+    "sourceMap": true,
+
+    // 全局 Bot / segment / logger / redis 声明
+    "types": ["node", "trss-yunzai"]
+  },
+  "include": ["src/**/*"],
+  "tsc-alias": {
+    "resolveFullPaths": true
+  }
+}
