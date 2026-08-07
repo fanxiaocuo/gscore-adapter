@@ -1,6 +1,6 @@
 {
   "name": "gscore-adapter",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "早柚核心（gsuid_core）适配器，支持云崽主动连接与被动接入双方向",
   "keywords": [
     "Yunzai",
