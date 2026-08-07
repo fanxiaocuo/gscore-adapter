@@ -228,6 +228,10 @@ bot_id_map:
 
 > 核心的 `Button` 结构中权限字段拼写为 **`permisson`**（少一个 i），是核心源码即如此，非笔误。转换层照此对齐。
 
+**`@全体成员` 不上报**。云崽用 `at` 段的 `qq: "all"` 表示它，早柚核心没有这个概念：`handler.py:754-762` 只把 at 分成「等于 `bot_self_id`」和「其它」，`"all"` 会落进后者被 append 进 `at_list`。而 `at_list` 是一串用户 id —— `core_pm` 会把它直接 extend 进封禁参数，`handler.py:671` 又拿 `not at_list` 当「没 @ 具体某人」的判据，字面量混进去两边都会误判。所以这一段整体丢弃，同条消息的正文照常上报。
+
+**引用消息只传 message_id**，不会把被引用消息的图片一并抓下来发过去。核心 `handler.py:773` 只做 `event.reply = data`，消费者拿它当**键**去查核心自己缓存的图片（GenshinUID 的「原图」功能），额外注入 `image` 段会污染 `event.image` / `image_list`，让「引用了一张图」在插件眼里变成「刚发了一张图」。
+
 ---
 
 ## 非消息事件（meta events）
@@ -336,7 +340,7 @@ node test/apps/admin.js           # 管理指令（yaml 注释保留）
 node test/integration/e2e.js      # 协议与消息段转换、回环防护
 ```
 
-当前 118 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
+当前 122 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
 
 类型检查（不产出文件）：
 

@@ -158,6 +158,38 @@ check(
 const upB64 = await msgToGscore([{ type: "image", file: "base64://aGVsbG8=" }])
 check("本地图片走 base64://", upB64[0].data.startsWith("base64://"), upB64[0].data)
 
+// @全体成员：核心没有这个概念，handler.py:754-762 会把它 append 进 at_list。
+// at_list 是一串用户 id，core_pm/__init__.py:36-37 直接把它 extend 进封禁参数，
+// handler.py:671 又拿 `not at_list` 当"没 @ 具体某人"判据 —— 字面量 "all"
+// 混进去两边都会误判，宁可丢弃。
+const upAtAll = await msgToGscore([{ type: "at", qq: "all" }, { type: "text", text: "通知" }])
+check(
+  "@全体成员被丢弃，不进 at_list",
+  !upAtAll.some(i => i.type === "at"),
+  JSON.stringify(upAtAll),
+)
+check("@全体成员不影响同条消息的正文", upAtAll.some(i => i.type === "text" && i.data === "通知"), JSON.stringify(upAtAll))
+
+// @Bot 必须原样带上 bot_self_id：handler.py:757-759 靠 data === bot_self_id
+// 才置 is_tome，而 is_tome 是 to_me 触发器（trigger.py:38）与 AI 提及应答
+// （handler.py:651）唯一的开关。改成"过滤掉 @Bot"会让群里 @ 机器人彻底失灵。
+check(
+  "@Bot 原样上报（is_tome 的唯一依据）",
+  up.content[0].type === "at" && up.content[0].data === "10001",
+  JSON.stringify(up.content[0]),
+)
+
+// 引用只传 message_id，不抓被引用消息的图片：核心 handler.py:773 只做
+// event.reply = data，唯一消费者（GenshinUID genshinuid_enka/__init__.py:268）
+// 拿它当键查自己缓存的 TEMP_PATH/{reply}.jpg。塞 image 段会污染
+// event.image / image_list，让"引用了图"变成"刚发了图"。
+check(
+  "引用不额外注入 image 段",
+  upQuote.content.filter(i => i.type === "image").length ===
+    up.content.filter(i => i.type === "image").length,
+  JSON.stringify(upQuote.content.map(i => i.type)),
+)
+
 console.log("\n=== 2. 下行：MessageSend -> 云崽消息（两个 bug 修复） ===")
 
 // Bug B：log 段之后的正文必须保留

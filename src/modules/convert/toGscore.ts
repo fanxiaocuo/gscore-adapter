@@ -58,9 +58,18 @@ export async function msgToGscore(msg) {
         break
       }
 
-      case "at":
-        out.push({ type: "at", data: String(i.qq ?? i.id ?? i.user_id) })
+      case "at": {
+        const at = String(i.qq ?? i.id ?? i.user_id)
+        // @全体成员：云崽用 qq:"all" 表示，早柚核心没有这个概念。
+        // 核心 handler.py:754-762 只把 at 分成"等于 bot_self_id"和"其它"两种，
+        // "all" 会落进后者被 append 进 at_list —— 那是一串用户 id，混进字面量
+        // "all" 会被下游当成真实用户：core_pm/__init__.py:36-37 把 at_list
+        // 直接 extend 进封禁参数，handler.py:671 又拿 `not at_list` 当
+        // "没 @ 具体某人"的判据。丢弃它比伪造一个用户 id 安全。
+        if (at === "all") break
+        out.push({ type: "at", data: at })
         break
+      }
 
       case "reply":
         out.push({ type: "reply", data: String(i.id ?? i.message_id) })
@@ -100,7 +109,15 @@ export async function msgToGscore(msg) {
 export async function yunzaiToGscore(e, botId, opts: { isMaster?: boolean } = {}) {
   const content = []
 
-  // 引用消息放最前
+  // 引用消息放最前。
+  //
+  // 只传 message_id，不去把被引用消息的图片抓下来一并发过去 —— 核心
+  // handler.py:773 只做 `event.reply = _msg.data`，而唯一的消费者
+  // GenshinUID/genshinuid_enka/__init__.py:268-269 拿它当**键**去查核心自己
+  // 缓存的 TEMP_PATH/{reply}.jpg（"原图"功能），并非当图片内容用；
+  // ai_core 的字段说明（capability_agents/profiles.py:781）也写的是"回复的消息ID"。
+  // 额外塞 image 段不但帮不到这个消费者，还会污染 event.image / image_list
+  // （handler.py:763-766），让"引用了一张图"在所有插件眼里变成"刚发了一张图"。
   if (e.source?.message_id != null) {
     content.push({ type: "reply", data: String(e.source.message_id) })
   } else if (e.reply_id != null && !e.message?.some?.(i => i?.type === "reply")) {
