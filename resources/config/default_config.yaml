@@ -4,10 +4,11 @@
 # 只需写想改的项，其余会自动继承默认值。
 
 # 运行模式
-#   client : 云崽主动连接早柚核心（核心为服务端），文档 AdapterList 描述的连接器
-#   server : 早柚核心主动连接云崽（云崽为服务端），同 plugins/adapter/GSUIDCore.js
-#   both   : 同时开启（注意两者不要互相指向，否则消息死循环）
-#   off    : 全部关闭
+#   client : 云崽主动连接早柚核心（核心为服务端）
+#   off    : 关闭
+#
+# 只有这一个方向：早柚核心 core.py 仅有入站路由 @app.websocket("/ws/{bot_id}")，
+# 不会主动来连云崽，所以没有「服务端」模式。
 mode: client
 
 # ---------- 客户端（云崽 -> 早柚核心）----------
@@ -39,25 +40,7 @@ client:
       # 排除这些 self_id（优先级高于 bind）
       exclude: []
 
-# ---------- 服务端（早柚核心 -> 云崽）----------
-server:
-  # ws 路由名，最终地址 ws://<云崽地址>/<path>
-  # 默认值刻意与 plugins/adapter/GSUIDCore.js 的 "GSUIDCore" 区分，避免双重处理
-  path: GsCore
-  # 适配器 id / 显示名
-  id: GsCore
-  name: 早柚核心
-  # 检测到路由已被占用时的行为
-  #   abort : 放弃注册并报错（推荐）
-  #   force : 强行注册（会导致每条消息被处理两次，仅调试用）
-  on_conflict: abort
-  # 下行是否发二进制帧
-  #   true  : 与 client 方向一致，早柚核心 core.py 用 receive_bytes() 收，只认二进制
-  #   false : 发文本帧（框架 conn.sendMsg 的旧行为），仅当对端明确只收文本时才改
-  # ws 库收端两种帧都给 Buffer，一般无需改动
-  binary: true
-
-# ---------- 消息过滤（仅影响 client 方向的上报）----------
+# ---------- 消息过滤 ----------
 filter:
   # 仅在被 @ 或带前缀时才上报群消息
   only_reply_at: false
