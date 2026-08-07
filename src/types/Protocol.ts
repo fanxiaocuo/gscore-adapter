@@ -102,6 +102,18 @@ export interface SegLog {
   data: string
 }
 
+/**
+ * 群号定位段
+ *
+ * 核心 bot.py:433-434：只要 group_id 为真就往每一帧 content 追加这个段，
+ * 供"需要双 ID 才能定位会话"的适配器（如频道）使用。**它是元数据不是正文**，
+ * 云崽侧已经能靠 target_id 定位，所以静默消费掉即可。
+ */
+export interface SegGroup {
+  type: "group"
+  data: string
+}
+
 /** MessageReceive / MessageSend 中可出现的消息段 */
 export type MessageSegment =
   | SegText
@@ -116,8 +128,8 @@ export type MessageSegment =
   | SegButtons
   | SegNode
 
-/** MessageSend.content 中额外可能出现 log 段与控制指令 */
-export type SendSegment = MessageSegment | SegLog | ControlSegment
+/** MessageSend.content 中额外可能出现 log 段、群号定位段与控制指令 */
+export type SendSegment = MessageSegment | SegLog | SegGroup | ControlSegment
 
 /* ============================ 控制指令 ============================ */
 
@@ -127,12 +139,17 @@ export type SendSegment = MessageSegment | SegLog | ControlSegment
  */
 export interface SegDeleteMessage {
   type: "excute_delete_message"
-  data: string
+  /** 核心 bot.py:624：data={"message_id": "<id>"}，是 dict 不是裸字符串 */
+  data: { message_id: string }
 }
 
 export interface SegBanUser {
   type: "excute_ban_user"
-  data: string
+  /**
+   * 核心 bot.py:573-579：data={"user_id", "group_id", "duration"}。
+   * duration 核心侧已校验为 int 或纯数字字符串，0 表示解除禁言。
+   */
+  data: { user_id: string; group_id: string; duration: number | string }
 }
 
 export type ControlSegment = SegDeleteMessage | SegBanUser
@@ -288,12 +305,22 @@ export interface MessageSend {
 
 /**
  * 撤回回执，适配器 -> 核心
- * 由收到的 MessageSend.echo 触发，data 为平台实际的消息 id
+ *
+ * 由收到的 MessageSend.echo 触发。整条帧是一个 MessageReceive，
+ * content 必须**恰好一段**，否则核心 bot.py:200 直接判定不是回执。
+ *
+ * 注意 echo 与 id 都在 **data 内部**（bot.py:206-218），不是平级字段：
+ *   { type: "recall_message_id", data: { echo, id } }
+ * id 可以是 string / string[]（一帧被拆成多条发出时）/ null（没拿到）。
+ * 只要收到的 echo 非空就必须回执，与是否拿到 id 无关 —— 漏回会被核心
+ * 连续 3 次计入超时后 latch 成"不支持撤回"，此后 wait_recall 直接返回空。
  */
 export interface RecallReceipt {
   type: "recall_message_id"
-  data: string
-  echo: string
+  data: {
+    echo: string
+    id: string | string[] | null
+  }
 }
 
 /**

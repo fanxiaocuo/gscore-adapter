@@ -336,7 +336,7 @@ node test/apps/admin.js           # 管理指令（yaml 注释保留）
 node test/integration/e2e.js      # 协议与消息段转换、回环防护
 ```
 
-当前 112 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
+当前 118 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
 
 类型检查（不产出文件）：
 

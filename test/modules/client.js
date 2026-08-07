@@ -294,6 +294,64 @@ await client.onMessage(
 await new Promise(r => setTimeout(r, 200))
 check("无 echo 时不发回执", inbound.length === 0, `count=${inbound.length}`)
 
+/* ---------- 5. group 段与未知段 ---------- */
+
+// bot.py:433 在 group_id 非空时给**每一帧**都附 Message("group", group_id)。
+// 它是定位 ID 不是正文（docs 08-special-platforms.md:37），漏掉会被 String()
+// 成群号发出去 —— 每条群消息尾巴上挂一串数字，是最显眼的一类回归。
+console.log("\n=== 5. group 段不得当作正文（bot.py:433）===")
+
+acts.length = 0
+await client.onMessage(
+  JSON.stringify({
+    bot_id: "onebot",
+    bot_self_id: "10001",
+    target_type: "group",
+    target_id: "30003",
+    content: [
+      { type: "text", data: "正文" },
+      { type: "group", data: "30003" },
+    ],
+  }),
+)
+await new Promise(r => setTimeout(r, 200))
+
+const sent = acts.find(a => a.kind === "group")
+check("消息已发出", !!sent, JSON.stringify(acts))
+const flat = (sent?.msg || []).map(m => (typeof m === "string" ? m : m?.text ?? "")).join("")
+check("正文保留", flat.includes("正文"), JSON.stringify(sent?.msg))
+check("群号未混进正文", !flat.includes("30003"), JSON.stringify(sent?.msg))
+
+// 红线 14（docs 10-pitfalls.md:75）：不支持的类型 warning + 跳过，不抛异常。
+// template_markdown 的 data 是 dict，早期的 push(String(data)) 会打印 [object Object]
+console.log("\n=== 6. 未知段 warning 跳过（红线 14）===")
+
+acts.length = 0
+logs.length = 0
+await client.onMessage(
+  JSON.stringify({
+    bot_id: "onebot",
+    bot_self_id: "10001",
+    target_type: "group",
+    target_id: "30003",
+    content: [
+      { type: "text", data: "有效正文" },
+      { type: "template_markdown", data: { template_id: "tpl", para: { k: "v" } } },
+    ],
+  }),
+)
+await new Promise(r => setTimeout(r, 200))
+
+const sent2 = acts.find(a => a.kind === "group")
+const flat2 = (sent2?.msg || []).map(m => (typeof m === "string" ? m : m?.text ?? "")).join("")
+check("未知段不阻断整条消息", flat2.includes("有效正文"), JSON.stringify(sent2?.msg))
+check("未打印 [object Object]", !flat2.includes("[object Object]"), JSON.stringify(sent2?.msg))
+check(
+  "有 warning 且指名类型",
+  logs.some(l => l.level === "warn" && l.msg.includes("template_markdown")),
+  JSON.stringify(logs.map(l => `${l.level}:${l.msg}`)),
+)
+
 /* ==================== 收尾 ==================== */
 
 client.close()
