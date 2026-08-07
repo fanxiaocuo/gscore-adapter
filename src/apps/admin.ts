@@ -7,8 +7,8 @@ function clientMode() {
   return config.mode === "client" || config.mode === "both"
 }
 
-/** 可用的 key=value 选项名。限定白名单，否则 ws://host 里的 "ws:" 会被当成 key */
-const KV_KEYS = [
+/** 单条连接的字段，由 #早柚添加连接 / #早柚修改连接 消费 */
+const CONNECTION_KEYS = [
   "name",
   "url",
   "token",
@@ -16,11 +16,17 @@ const KV_KEYS = [
   "enable",
   "reconnect_interval",
   "max_reconnect_attempts",
-  "mode",
-  "only_reply_at",
-  "notify_master",
-  "media_max_size",
 ]
+
+/** 全局字段，由 #早柚设置 消费 */
+const GLOBAL_KEYS = ["mode", "only_reply_at", "notify_master", "media_max_size"]
+
+/**
+ * 可用的 key=value 选项名。限定白名单，否则 ws://host 里的 "ws:" 会被当成 key。
+ * 两类合在一起解析，各命令再挑自己认的那部分——这样用错命令时能给出
+ * 指向性提示，而不是笼统的"未知项"。
+ */
+const KV_KEYS = [...CONNECTION_KEYS, ...GLOBAL_KEYS]
 const KV_RE = new RegExp(`^(${KV_KEYS.join("|")})[=:：](.*)$`, "i")
 
 /** 从命令里解析 key=value，支持中英文冒号/等号 */
@@ -260,7 +266,15 @@ export default class GsCoreAdmin extends plugin {
               break
             }
             default:
-              errs.push(`未知项 ${k}`)
+              // KV_KEYS 混了两类字段：前 7 个是连接级（#早柚添加连接 / #早柚修改连接
+              // 才认），这里的 switch 只处理全局字段。落到 default 的若是连接级字段，
+              // 说明用户没写错字段名、只是用错了命令，回一句"未知项"会让人以为
+              // 字段不存在，白白去翻文档。
+              if (CONNECTION_KEYS.includes(k)) {
+                errs.push(`${k} 是连接级配置，请用 #早柚添加连接 或 #早柚修改连接`)
+              } else {
+                errs.push(`未知项 ${k}，可设置：${GLOBAL_KEYS.join(" / ")}`)
+              }
           }
         }
       })
