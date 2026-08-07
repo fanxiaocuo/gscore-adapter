@@ -1,0 +1,89 @@
+# ===== 早柚核心适配器 (gscore-adapter) 配置 =====
+# 出厂默认值在 resources/config/default_config.yaml，随插件升级覆盖，请勿改那个；
+# 首次运行会复制为 config/config.yaml，那份不入库，改它即可（保存后自动热重载）。
+# 只需写想改的项，其余会自动继承默认值。
+
+# 运行模式
+#   client : 云崽主动连接早柚核心（核心为服务端）
+#   off    : 关闭
+#
+# 只有这一个方向：早柚核心 core.py 仅有入站路由 @app.websocket("/ws/{bot_id}")，
+# 不会主动来连云崽，所以没有「服务端」模式。
+mode: client
+
+# ---------- 客户端（云崽 -> 早柚核心）----------
+client:
+  # ws ping 间隔（秒），0 关闭
+  heartbeat: 30
+  # 超过多少秒没收到 pong 判定掉线并重连，0 关闭
+  heartbeat_timeout: 90
+  # 连接列表，可配置多个
+  connections:
+    - # 连接名，仅用于日志与 #早柚状态
+      name: gsuid_core
+      # 早柚核心地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名，可自定义
+      url: ws://127.0.0.1:8765/ws/Yunzai
+      # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
+      token: ""
+      # 上报时填入 MessageReceive.bot_id 的平台标识
+      # 留空则按下方 bot_id_map 自动推断
+      bot_id: ""
+      # 是否启用本连接
+      enable: true
+      # 重连间隔（秒）
+      reconnect_interval: 5
+      # 最大重连次数，<=0 为无限重连
+      max_reconnect_attempts: 0
+      # 只转发这些 self_id 的消息，留空表示全部
+      # 例：["2463381624", "3889017463"]
+      bind: []
+      # 排除这些 self_id（优先级高于 bind）
+      exclude: []
+
+# ---------- 消息过滤 ----------
+filter:
+  # 仅在被 @ 或带前缀时才上报群消息
+  only_reply_at: false
+  # only_reply_at 为 true 时，这些前缀也视为触发
+  prefix:
+    - "#"
+    - "*"
+  # 命中即不上报（黑名单前缀，避免与本地插件抢命令）
+  block_prefix: []
+  # 命中即不上报（包含任意一项就丢弃）
+  block_include: []
+  # 只上报这些群，留空为全部
+  white_group: []
+  # 不上报这些群
+  black_group: []
+  # 不上报这些用户
+  black_user: []
+
+# ---------- 平台标识映射 ----------
+# 把云崽适配器 id 映射为早柚核心认识的 bot_id
+# 键可以是 Bot[self_id].adapter.id，也可以直接写 self_id 精确覆盖
+bot_id_map:
+  ICQQ: onebot
+  OneBotv11: onebot
+  QQBot: qqgroup
+  Satori: onebot
+  ComWeChat: onebot
+  OPQBot: onebot
+  stdin: onebot
+  # 找不到时的兜底
+  default: onebot
+
+# ---------- 其它 ----------
+# 媒体转 base64 的大小上限（字节），超过则改用 link:// 外链
+# 注意：link:// 用的是云崽自身的文件服务地址（cfg.server.url）
+#       若早柚核心跑在 Docker 里，127.0.0.1 是解析不到的，需要把 server.url 配成可达地址
+media_max_size: 10485760
+# file 段必须内联 base64（协议无 URL 形式），超过此大小直接拒绝发送（字节）
+file_max_size: 52428800
+# link:// 外链的有效期（毫秒），默认 5 分钟
+# 云崽默认只保留 1 分钟，核心拉取慢会拿到超时占位图
+link_expire: 300000
+# 日志中截断 base64
+log_truncate: true
+# 断线/重连是否通知主人
+notify_master: false
