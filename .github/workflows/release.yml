@@ -67,11 +67,12 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: 测试
-        run: pnpm test
-
+      # 构建排在测试前：test/run.js 跑的是 lib/ 下的编译产物
       - name: 构建
         run: pnpm run build
+
+      - name: 测试
+        run: pnpm test
 
       - name: 准备产物
         run: |
