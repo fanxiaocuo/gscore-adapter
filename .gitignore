@@ -12,6 +12,9 @@ node_modules/
 lib/
 *.tsbuildinfo
 
+# 开发笔记与设计稿：留在本地，不入库
+docs/
+
 # 编辑器 / 系统
 .vscode/
 .idea/
