@@ -80,9 +80,15 @@ jobs:
           done
 
           cp package.json dist_branch/package.json
-          echo "node_modules/" > dist_branch/.gitignore
-          # 运行时生成的用户配置永远不该进产物分支
-          echo "config/" >> dist_branch/.gitignore
+
+          # 不写 .gitignore 到产物分支。
+          # "config/" 这类无前导斜杠的规则会匹配任意层级的同名目录，
+          # 在这个全新初始化的仓库里会连 resources/config/ 一起吞掉，
+          # 导致首次运行没有默认配置模板可复制。
+          # 该排除的东西在上面的复制清单里已经排除了。
+
+          # 类型声明只对开发者有意义，纯使用者不需要，去掉减小体积
+          find dist_branch/lib -name "*.d.ts" -delete
 
           # sourcemap 指向 src/，而产物分支不含 src/，留着只会让
           # 报错栈指向不存在的文件，反而更难排查
@@ -104,6 +110,31 @@ jobs:
           # 用户装插件不需要 tsc/eslint 那一套
           pnpm pkg delete devDependencies scripts.build scripts.build:watch \
             scripts.typecheck scripts.lint scripts.lint:fix
+
+      # 产物分支是用户直接 clone 就跑的东西，缺一个文件就是坏的。
+      # 这里断言关键文件都在——上一版正是因为 .gitignore 的 config/
+      # 规则把 resources/config/ 吞了，Actions 全绿但产物不可用。
+      - name: 自检产物完整性
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in index.js lib/index.js package.json \
+                   resources/config/default_config.yaml guoba.support.js; do
+            if [ -e "dist_branch/$f" ]; then
+              echo "  ok  $f"
+            else
+              echo "  !!  缺失 $f"
+              fail=1
+            fi
+          done
+          # 源码与开发配置不该出现在产物里
+          for f in src tsconfig.json test .github; do
+            if [ -e "dist_branch/$f" ]; then
+              echo "  !!  不该出现 $f"
+              fail=1
+            fi
+          done
+          exit $fail
 
       # 提交信息取自上游 commit，可能含引号/换行/反引号。
       # 经环境变量传递，不让它参与 YAML 与 shell 解析。
@@ -128,4 +159,7 @@ jobs:
           publish_dir: dist_branch
           # 保留历史，用户 git pull 才能增量更新而不是每次重新克隆
           force_orphan: false
+          # 这不是 GitHub Pages 站点，不需要 .nojekyll 占位文件。
+          # 该参数名义是「启用 jekyll」，实际效果就是不写那个文件。
+          enable_jekyll: true
           full_commit_message: ${{ steps.msg.outputs.text }}

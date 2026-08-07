@@ -23,20 +23,48 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）双向适配器**。
 
 ## 安装
 
-放到 `plugins/gscore-adapter/`，然后**编译一次**：
+仓库分三个分支，**大多数人用 `release`**：
+
+| 分支 | 内容 | 适合 |
+| --- | --- | --- |
+| `release` | 编译好的 js，随发版更新 | 日常使用（推荐） |
+| `preview` | 编译好的 js，跟 `main` 每次提交 | 想尝鲜最新改动 |
+| `main` | TypeScript 源码 | 参与开发 |
+
+### 直接使用（release / preview）
 
 ```bash
-cd plugins/gscore-adapter
-pnpm install   # 安装 typescript 等开发依赖
+cd plugins
+git clone -b release https://github.com/fanxiaocuo/gscore-adapter.git
+```
+
+克隆下来就能跑，**不需要 `pnpm install`，也不需要编译**。重启云崽即可。
+
+后续更新：
+
+```bash
+cd plugins/gscore-adapter && git pull
+```
+
+### 参与开发（main）
+
+```bash
+cd plugins
+git clone https://github.com/fanxiaocuo/gscore-adapter.git
+cd gscore-adapter
+pnpm install   # typescript 等开发依赖
 pnpm build     # src/*.ts -> lib/*.js
 ```
 
-再重启云崽。首次运行会自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。
+> 运行时加载的是编译产物 `lib/`（不入库）。
+> **改完 `src/` 必须重新 `pnpm build`**，否则改动不会生效。
+> 开发时可用 `pnpm build:watch` 自动增量编译。
 
-> 源码是 TypeScript，放在 `src/`；运行时加载的是编译产物 `lib/`（已在 `.gitignore` 中，不入库）。
-> **改完 `src/` 必须重新 `pnpm build`**，否则改动不会生效。开发时可用 `pnpm build:watch` 自动增量编译。
+### 配置
 
-**改 `config/config.yaml`，别改 `resources/config/default_config.yaml`**（后者是出厂默认值，升级会被覆盖）。`config/` 已在 `.gitignore` 中，你的改动不会入库。配置只需写想改的项，其余自动继承默认值。
+首次运行会自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。
+
+**改 `config/config.yaml`，别改 `resources/config/default_config.yaml`**（后者是出厂默认值，升级会被覆盖）。`config/` 已在 `.gitignore` 中，你的改动不会入库，升级也不会被覆盖。配置只需写想改的项，其余自动继承默认值。
 
 装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)的话也可以在面板里改，无需手动编辑 yaml。
 

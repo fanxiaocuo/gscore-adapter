@@ -91,8 +91,13 @@ jobs:
           done
 
           cp package.json dist_branch/package.json
-          echo "node_modules/" > dist_branch/.gitignore
-          echo "config/" >> dist_branch/.gitignore
+
+          # 不写 .gitignore 到产物分支：无前导斜杠的 "config/" 会匹配任意层级，
+          # 在全新初始化的仓库里会把 resources/config/ 一起吞掉。
+          # 该排除的已由上面的复制清单排除。
+
+          # 类型声明只对开发者有意义，去掉减小体积
+          find dist_branch/lib -name "*.d.ts" -delete
 
           # sourcemap 指向不存在的 src/，删掉
           find dist_branch/lib -name "*.js.map" -delete
@@ -112,6 +117,28 @@ jobs:
           pnpm pkg delete devDependencies scripts.build scripts.build:watch \
             scripts.typecheck scripts.lint scripts.lint:fix
 
+      # 发版产物更不能缺文件，同 preview 做一次断言
+      - name: 自检产物完整性
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in index.js lib/index.js package.json \
+                   resources/config/default_config.yaml guoba.support.js; do
+            if [ -e "dist_branch/$f" ]; then
+              echo "  ok  $f"
+            else
+              echo "  !!  缺失 $f"
+              fail=1
+            fi
+          done
+          for f in src tsconfig.json test .github; do
+            if [ -e "dist_branch/$f" ]; then
+              echo "  !!  不该出现 $f"
+              fail=1
+            fi
+          done
+          exit $fail
+
       - name: 推送到 release
         uses: peaceiris/actions-gh-pages@v4
         with:
@@ -119,6 +146,8 @@ jobs:
           publish_branch: release
           publish_dir: dist_branch
           force_orphan: false
+          # 不是 Pages 站点，不需要 .nojekyll
+          enable_jekyll: true
           # 不在产物分支另打 tag：release-please 已经打过 vX.Y.Z，
           # 再拼一个 vX.Y.Z-js 会被 SemVer 当成 X.Y.Z 的预发布版本，
           # 排序反而低于正式版。
