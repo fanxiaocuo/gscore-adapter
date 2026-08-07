@@ -3,6 +3,15 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [2.0.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.0.0...v2.0.1) (2026-08-07)
+
+
+### 📝 文档
+
+* 安装改成一条命令搞定 ([d697318](https://github.com/fanxiaocuo/gscore-adapter/commit/d69731804dc1902c6acacaea7808d2fd9edc059d))
+* 稳定版与预览版分别给出安装步骤 ([287fda7](https://github.com/fanxiaocuo/gscore-adapter/commit/287fda7007e57e4f05bffd25ea20f5d24a1115e5))
+* 精简 README 并添加使用范围声明 ([6a7d9c7](https://github.com/fanxiaocuo/gscore-adapter/commit/6a7d9c7c5a098e5a7d95d8bcb92d17619076f4ea))
+
 ## [2.0.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v1.0.0...v2.0.0) (2026-08-07)
 
 

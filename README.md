@@ -6,11 +6,9 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 
 云崽作为 ws 客户端主动连接核心，即文档 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
 
-> **关于「核心主动连云崽」**：本插件曾实现过反向的 server 方向，现已移除。
-> 早柚核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，`gss.connect()`
-> 首句即 `websocket.accept()`，全仓库没有任何出站连接——**核心不会主动来连云崽**，
-> 服务端方向注册了也永远收不到东西。框架自带的 `plugins/adapter/GSUIDCore.js`
-> 是为旧版核心准备的，同样不适用于当前版本。
+> **只有 client 一个方向**：早柚核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，
+> 全仓库没有任何出站连接——**核心不会主动来连云崽**。本插件曾实现过的 server 方向已移除，
+> 框架自带的 `plugins/adapter/GSUIDCore.js` 是为旧版核心准备的，同样不适用于当前版本。
 > 老配置写着 `mode: server` / `both` 不会报错，会按 `client` 运行并提示改配置。
 
 ---
@@ -27,37 +25,58 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 
 ---
 
+## 使用范围
+
+本插件面向个人、朋友间的小范围自用，**请勿用于商业用途**，也不建议部署在大规模对外服务上。
+
+这是作者的意愿声明，不是许可证条款——代码本身按 [GPL-3.0](LICENSE) 授权，
+该协议在法律上并不禁止商业使用。请尊重上述意愿。
+
+---
+
 ## 安装
 
-仓库分三个分支，**大多数人用 `release`**：
+在 **Yunzai 根目录**（不是 `plugins/`）任选以下一条运行。
 
-| 分支 | 内容 | 适合 |
-| --- | --- | --- |
-| `release` | 编译好的 js，随发版更新 | 日常使用（推荐） |
-| `preview` | 编译好的 js，跟 `main` 每次提交 | 想尝鲜最新改动 |
-| `main` | TypeScript 源码 | 参与开发 |
-
-### 直接使用（release / preview）
+**稳定版**（release，推荐，发版后更新）：
 
 ```bash
-cd plugins
-git clone -b release https://github.com/fanxiaocuo/gscore-adapter.git
+git clone --depth=1 --branch release https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 ```
 
-克隆下来就能跑，**不需要 `pnpm install`，也不需要编译**。重启云崽即可。
+**预览版**（preview，跟 `main` 每次提交即时更新）：
 
-后续更新：
+```bash
+git clone --depth=1 --branch preview https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
+```
+
+两者都是编译好的 js，**不用 `pnpm install`，也不用编译**——本插件没有运行时依赖，
+`ws` / `yaml` / `chokidar` 都是云崽自带的。克隆完重启云崽即可。
+
+预览版没经过发版把关，可能带上刚引入的问题；拿不准就用稳定版。
+
+后续更新（两者相同）：
 
 ```bash
 cd plugins/gscore-adapter && git pull
 ```
 
-### 参与开发（main）
+想在两版之间切换，不必重新克隆（`--depth=1` 的浅克隆也适用）：
 
 ```bash
-cd plugins
-git clone https://github.com/fanxiaocuo/gscore-adapter.git
-cd gscore-adapter
+cd plugins/gscore-adapter
+git remote set-branches origin '*'
+git fetch --depth=1 origin
+git checkout -B preview origin/preview   # 换成 release 即切回稳定版
+```
+
+### 参与开发（main）
+
+`main` 分支放 TypeScript 源码，跑之前必须自己编译：
+
+```bash
+git clone https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
+cd plugins/gscore-adapter
 pnpm install   # typescript 等开发依赖
 pnpm build     # src/*.ts -> lib/*.js
 ```
@@ -114,7 +133,7 @@ client:
 | `client` | 云崽主动连核心（**默认**） |
 | `off` | 关闭 |
 
-> `server` / `both` 已移除（核心不会主动连云崽，见开头说明）。老配置写着它们会按 `client` 运行并提示改配置。
+> `server` / `both` 已移除，见开头说明。
 
 ### client
 
@@ -250,8 +269,6 @@ bot_id_map:
 
 **已知限制**：OneBot 原生的 `approve`/`invite`/`kick`/`leave` 这个原始 `sub_type` 被上述拆分覆盖，取不回来，故上报的 data 中不含 `sub_type` 字段。要恢复需改框架适配器文件。
 
-设计细节见 [docs/2026-08-07-gscore-meta-events-design.md](docs/2026-08-07-gscore-meta-events-design.md)。
-
 ---
 
 ## 协议要点
@@ -310,9 +327,10 @@ gscore-adapter/
 ├── config/
 │   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
 ├── tsconfig.json
-├── eslint.config.js
-├── docs/
-└── test/                   测试跑的是 lib/ 下的编译产物，目录划分对齐 src/modules
+└── eslint.config.js
+
+另有 docs/（开发笔记）与 test/（测试，目录划分对齐 src/modules）仅存于本地，
+两者都在 .gitignore 里，克隆下来的仓库没有它们。
 ```
 
 源码内一律用 `@/` 路径别名（如 `@/config`、`@/modules/client`），编译时由 `tsc-alias` 改写成相对路径。所以 `pnpm build` 是 `tsc && tsc-alias` 两步，只跑 `tsc` 产物无法运行。
@@ -322,6 +340,10 @@ gscore-adapter/
 ---
 
 ## 测试
+
+> **测试不入库**（`test/` 在 `.gitignore` 里，同 `docs/`）。克隆下来的仓库没有 `test/`，
+> 下面的内容面向手上有这份目录的开发者。CI 也因此没有测试步骤，
+> 把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
 
 纯 Node 脚本，自建全局桩，无测试框架。**测试跑的是 `lib/` 编译产物，所以要先 `pnpm build`。**
 
