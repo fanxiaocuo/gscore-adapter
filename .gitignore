@@ -1,6 +1,9 @@
 # 用户配置：首次运行由 resources/config/default_config.yaml 自动生成
 # 整个目录不入库，升级时不会覆盖你的改动
-config/
+#
+# 必须带前导 / 锚定到插件根目录。不加斜杠的 config/ 是「任意层级的同名目录」，
+# 会连 src/config/（配置读取模块的源码）一起吞掉，导致仓库缺文件、CI 编译失败。
+/config/
 
 node_modules/
 
