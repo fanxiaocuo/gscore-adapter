@@ -36,33 +36,24 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 
 ## 安装
 
-仓库分三个分支，**大多数人用 `release`**：
+在 **Yunzai 根目录**（不是 `plugins/`）任选以下一条运行。
 
-| 分支 | 内容 | 适合 |
-| --- | --- | --- |
-| `release` | 编译好的 js，随发版更新 | 日常使用（推荐） |
-| `preview` | 编译好的 js，跟 `main` 每次提交 | 想尝鲜最新改动 |
-| `main` | TypeScript 源码 | 参与开发 |
-
-### 稳定版（release，推荐）
-
-随发版更新，改动经过一轮发版把关，适合日常使用。
+**稳定版**（release，推荐，发版后更新）：
 
 ```bash
-cd plugins
-git clone -b release https://github.com/fanxiaocuo/gscore-adapter.git
+git clone --depth=1 --branch release https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 ```
 
-### 预览版（preview）
-
-跟 `main` 每次提交自动构建，想尝鲜最新改动用它。相应地，没经过发版把关，可能带上刚引入的问题。
+**预览版**（preview，跟 `main` 每次提交即时更新）：
 
 ```bash
-cd plugins
-git clone -b preview https://github.com/fanxiaocuo/gscore-adapter.git
+git clone --depth=1 --branch preview https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 ```
 
-以上两个分支克隆下来就能跑，**不需要 `pnpm install`，也不需要编译**。重启云崽即可。
+两者都是编译好的 js，**不用 `pnpm install`，也不用编译**——本插件没有运行时依赖，
+`ws` / `yaml` / `chokidar` 都是云崽自带的。克隆完重启云崽即可。
+
+预览版没经过发版把关，可能带上刚引入的问题；拿不准就用稳定版。
 
 后续更新（两者相同）：
 
@@ -70,20 +61,22 @@ git clone -b preview https://github.com/fanxiaocuo/gscore-adapter.git
 cd plugins/gscore-adapter && git pull
 ```
 
-想在两者之间切换，不必重新克隆：
+想在两版之间切换，不必重新克隆（`--depth=1` 的浅克隆也适用）：
 
 ```bash
 cd plugins/gscore-adapter
-git fetch origin
+git remote set-branches origin '*'
+git fetch --depth=1 origin
 git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 ```
 
 ### 参与开发（main）
 
+`main` 分支放 TypeScript 源码，跑之前必须自己编译：
+
 ```bash
-cd plugins
-git clone https://github.com/fanxiaocuo/gscore-adapter.git
-cd gscore-adapter
+git clone https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
+cd plugins/gscore-adapter
 pnpm install   # typescript 等开发依赖
 pnpm build     # src/*.ts -> lib/*.js
 ```
