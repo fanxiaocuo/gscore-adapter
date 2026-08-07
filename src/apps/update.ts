@@ -15,8 +15,13 @@
  *   - getPlugin() 把 "#(安静)?(强制)?更新(日志)?" 前缀剥掉，余下部分当插件目录名，
  *     并要求 plugins/<name>/.git 存在（第 92 行），所以要拼成 "#更新gscore-adapter"
  *   - update() 首行判 this.e.isMaster，故 e 必须是原事件（带 isMaster），不能自造
+ *
+ * 与 df-plugin 的差异：它用相对路径 import 本体插件，本插件改用 YunzaiPath
+ * 拼绝对路径（理由见 run() 内注释）。
  */
-import { PluginName, PluginPath } from "@/dir"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
+import { PluginName, PluginPath, YunzaiPath } from "@/dir"
 
 export default class GsCoreUpdate extends plugin {
   constructor() {
@@ -49,9 +54,16 @@ export default class GsCoreUpdate extends plugin {
   async run(e, type: string) {
     let Update
     try {
-      // 本体插件不在 @/ 别名覆盖范围内，用相对路径。
-      // 编译产物在 lib/apps/，上跳三级即 plugins/，与 df-plugin 的写法一致
-      ;({ update: Update } = await import("../../../other/update.js"))
+      // 与 modules/client/framework.ts 同一套做法：由 YunzaiPath 拼绝对路径后
+      // 动态 import，不写 ../../../other/update.js。
+      //
+      // 相对写法有两个问题：
+      //   1. 依赖编译产物的目录深度，改 outDir 或挪 apps/ 就断
+      //   2. tsc 会静态解析这个字面量。本体的 plugins/other/ 不在本仓库里，
+      //      CI 单独 checkout 时必然 TS2307 —— 运行时有 try/catch 兜底，
+      //      但类型检查阶段就已经失败了，产物分支根本构建不出来
+      const url = pathToFileURL(join(YunzaiPath, "plugins/other/update.js")).href
+      ;({ update: Update } = await import(url))
     } catch (err) {
       Bot.makeLog("error", ["加载本体更新插件失败", err], "GsCore")
       return e.reply(`无法调用本体更新功能，请手动在插件目录执行 git pull：\n${PluginPath}`)
