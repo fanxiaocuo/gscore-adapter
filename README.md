@@ -311,8 +311,9 @@ gscore-adapter/
 │   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
 ├── tsconfig.json
 ├── eslint.config.js
-├── docs/
-└── test/                   测试跑的是 lib/ 下的编译产物，目录划分对齐 src/modules
+├── docs/                   开发笔记（已 gitignore，仅本地）
+└── test/                   跑的是 lib/ 编译产物，目录划分对齐 src/modules
+                            （已 gitignore，仅本地）
 ```
 
 源码内一律用 `@/` 路径别名（如 `@/config`、`@/modules/client`），编译时由 `tsc-alias` 改写成相对路径。所以 `pnpm build` 是 `tsc && tsc-alias` 两步，只跑 `tsc` 产物无法运行。
@@ -322,6 +323,10 @@ gscore-adapter/
 ---
 
 ## 测试
+
+> **测试不入库**（`test/` 在 `.gitignore` 里，同 `docs/`）。克隆下来的仓库没有 `test/`，
+> 下面的内容面向手上有这份目录的开发者。CI 也因此没有测试步骤，
+> 把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
 
 纯 Node 脚本，自建全局桩，无测试框架。**测试跑的是 `lib/` 编译产物，所以要先 `pnpm build`。**
 

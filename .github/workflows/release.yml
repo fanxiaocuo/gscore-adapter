@@ -67,12 +67,11 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      # 构建排在测试前：test/run.js 跑的是 lib/ 下的编译产物
+      # test/ 不入库（见 .gitignore），CI 克隆不到，故无测试步骤。
+      # 发版产物的把关靠 typecheck / lint / build 三道加下面的完整性自检。
+      # 若日后把 test/ 改回入库，在「构建」之后补回 `- name: 测试 / run: pnpm test`。
       - name: 构建
         run: pnpm run build
-
-      - name: 测试
-        run: pnpm test
 
       - name: 准备产物
         run: |

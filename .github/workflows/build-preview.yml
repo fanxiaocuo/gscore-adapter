@@ -54,13 +54,14 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      # 构建必须排在测试前：test/run.js:18 跑的是 lib/ 下的编译产物，
-      # 没有 lib/ 会直接报「找不到编译产物」退出。
+      # test/ 不入库（见 .gitignore），CI 克隆不到，故无测试步骤。
+      # 测试只在本地跑：pnpm build && pnpm test。
+      # 若日后把 test/ 改回入库，记得在这里补回：
+      #   - name: 测试
+      #     run: pnpm test
+      # 顺序上必须排在「构建」之后，test/run.js 跑的是 lib/ 下的编译产物。
       - name: 构建
         run: pnpm run build
-
-      - name: 测试
-        run: pnpm test
 
       - name: 准备产物
         run: |

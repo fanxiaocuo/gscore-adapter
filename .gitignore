@@ -15,6 +15,13 @@ lib/
 # 开发笔记与设计稿：留在本地，不入库
 docs/
 
+# 测试：留在本地，不入库
+#
+# 因此 CI 里没有「测试」步骤 —— 流水线从仓库克隆，克隆不到 test/ 就跑不了
+# pnpm test。改回入库时记得把两个 workflow 的测试步骤加回来。
+# 本地仍可 pnpm test（跑的是 lib/ 编译产物，先 pnpm build）。
+test/
+
 # 编辑器 / 系统
 .vscode/
 .idea/
