@@ -11,6 +11,10 @@
   "type": "module",
   "main": "index.js",
   "scripts": {},
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
   "peerDependencies": {
     "chokidar": ">=4",
     "ws": ">=8",
