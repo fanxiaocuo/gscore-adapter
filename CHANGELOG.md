@@ -3,6 +3,13 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [2.1.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.0.1...v2.1.0) (2026-08-08)
+
+
+### ✨ 新功能
+
+* 兼容 Miao-Yunzai ([ec16313](https://github.com/fanxiaocuo/gscore-adapter/commit/ec163137d59aace4d187d807988a61e9258f5b02))
+
 ## [2.0.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.0.0...v2.0.1) (2026-08-07)
 
 
