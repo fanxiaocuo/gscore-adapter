@@ -22,6 +22,39 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 - **命令式管理**：`#早柚添加连接` 等指令直接改配置并热启动，不必手改 yaml 重启
 - **插件自更新**：`#早柚更新`，转调本体更新逻辑，自动重装依赖并重启
 - **回环防护**：三层拦截，避免 `核心 → 云崽 → 核心` 死循环
+- **双框架兼容**：TRSS-Yunzai / Miao-Yunzai 均可运行，按能力探测自动适配
+
+---
+
+## 框架兼容
+
+同时支持 **TRSS-Yunzai** 与 **Miao-Yunzai**，装上即用，无需改配置或切分支。
+
+两个框架的 `Bot` 对象差异不小：Miao 的 `lib/bot.js` 是 `class Yunzai extends Client`（ICQQ 的 Client），
+只有协议方法，TRSS 额外挂的那批工具函数它一个都没有。插件通过兼容层
+（[`src/utils/compat.ts`](src/utils/compat.ts)）逐个探测、缺谁补谁 ——
+**按能力探测，不按框架名分支**，所以改过名的 fork 也能正确识别。
+
+| 能力 | TRSS | Miao | 处理 |
+| --- | --- | --- | --- |
+| `Bot.makeLog` | ✅ | ❌ | 垫片转 `global.logger` |
+| `Bot.String` | ✅ | ❌ | 垫片（含循环引用处理） |
+| `Bot.Buffer` | ✅ | ❌ | 垫片（保持三路返回语义） |
+| `Bot.makeForwardMsg` | ✅ 标记对象 | ⚠️ 语义不同 | 按返回值形状判定，转走 Group/Friend 原生实现 |
+| 主人配置 | `master` 分账号 + `masterQQ` | 仅 `masterQQ` | 按字段形状探测，两种结构都认 |
+| `Bot.fileToUrl` | ✅ | ❌ | **无法垫片**，见下 |
+
+### Miao 上的已知限制
+
+**大文件发不出去。** `Bot.fileToUrl` 是文件外链服务，Miao 没有对应能力 ——
+没有 HTTP 文件服务就没有外链可给，这是能力缺失，不是可以绕开的 bug
+（伪造一个假 URL 只会让核心侧拿到打不开的链接）。
+
+具体影响：超过 `media_max_size`（默认 10MB）的图片/语音/视频**会被跳过并打 warn**，
+小于该值的走 base64 内联，不受影响。`file` 段本身协议就要求全量 base64，两个框架行为一致。
+
+如需发送大文件，可调大 `media_max_size`（代价是内存占用和单帧体积），
+或改用 TRSS-Yunzai。
 
 ---
 
@@ -347,13 +380,7 @@ gscore-adapter/
 
 纯 Node 脚本，自建全局桩，无测试框架。**测试跑的是 `lib/` 编译产物，所以要先 `pnpm build`。**
 
-一次跑完全部（在插件目录下）：
-
-```bash
-pnpm test
-```
-
-或逐个运行。各套件都由自身位置（`import.meta.url`）推出插件目录，在哪执行都一样：
+各套件由自身位置（`import.meta.url`）推出插件目录，在哪执行都一样：
 
 ```bash
 node test/modules/client.js       # 连接端到端（含 1005 重连）

@@ -1,7 +1,7 @@
 {
   "name": "gscore-adapter",
-  "version": "2.0.1",
-  "description": "早柚核心（gsuid_core）适配器，支持云崽主动连接与被动接入双方向",
+  "version": "2.1.0",
+  "description": "早柚核心（gsuid_core）适配器，兼容 TRSS-Yunzai 与 Miao-Yunzai",
   "keywords": [
     "Yunzai",
     "gsuid_core",
@@ -10,9 +10,7 @@
   "license": "GPL-3.0-only",
   "type": "module",
   "main": "index.js",
-  "scripts": {
-    "test": "node test/run.js"
-  },
+  "scripts": {},
   "peerDependencies": {
     "chokidar": ">=4",
     "ws": ">=8",
