@@ -97,15 +97,6 @@ export default async (buf, name) => {
 
 ---
 
-## 使用范围
-
-本插件面向个人、朋友间的小范围自用，**请勿用于商业用途**，也不建议部署在大规模对外服务上。
-
-这是作者的意愿声明，不是许可证条款——代码本身按 [GPL-3.0](LICENSE) 授权，
-该协议在法律上并不禁止商业使用。请尊重上述意愿。
-
----
-
 ## 安装
 
 在 **Yunzai 根目录**（不是 `plugins/`）任选以下一条运行。
@@ -122,15 +113,26 @@ git clone --depth=1 --branch release https://github.com/fanxiaocuo/gscore-adapte
 git clone --depth=1 --branch preview https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 ```
 
-两者都是编译好的 js，**不用 `pnpm install`，也不用编译**——本插件没有运行时依赖，
-`ws` / `yaml` / `chokidar` 都是云崽自带的。克隆完重启云崽即可。
+两者都是编译好的 js，**不用自己编译**，但克隆完需要装一次运行时依赖：
+
+```bash
+cd plugins/gscore-adapter
+pnpm install --prod
+```
+
+装完重启云崽即可。
+
+> 为什么要这一步：出图（`#早柚状态` 等图片）用 JSX 写版式，运行时依赖 `react` / `react-dom`。
+> 而 release / preview 分支只推 `lib/` 与 `resources/`、不带 `node_modules`，
+> 不装的话会在第一个 import 处报 `Cannot find package 'react'`。
+> `ws` / `yaml` / `chokidar` 则是云崽自带的，不需要额外装。
 
 预览版没经过发版把关，可能带上刚引入的问题；拿不准就用稳定版。
 
 后续更新（两者相同）：
 
 ```bash
-cd plugins/gscore-adapter && git pull
+cd plugins/gscore-adapter && git pull && pnpm install --prod
 ```
 
 想在两版之间切换，不必重新克隆（`--depth=1` 的浅克隆也适用）：
@@ -141,6 +143,12 @@ git remote set-branches origin '*'
 git fetch --depth=1 origin
 git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 ```
+
+### 我装的是哪个版本
+
+三个分支的 `package.json` 版本号是同一个（发版时一起写），光看版本号分不出来，所以 `#早柚版本` 按**本地分支**判定发布类型：`release` → 正式版，`preview` → 预览版，`main` → 开发版；识别不出分支（如下载 zip 安装，没有 git 信息）时按预览版算，不会误报成正式版。
+
+版本号本身用 `git describe` 风格：能描述到 tag 就显示 `v2.1.0-2-gc6522ee`（tag 之后又走了 2 个提交），描述不到就退成 `v2.1.0+40f2dd4`（版本号 + 当前提交）。preview / release 是编译产物分支，历史与 main 的 tag 不连通，通常是后一种形式。
 
 ### 参与开发（main）
 
@@ -165,7 +173,7 @@ pnpm build     # src/*.ts -> lib/*.js
 
 装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)的话也可以在面板里改，无需手动编辑 yaml。
 
-运行时依赖 `ws`、`yaml`、`chokidar`，均为云崽自带，无需额外安装。
+运行时依赖 `react` / `react-dom`（出图用），随 `pnpm install` 一并装上；`ws`、`yaml`、`chokidar` 均为云崽自带，无需额外安装。
 
 ---
 
@@ -268,6 +276,9 @@ bot_id_map:
 | `upload_hook` | `""` | 自定义图床模块路径，内置文件服务的后备，见「大文件外链」 |
 | `log_truncate` | true | 日志中截断 base64 |
 | `notify_master` | false | 断线/重连通知主人 |
+| `update_check` | 关 | 定时检查插件更新，见下 |
+
+`update_check` 四项：`enable`（默认 `false`，关掉后 `#早柚检查更新` 仍可手动用）、`interval`（间隔分钟，默认 180，低于 30 按 30 处理）、`delay`（启动后多久做第一次检查，默认 5 分钟，错开启动高峰）、`notify`（发现新版本时私聊通知主人，默认 `true`）。改完即时生效，不用重启。
 
 > ⚠️ 外链的地址问题：TRSS 用云崽自身的文件服务（`cfg.server.url`），**若核心跑在 Docker 里，`127.0.0.1` 解析不到**，需要把 `server.url` 配成核心可达的地址。走内置文件服务时会自动取 ws 连接的出口地址，通常无需干预；推断不对时用 `file_server.public_host` 写死。
 
@@ -288,6 +299,12 @@ bot_id_map:
 | `#早柚关闭连接 <名字或序号>` | |
 | `#早柚设置 <key>=<value>` | 可设 `mode` / `only_reply_at` / `notify_master` / `media_max_size` |
 | `#早柚帮助` | |
+| `#早柚版本` | 插件版本、发布类型与本机运行环境快照 |
+| `#早柚检查更新` | 拉一次远端，看有没有新提交 |
+| `#早柚更新日志` | 列出本地已有的提交记录 |
+| `#早柚更新` | 拉取更新（`#早柚强制更新` 覆盖本地改动） |
+
+以上除 `#早柚状态`、`#早柚连接列表`、`#早柚帮助`、`#早柚版本`、`#早柚更新日志` 出图外，其余回文本。出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。
 
 示例：
 
@@ -388,16 +405,21 @@ gscore-adapter/
 │   │   ├── convert/        消息段双向转换（toGscore / toYunzai / buttons）
 │   │   ├── notice/         meta event 转换（纯函数）
 │   │   ├── client/         连接类、生命周期、钩子、回环缓存
+│   │   ├── render/         出图：React SSR -> HTML -> 本体 puppeteer 截图
+│   │   ├── update/         git 检查更新与拉取
 │   │   ├── guoba/          锅巴配置面板
 │   │   └── loader/         自动加载 apps
 │   └── apps/
-│       ├── status.ts       #早柚状态 / #早柚重连
-│       ├── admin.ts        连接增删改查
-│       └── update.ts       #早柚更新，转调本体更新插件
+│       ├── status.ts       #早柚状态 / #早柚重连 / #早柚版本
+│       ├── admin.ts        连接增删改查、#早柚帮助
+│       └── update.ts       #早柚更新 / #早柚检查更新 / #早柚更新日志，含定时检查
 ├── lib/                    编译产物，pnpm build 生成（已 gitignore，勿手改）
 ├── resources/
-│   └── config/
-│       └── default_config.yaml  出厂默认，勿改（升级会覆盖）
+│   ├── config/
+│   │   └── default_config.yaml  出厂默认，勿改（升级会覆盖）
+│   ├── image/              插件与框架图标，出图页脚水印用
+│   └── template/
+│       └── shell.html      出图的 HTML 外壳，SSR 结果塞进它再截图
 ├── config/
 │   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
 ├── tsconfig.json
@@ -493,6 +515,25 @@ Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若�
   `/ws/{bot_id}` 用 `receive_bytes()` 只收二进制帧等。本插件照其实际行为对齐，
   而非按字面直觉修正。
 
-- **TRSS-Yunzai 自带的 `plugins/adapter/GSUIDCore.js`**
-  —— 消息段映射的早期参照。该适配器面向的是旧版核心（等核心来连云崽），
-  与当前核心的实际行为已不一致，本插件未沿用其连接方向。
+- **[TimeRainStarSky/Yunzai](https://github.com/TimeRainStarSky/Yunzai)（TRSS-Yunzai）**
+  —— 运行本插件的框架之一。`Bot.makeLog` / `Bot.Buffer` / `Bot.fileToUrl` 等工具方法、
+  以及自带的 `plugins/adapter/GSUIDCore.js`（面向旧版核心，本插件未沿用其连接方向），
+  都是 `utils/compat.ts` 里能力探测的对照物。
+
+- **[yoimiya-kokomi/Miao-Yunzai](https://github.com/yoimiya-kokomi/Miao-Yunzai)（喵崽）**
+  —— 运行本插件的另一个框架。它没有上述那批 `Bot.*` 工具方法，
+  本插件的兼容层与内置文件服务正是为它准备的。
+
+- **[ikenxuan/karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)**
+  —— 图片版式与设计 token 的参考来源。`modules/render/` 的画布结构（弥散光背景、
+  概览统计条、分组卡片、页脚角标）照其 React 组件的思路重写；
+  `#早柚版本` 也是对照它的 `#kkk版本` 做的。
+  实现路线不同：kkk 用 Vite 构建期打包 + Tailwind，本插件是运行时 SSR + 手写 CSS。
+
+---
+
+## 免责声明
+
+本项目仅供学习交流使用，禁止用于任何违法用途。
+
+项目内资源来源于网络，如有侵权请联系项目管理员删除。

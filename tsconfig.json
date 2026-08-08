@@ -3,7 +3,14 @@
     "target": "ES2024",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2024"],
+    // DOM 不是运行时依赖：渲染只把 JSX 拼成 HTML 字符串，不碰浏览器 API。
+    // 但 JSX 的元素属性类型（className / style 等）定义在 DOM lib 里，缺了会全量报错。
+    "lib": ["ES2024", "DOM"],
+
+    // react-jsx：编译产物自动 import react/jsx-runtime，组件里不必再 import React。
+    // react 是真运行时依赖，而 release / preview 分支只推 lib/ 与 resources/、
+    // 不带 node_modules，所以那两个分支装完必须 pnpm install，详见 README「安装」。
+    "jsx": "react-jsx",
 
     "paths": {
       "@/*": ["./src/*"],

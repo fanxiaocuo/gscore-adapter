@@ -72,6 +72,24 @@ export interface FileServerConfig {
   once?: boolean
 }
 
+/**
+ * 定时更新检查
+ *
+ * 思路来自 karin-plugin-kkk 的 kkk-更新检测 定时任务，但判定方式不同：
+ * kkk 是 npm 包，比的是 registry 上的 semver；本插件是 git 仓库安装，
+ * 没有可比的发布版本号，所以比的是「本地 HEAD 落后跟踪分支几个提交」。
+ */
+export interface UpdateCheckConfig {
+  /** 是否启用定时检查；关掉后手动指令仍可用 */
+  enable?: boolean
+  /** 检查间隔（分钟），低于 30 按 30 处理 */
+  interval?: number
+  /** 启动后首次检查的延迟（分钟） */
+  delay?: number
+  /** 发现新提交时是否私聊通知主人 */
+  notify?: boolean
+}
+
 /** 插件配置文件结构（对应 config/default_config/config.yaml） */
 export interface Config {
   mode?: Mode
@@ -102,4 +120,6 @@ export interface Config {
   log_truncate?: boolean
   /** 断线/重连是否通知主人 */
   notify_master?: boolean
+  /** 定时更新检查 */
+  update_check?: UpdateCheckConfig
 }

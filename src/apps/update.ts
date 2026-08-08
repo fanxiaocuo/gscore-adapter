@@ -18,11 +18,18 @@
  *
  * 与 df-plugin 的差异：它用相对路径 import 本体插件，本插件改用 YunzaiPath
  * 拼绝对路径（理由见 run() 内注释）。
+ *
+ * 更新日志例外
+ * ------------
+ * "#更新日志" 不转调本体：本体 getLog() 末尾直接 Bot.makeForwardArray()，
+ * 返回的是拼好的转发消息而非数据，拿不到 hash/时间/标题分开的字段，没法排版成图。
+ * 所以这一条走本插件自己的 modules/update（理由详见 modules/update/git.ts 头注释）。
  */
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { PluginName, PluginPath, YunzaiPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
+import { changelogMsg, tick } from "@/modules/update"
 
 export default class GsCoreUpdate extends plugin {
   constructor() {
@@ -34,7 +41,24 @@ export default class GsCoreUpdate extends plugin {
       rule: [
         { reg: "^#?早柚(核心)?(适配器)?(强制)?更新$", fnc: "update", permission: "master" },
         { reg: "^#?早柚(核心)?(适配器)?更新日志$", fnc: "updateLog", permission: "master" },
+        { reg: "^#?早柚(核心)?(适配器)?检查更新$", fnc: "checkUpdate", permission: "master" },
       ],
+      /**
+       * 定时更新检查，交给本体的 task 机制（node-schedule）
+       *
+       * cron 固定每 5 分钟触发，真正的间隔与开关在 tick() 内按配置判——
+       * 本体只在插件实例化时读一次 task（loader.js:143），cron 之后改不动，
+       * 而这样写改配置就能即刻生效。tick() 没开启用时直接 return，开销可忽略。
+       *
+       * log: false —— 每 5 分钟一条「开始处理/完成」会把日志刷满，
+       * 真正有意义的事件（发现新提交）tick 内部自己打 mark 级日志。
+       */
+      task: {
+        name: "早柚适配器更新检查",
+        cron: "0 */5 * * * *",
+        fnc: () => tick(),
+        log: false,
+      },
     })
   }
 
@@ -42,8 +66,23 @@ export default class GsCoreUpdate extends plugin {
     return this.run(e, e.msg.includes("强制") ? "#强制更新" : "#更新")
   }
 
+  /**
+   * 更新日志
+   *
+   * 不 fetch：只看本地已有的记录，是「刚更新完想知道改了什么」的场景，
+   * 不该为此产生一次网络请求。想知道远端有没有新东西用 #早柚检查更新。
+   */
   async updateLog(e) {
-    return this.run(e, "#更新日志")
+    const { msg } = await changelogMsg(false)
+    return e.reply(msg)
+  }
+
+  /** 检查远端有无新提交（会 fetch） */
+  async checkUpdate(e) {
+    // fetch 走网络，慢的时候用户会以为指令没响应
+    await e.reply("正在检查更新……")
+    const { msg } = await changelogMsg(true)
+    return e.reply(msg)
   }
 
   /**

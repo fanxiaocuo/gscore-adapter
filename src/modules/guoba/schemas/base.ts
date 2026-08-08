@@ -57,4 +57,35 @@ export const baseSchemas = [
     bottomHelpMessage: "连接断开与恢复时私聊通知主人",
     component: "Switch",
   },
+  {
+    component: "Divider",
+    label: "更新检查",
+  },
+  {
+    field: "update_check.enable",
+    label: "定时检查更新",
+    bottomHelpMessage:
+      "定时检查插件仓库有没有新提交，只通知不会自动更新。关掉后 #早柚检查更新 仍可手动用",
+    component: "Switch",
+  },
+  {
+    field: "update_check.interval",
+    label: "检查间隔",
+    bottomHelpMessage: "单位分钟。每次都要 git fetch 一次远端，低于 30 会按 30 处理",
+    component: "InputNumber",
+    componentProps: { min: 30, step: 30 },
+  },
+  {
+    field: "update_check.delay",
+    label: "首次检查延迟",
+    bottomHelpMessage: "单位分钟。启动后多久做第一次检查，用于错开启动高峰",
+    component: "InputNumber",
+    componentProps: { min: 0, step: 1 },
+  },
+  {
+    field: "update_check.notify",
+    label: "发现新版本时通知主人",
+    bottomHelpMessage: "把更新日志渲染成图片私聊推送给主人",
+    component: "Switch",
+  },
 ]

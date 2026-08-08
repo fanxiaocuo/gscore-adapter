@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  渲染外壳（art-template 模板）
+
+  这个文件的内容必须保持恒定，只通过 css / body 两个变量注入动态内容。
+  原因见本体 lib/renderer/Renderer.js：
+    - dealTpl() 按 tplFile 路径把模板文本缓存在 this.html 里，永不失效（第 44 行）
+    - 每个新路径还会注册一个 chokidar watcher（第 54 行）
+  所以「每次渲染写一个新 HTML 再当 tplFile 传进去」有两个后果：同一路径会读到
+  首次缓存的旧内容；不同路径则让缓存和 watcher 无上限增长。
+  正确用法是外壳固定、数据变动，缓存里始终只有这一份。
+
+  {{@ }} 是 art-template 的原样输出（不转义），HTML 片段必须用它。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+    <style>
+      {{@ css }}
+    </style>
+  </head>
+  <body>
+    <!-- 本体截图取 #container，取不到才回落 body（puppeteer.js:189） -->
+    <div id="container">{{@ body }}</div>
+  </body>
+</html>
