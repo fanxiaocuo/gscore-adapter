@@ -4,6 +4,7 @@
 import { toGscoreMedia, toGscoreFile } from "@/utils"
 import type { MessageReceive, UserPm } from "@/types"
 import { buttonsToGscore } from "./buttons.js"
+import { toStr } from "@/utils/compat"
 
 /** 云崽 message 数组 -> 早柚核心 Message[] */
 export async function msgToGscore(msg) {
@@ -26,7 +27,7 @@ export async function msgToGscore(msg) {
       case "markdown":
         out.push({
           type: "markdown",
-          data: typeof i.data === "string" ? i.data : Bot.String(i.data),
+          data: typeof i.data === "string" ? i.data : toStr(i.data),
         })
         break
 
@@ -94,7 +95,7 @@ export async function msgToGscore(msg) {
         break
 
       default:
-        out.push({ type: "text", data: Bot.String(i) })
+        out.push({ type: "text", data: toStr(i) })
     }
   }
   return out

@@ -22,6 +22,7 @@
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { PluginName, PluginPath, YunzaiPath } from "@/dir"
+import { makeLog } from "@/utils/compat"
 
 export default class GsCoreUpdate extends plugin {
   constructor() {
@@ -65,7 +66,7 @@ export default class GsCoreUpdate extends plugin {
       const url = pathToFileURL(join(YunzaiPath, "plugins/other/update.js")).href
       ;({ update: Update } = await import(url))
     } catch (err) {
-      Bot.makeLog("error", ["加载本体更新插件失败", err], "GsCore")
+      makeLog("error", ["加载本体更新插件失败", err], "GsCore")
       return e.reply(`无法调用本体更新功能，请手动在插件目录执行 git pull：\n${PluginPath}`)
     }
 

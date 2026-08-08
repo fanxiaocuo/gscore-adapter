@@ -7,6 +7,8 @@
 import { config, configFile } from "@/config"
 import { startClients } from "@/modules/client"
 import { loadApps } from "@/modules/loader"
+import { checkConflicts } from "@/modules/conflict"
+import { makeLog } from "@/utils/compat"
 
 let mode = config.mode || "off"
 
@@ -15,7 +17,7 @@ let mode = config.mode || "off"
 // 核心永远不会主动来连云崽，服务端方向注册了也收不到东西。
 // 老配置不报错、不静默，按 client 继续跑并提示改配置。
 if (mode === "server" || mode === "both") {
-  Bot.makeLog(
+  makeLog(
     "warn",
     `mode: ${mode} 已废弃（早柚核心不会主动连接云崽），已按 client 运行。请把配置改为 mode: client`,
     "GsCore",
@@ -27,10 +29,17 @@ if (mode === "server" || mode === "both") {
 // 早到的 MessageSend 会经 Proxy 兜底到随机一个 bot，把消息发错账号；
 // 且在框架 lib/events/message.js 之前注册 Bot.on("message") 会把我们排到
 // 监听器队列最前，正是 e.isMaster 尚未定义的那个顺序。
-if (mode === "client") Bot.once("online", () => startClients())
+if (mode === "client")
+  Bot.once("online", () => {
+    // 放在 startClients 之前：先让"可能重复上报"的告警出现在连接日志上方，
+    // 用户看到"已连接"时才不会以为一切正常。checkConflicts 内部自带兜底，
+    // 不会因读不到别人的配置而中断启动。
+    checkConflicts()
+    startClients()
+  })
 
-if (mode === "client") Bot.makeLog("info", "早柚核心适配器已载入", "GsCore")
-else Bot.makeLog("warn", "早柚核心适配器已禁用（mode: off）", "GsCore")
+if (mode === "client") makeLog("info", "早柚核心适配器已载入", "GsCore")
+else makeLog("warn", "早柚核心适配器已禁用（mode: off）", "GsCore")
 
 export const { apps } = await loadApps()
 

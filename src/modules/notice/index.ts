@@ -10,6 +10,7 @@
  */
 import { SUB_TYPE_MAP } from "@/constants"
 import { str, passFilter } from "@/utils"
+import { toStr } from "@/utils/compat"
 
 export { passFilter }
 
@@ -80,5 +81,5 @@ export function metaToGscore(e, meta, botId, opts: { isMaster?: boolean } = {}) 
 
 /** 日志用的简短描述 */
 export function metaLogStr(meta) {
-  return `${meta.eventName} ${Bot.String(meta.data)}`
+  return `${meta.eventName} ${toStr(meta.data)}`
 }

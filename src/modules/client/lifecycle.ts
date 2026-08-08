@@ -5,6 +5,7 @@ import { config } from "@/config"
 import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
+import { makeLog } from "@/utils/compat"
 
 let hooked = false
 
@@ -20,7 +21,7 @@ function hook() {
 export function startClient(conf) {
   if (conf.enable === false) return null
   if (!conf.url) {
-    Bot.makeLog("error", `连接 ${conf.name || "(未命名)"} 缺少 url，已跳过`, "GsCore")
+    makeLog("error", `连接 ${conf.name || "(未命名)"} 缺少 url，已跳过`, "GsCore")
     return null
   }
   if (clients.some(c => c.name === (conf.name || conf.url))) return null
@@ -52,8 +53,8 @@ export function startClients() {
   hook()
   for (const conf of config.client?.connections || []) startClient(conf)
 
-  if (clients.length) Bot.makeLog("mark", `早柚核心客户端启动 ${clients.length} 个连接`, "GsCore")
-  else Bot.makeLog("warn", "早柚核心客户端没有可用连接", "GsCore")
+  if (clients.length) makeLog("mark", `早柚核心客户端启动 ${clients.length} 个连接`, "GsCore")
+  else makeLog("warn", "早柚核心客户端没有可用连接", "GsCore")
 }
 
 export function stopClients() {

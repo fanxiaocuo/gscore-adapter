@@ -2,6 +2,7 @@ import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT } from "@/constants"
 import { logStr } from "@/utils"
+import { makeLog } from "@/utils/compat"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
 import { metaToGscore, metaLogStr } from "@/modules/notice"
 import { echoKey, markSent } from "./echo.js"
@@ -55,7 +56,7 @@ export class GsCoreClient {
   }
 
   log(level, msg) {
-    Bot.makeLog(level, msg, `GsCore:${this.name}`, true)
+    makeLog(level, msg, `GsCore:${this.name}`, true)
   }
 
   connect() {
@@ -225,7 +226,7 @@ export class GsCoreClient {
 
     // 早柚核心 core.py 用 websocket.receive_bytes() 读取，必须发二进制帧
     this.send(data)
-    Bot.makeLog(
+    makeLog(
       "debug",
       `上报早柚核心：${logStr(data.content)}`,
       `${e.self_id} => ${this.name}`,
@@ -245,7 +246,7 @@ export class GsCoreClient {
     if (!data) return false
 
     this.send(data)
-    Bot.makeLog("debug", `上报早柚核心事件：${metaLogStr(meta)}`, `${e.self_id} => ${this.name}`, true)
+    makeLog("debug", `上报早柚核心事件：${metaLogStr(meta)}`, `${e.self_id} => ${this.name}`, true)
     return true
   }
 
@@ -342,12 +343,8 @@ export class GsCoreClient {
       // 控制指令优先，它们不走消息转换
       if (await this.handleControl(data, bot)) return
 
-      const { message, quote, logOnly } = await gscoreToYunzai(data.content)
-      if (logOnly || !message.length) return this.sendRecallReceipt(data, null)
-
-      // 修复 ws-plugin 的 bug：上游算出 quote 却从未使用，引用回复全部失效
-      if (quote) message.unshift(segment.reply(quote))
-
+      // 先 pick 目标再转换：node 段在 Miao 上必须靠 target 的原生
+      // makeForwardMsg 才能制作转发（Bot 上那个继承自 ICQQ，调用即抛）。
       const targetId = String(data.target_id ?? "")
       let target
       let tag
@@ -371,8 +368,14 @@ export class GsCoreClient {
         return this.log("error", `找不到发送目标 ${data.target_type}:${targetId}`)
       }
 
+      const { message, quote, logOnly } = await gscoreToYunzai(data.content, target)
+      if (logOnly || !message.length) return this.sendRecallReceipt(data, null)
+
+      // 修复 ws-plugin 的 bug：上游算出 quote 却从未使用，引用回复全部失效
+      if (quote) message.unshift(segment.reply(quote))
+
       markSent(echoKey(data.bot_self_id, targetId, message))
-      Bot.makeLog(
+      makeLog(
         "info",
         `早柚核心消息：${logStr(message)}`,
         `${this.name} => ${data.bot_self_id}, ${tag}`,

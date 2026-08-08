@@ -1,6 +1,7 @@
 import { config, saveConfig, getConnections } from "@/config"
 import { clients, startClient, stopClient } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
+import { makeLog } from "@/utils/compat"
 
 /** 关闭状态下不热启动连接 */
 function clientMode() {
@@ -151,7 +152,7 @@ export default class GsCoreAdmin extends plugin {
         doc.getIn(["client", "connections"]).add(doc.createNode(conf))
       })
     } catch (err: any) {
-      Bot.makeLog("error", ["写入配置失败", err], "GsCore")
+      makeLog("error", ["写入配置失败", err], "GsCore")
       return e.reply(`保存失败：${err.message}`)
     }
 
