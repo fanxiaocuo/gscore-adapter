@@ -42,19 +42,37 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 | `Bot.Buffer` | ✅ | ❌ | 垫片（保持三路返回语义） |
 | `Bot.makeForwardMsg` | ✅ 标记对象 | ⚠️ 语义不同 | 按返回值形状判定，转走 Group/Friend 原生实现 |
 | 主人配置 | `master` 分账号 + `masterQQ` | 仅 `masterQQ` | 按字段形状探测，两种结构都认 |
-| `Bot.fileToUrl` | ✅ | ❌ | **无法垫片**，见下 |
+| `Bot.fileToUrl` | ✅ | ❌ | **无法垫片**，可用 `upload_hook` 补齐，见下 |
 
 ### Miao 上的已知限制
 
-**大文件发不出去。** `Bot.fileToUrl` 是文件外链服务，Miao 没有对应能力 ——
+**大文件需要自备图床。** `Bot.fileToUrl` 是文件外链服务，Miao 没有对应能力 ——
 没有 HTTP 文件服务就没有外链可给，这是能力缺失，不是可以绕开的 bug
-（伪造一个假 URL 只会让核心侧拿到打不开的链接）。
+（伪造一个假 URL 只会让核心侧拿到打不开的链接）。云崽本身也没有可以调用的图床，
+ICQQ 的 `uploadImages` 只上传到腾讯内部，拿不到公网 URL。
 
-具体影响：超过 `media_max_size`（默认 10MB）的图片/语音/视频**会被跳过并打 warn**，
+具体影响：超过 `media_max_size`（默认 10MB）的图片/语音/视频需要外链，
 小于该值的走 base64 内联，不受影响。`file` 段本身协议就要求全量 base64，两个框架行为一致。
 
-如需发送大文件，可调大 `media_max_size`（代价是内存占用和单帧体积），
-或改用 TRSS-Yunzai。
+三种处理方式，任选其一：
+
+1. **配 `upload_hook` 接自己的图床**（推荐）。指向一个模块，默认导出上传函数：
+
+   ```js
+   // 相对云崽根目录或绝对路径，如 plugins/gscore-adapter/my-upload.js
+   export default async (buf, name) => {
+     // 上传 buf，返回 http(s) 链接
+     return "https://图床地址/xxx.png"
+   }
+   ```
+
+   返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。模块只在真正需要外链时
+   才加载，之后缓存；改配置后热重载会自动重新加载。
+
+2. **调大 `media_max_size`** 让大文件也走 base64（代价是内存占用和单帧体积）。
+3. **改用 TRSS-Yunzai**，它自带文件服务，无需配置。
+
+都没配时会打一条 warn 说明该怎么办，该段消息被跳过。
 
 ---
 
@@ -225,6 +243,7 @@ bot_id_map:
 | `media_max_size` | 10 MiB | 媒体转 base64 上限，超过改用 `link://` 外链 |
 | `file_max_size` | 50 MiB | file 段必须内联 base64（协议无 URL 形式），超过直接拒发 |
 | `link_expire` | 300000 | 外链有效期（毫秒）。云崽默认只留 1 分钟，核心拉取慢会拿到超时占位图 |
+| `upload_hook` | `""` | 自定义图床模块路径。仅在框架没有 `Bot.fileToUrl` 时启用，见「Miao 上的已知限制」 |
 | `log_truncate` | true | 日志中截断 base64 |
 | `notify_master` | false | 断线/重连通知主人 |
 
@@ -414,6 +433,7 @@ pnpm run typecheck
 
 **图片发不出去 / 核心拿到占位图**
 核心跑在 Docker 里而 `link://` 外链指向 `127.0.0.1`。把云崽的 `cfg.server.url` 配成核心可达的地址；或调大 `media_max_size` 让图片走 base64 内联。
+若日志里是「当前框架没有 Bot.fileToUrl」，那是跑在 Miao 上且文件超过了 `media_max_size`，按上面「Miao 上的已知限制」配 `upload_hook` 或调大上限。
 
 **撤回功能突然失效**
 核心连续 3 次拿不到 `recall_message_id` 就会永久关掉撤回。重启核心恢复。若反复出现，说明当前适配器的 `sendMsg` 返回值里取不到 message_id。

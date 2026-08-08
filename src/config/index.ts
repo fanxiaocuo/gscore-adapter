@@ -67,10 +67,28 @@ export const configFile = userFile
 /** 自己写盘时抑制一次 watcher 回调，避免重复重载 */
 let selfWrite = false
 
+/**
+ * 配置重载时要清掉的缓存。
+ * 用回调注册而不是直接 import——utils/media.ts 依赖 @/config，
+ * 反向 import 会成环。
+ */
+const invalidators: (() => void)[] = []
+
+/** 注册一个"配置变了就清缓存"的回调 */
+export function onConfigReload(fn: () => void) {
+  invalidators.push(fn)
+}
+
 function reload() {
   const next = load()
   for (const k of Object.keys(config)) delete config[k]
   Object.assign(config, next)
+  for (const fn of invalidators)
+    try {
+      fn()
+    } catch {
+      // 清缓存失败不该影响重载本身
+    }
 }
 
 // cfg.bot.file_watch 为 false 时框架已全局 stub 掉 chokidar.watch，此处自动尊重

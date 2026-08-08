@@ -53,6 +53,25 @@ export interface FilterConfig {
   black_user?: (string | number)[]
 }
 
+/**
+ * 内置文件服务配置
+ *
+ * 只在框架没有 Bot.fileToUrl 时才会用到（Miao-Yunzai）；
+ * TRSS-Yunzai 有自带文件服务，这一节全部无效。
+ */
+export interface FileServerConfig {
+  /** 是否启用，默认 true。关掉则回落到 upload_hook */
+  enable?: boolean
+  /** 监听端口，0 为随机可用端口 */
+  port?: number
+  /** 监听地址，默认 0.0.0.0（核心可能在 Docker / 另一台机器） */
+  host?: string
+  /** 外链中使用的 host，留空则按 ws 连接的本机地址推断 */
+  public_host?: string
+  /** 取走即删，默认 true。核心侧会重试时可设为 false */
+  once?: boolean
+}
+
 /** 插件配置文件结构（对应 config/default_config/config.yaml） */
 export interface Config {
   mode?: Mode
@@ -70,8 +89,15 @@ export interface Config {
   media_max_size?: number
   /** file 段内联上限（字节），超限拒绝发送 */
   file_max_size?: number
-  /** link:// 外链有效期（毫秒） */
+  /** link:// 外链有效期（毫秒），同时也是内置文件服务的暂存时长 */
   link_expire?: number
+  /** 内置文件服务，仅在框架没有 Bot.fileToUrl 时启用 */
+  file_server?: FileServerConfig
+  /**
+   * 自定义图床模块路径（可选）。默认导出 `(buf, name) => Promise<string>`。
+   * 内置文件服务被关掉或起不来时的后备。
+   */
+  upload_hook?: string
   /** 日志中截断 base64 */
   log_truncate?: boolean
   /** 断线/重连是否通知主人 */

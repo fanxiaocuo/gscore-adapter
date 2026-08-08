@@ -3,6 +3,7 @@ import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT } from "@/constants"
 import { logStr } from "@/utils"
 import { makeLog } from "@/utils/compat"
+import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
 import { metaToGscore, metaLogStr } from "@/modules/notice"
 import { echoKey, markSent } from "./echo.js"
@@ -87,6 +88,9 @@ export class GsCoreClient {
     this.status = 1
     this.retry = 0
     this.lastPong = Date.now()
+    // 记下这条连接走的本机地址：内置文件服务用它拼外链 host，
+    // 比硬写 127.0.0.1 靠谱（核心常在 Docker 或另一台机器上）
+    setLocalHint((this.ws as any)?._socket?.localAddress)
     this.log("mark", wasReconnect ? "重连成功" : "已连接")
     this.startHeartbeat()
     if (wasReconnect && config.notify_master) this.notify(`${this.name} 重连成功`)
