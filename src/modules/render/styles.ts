@@ -251,6 +251,21 @@ html,body{background:${p.bg}}
   padding:14px 22px;border-radius:9999px;font-size:24px;font-weight:800}
 .pill .led{width:12px;height:12px;border-radius:9999px;flex:none}
 
+/* ---------- 状态页的分组明细 ---------- */
+/* 两列：条目短，单列铺满 1296px 会在右侧留一大片空白。
+   column-gap 给到 64px —— 两列都是「左标签右取值」的两端对齐结构，
+   列间距小于列内的空档时，右列的标签会读成左列取值的一部分。
+   margin-top:72px 与 .stats 的 margin-bottom 同值，纵向节奏一致。 */
+.panels{display:grid;grid-template-columns:repeat(2,1fr);gap:56px 64px;margin-top:72px}
+/* .rt-sec 自带 36px 下边距，这里不再加 */
+.panel{min-width:0}
+.kv{display:flex;flex-direction:column;gap:14px}
+/* 两端对齐：标签靠左、取值靠右，长短不齐的取值右边缘成列（账单式排版）。
+   align-items:baseline：取值用等宽字、标签用正文字，基线对齐才不会一高一低。 */
+.kv .row{display:flex;align-items:baseline;gap:14px;font-size:23px;line-height:1.5}
+.kv .row .k{flex:none;color:${p.muted}}
+.kv .row .v{flex:1;min-width:0;text-align:right;font-weight:700;overflow-wrap:break-word}
+
 /* ---------- 更新日志 ---------- */
 /* 提示条：fetch 失败等非致命情况用它说明，不占用空态位置 */
 /* border-color 与背景由组件按语义色内联给，这里只定形。左侧粗边当色标 */
@@ -289,10 +304,18 @@ html,body{background:${p.bg}}
 
 /* 版本号主视觉
    ------
-   kkk 那张图上版本号是最抢眼的一块，这里照做。字号 130px 是按画布宽度反推的：
-   预览版号形如 2.1.0-alpha.348.2，20 字符 × 约 0.6em 宽 ≈ 1560px，
-   加上图标 200px 与间距后正好落在 1872px 的内容宽里，不至于像 kkk 那张图
-   一样把 -alpha. 顶出画布外。min-width:0 + break-word 再兜一层底。
+   kkk 那张图上版本号是最抢眼的一块，这里照做。
+
+   字号不写死，由 About.tsx 的 fitFontSize 按串长算出来写进 style
+   ------
+   这里原本写死 130px，注释里按「20 字符 × 0.6em」估过一遍，但那个估算漏了两件事：
+   一是内容宽是 1296px 不是 1872px（1440 画布减 72×2 的 padding），
+   二是 main 分支的 describe 串是 v2.1.0-2-gc6522ee-dirty，23 字符里有 9 个数字、
+   11 个小写字母，实际宽约 1790px。结果版本号折成两行，还压到了下面的插件名上。
+   现在 CSS 只给下限兜底（放不下时至少不至于溢出），实际字号由组件给。
+
+   white-space:nowrap 取代原来的 overflow-wrap:break-word —— 版本号是一个整体
+   标识，从中间断开比缩小更难读（v2.1.0-2- / gc6522ee-dirty 是两个无意义的片段）。
    图标 200px 而不是 168px：右侧三行合计约 220px（小字 22 + 数字 130 + 名字 36
    加两道 8px 间距），168 的图标明显比文字块矮一截，两边体量不相当。 */
 .rt-hero{display:flex;align-items:center;gap:44px;margin-bottom:80px}
@@ -301,9 +324,9 @@ html,body{background:${p.bg}}
 .rt-hero .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
 .rt-hero .cap{font-size:22px;font-weight:800;letter-spacing:.2em;color:${p.muted};line-height:1}
 .rt-hero .num{font-size:130px;font-weight:900;line-height:1;letter-spacing:-.05em;
-  overflow-wrap:break-word;font-variant-numeric:tabular-nums}
+  white-space:nowrap;font-variant-numeric:tabular-nums}
 /* 前缀 v 小一档并压低不透明度，让数字本身成为主体 */
-.rt-hero .num .pre{font-size:62px;opacity:.55;margin-right:6px}
+.rt-hero .num .pre{font-size:.48em;opacity:.55;margin-right:6px}
 .rt-hero .nm{font-size:26px;color:${p.muted};letter-spacing:.06em;line-height:1.4}
 
 /* 分节标题：圆点 + 文字 + 一条向右淡出的渐变线 */
@@ -311,6 +334,26 @@ html,body{background:${p.bg}}
 .rt-sec .dot{width:11px;height:11px;border-radius:9999px;flex:none}
 .rt-sec .t{font-size:26px;font-weight:800;letter-spacing:.16em;color:${p.muted};line-height:1}
 .rt-sec .line{flex:1;height:3px;border-radius:9999px;opacity:.55;max-width:220px}
+/* 分节标题右侧的版本号与日期（本版变更那节用），比标题再轻一档 */
+.rt-sec .ver{flex:none;font-size:22px;font-weight:700;color:${p.muted};opacity:.8;line-height:1}
+.rt-sec .ver em{font-style:normal;opacity:.75}
+
+/* 本版变更
+   ------
+   数据来自 CHANGELOG.md（changelog.ts 解析），结构是「分类 + 条目」两层。
+   不做成卡片：这页已经定了「无边框信息块」的语言（见上面 .rt-grid 的说明），
+   变更列表再套一层卡片就又向状态页靠回去了。分类之间靠间距分组，
+   条目用一颗小圆点当项目符号，颜色跟着分类走，扫读时能一眼分出属于哪一类。 */
+.rt-chg{display:flex;flex-direction:column;gap:40px;margin-bottom:72px}
+.rt-chg .gt{font-size:27px;font-weight:800;letter-spacing:.02em;line-height:1.3;
+  margin-bottom:18px}
+.rt-chg .items{list-style:none;display:flex;flex-direction:column;gap:14px}
+/* 圆点用 flex:none + margin-top 手动对齐首行视觉中线：
+   align-items:center 在条目折行时会把点带到两行之间，看着像挂错了行 */
+.rt-chg .items li{display:flex;align-items:flex-start;gap:16px;font-size:25px;line-height:1.5}
+.rt-chg .items li i{width:9px;height:9px;border-radius:9999px;flex:none;margin-top:14px;
+  opacity:.85}
+.rt-chg .items li span{flex:1;min-width:0;overflow-wrap:break-word}
 
 /* 环境摘要两列
    ------
@@ -347,27 +390,49 @@ html,body{background:${p.bg}}
 /* ---------- 页脚水印 ---------- */
 /* 版式照 kkk 的 DefaultLayout：整块居中的一排，插件半边 ｜ 版本 ｜ 竖线 ｜ 框架半边。
    之前是左右分栏（左插件名、右信息行），两边的图标只有框架一个；现在两边各有
-   自己的图标，居中排布才让「插件 × 框架」这层关系一眼可读。 */
+   自己的图标，居中排布才让「插件 × 框架」这层关系一眼可读。
+
+   一行不换行
+   ----------
+   flex-wrap 从 wrap 改成 nowrap：main 分支的版本号是 v2.1.0-2-gc6522ee-dirty，
+   整排宽度超过内容宽 1296px，框架半边会被甩到第二行，并列关系就断了。
+   禁止换行后靠 --fs 等比缩字号保证放得下，计算在 Layout.tsx 的 FOOT。
+   --fs 缺省 1，即 scale=1 时与原来的写死字号完全一致。 */
 .foot{position:relative;z-index:10;padding:0 72px 64px;
   display:flex;flex-direction:column;align-items:center;gap:26px}
-.foot .wm{display:flex;align-items:center;justify-content:center;gap:32px;flex-wrap:wrap}
+.foot .wm{--fs:1;display:flex;align-items:center;justify-content:center;gap:32px;
+  flex-wrap:nowrap;white-space:nowrap;max-width:100%}
 /* 一侧 = 图标 + 两行文字。align-items:center 让图标对齐文字块中线 */
-.foot .side{display:flex;align-items:center;gap:20px}
-/* 图标定宽定高 + contain：方图圆图都不会被拉变形。
-   圆角而非圆形——frame-logo 本身留白不居中，切圆会啃掉一角。 */
-.foot .side .ico{width:72px;height:72px;flex:none;border-radius:18px;object-fit:contain;
-  background:${p.inset};border:1px solid ${p.border};padding:6px}
-.foot .side .txt{display:flex;flex-direction:column;gap:7px}
+.foot .side{display:flex;align-items:center;gap:20px;min-width:0}
+/* 图标：外层 span 定框，内层 img 决定字形实际大小
+   ------
+   72px -> 80px，并且两个图标分开给尺寸。原因是两张图的构图完全不同：
+   logo.png（1024²）的字形只占画幅 70.7%（实测 alpha 包围盒 724px），
+   frame-logo.png 是满幅 JPEG。同样塞进 72px 的框、同样 6px padding 时，
+   早柚字形只有 42px、云崽有 60px —— 差了三分之一，就是「适配器图标偏小」的来源。
+   所以 ico-plugin 让 img 溢出框 (112%) 把那圈留白顶出去，ico-frame 保留内缩，
+   两边字形的视觉体量才相当。overflow:hidden 负责裁掉溢出部分，圆角不会被破坏。 */
+.foot .side .ico{width:80px;height:80px;flex:none;border-radius:20px;overflow:hidden;
+  background:${p.inset};border:1px solid ${p.border};
+  display:flex;align-items:center;justify-content:center}
+.foot .side .ico img{display:block;object-fit:contain}
+/* 放大到 112%：留白占 29.3%，字形 = 80 × 1.12 × 0.707 ≈ 63px，与下面的框架标一致 */
+.foot .side .ico-plugin img{width:112%;height:112%}
+/* 满幅图内缩 8px：字形 = 80 - 16 = 64px */
+.foot .side .ico-frame img{width:100%;height:100%;padding:8px}
+.foot .side .txt{display:flex;flex-direction:column;gap:7px;min-width:0}
 /* 上排小字（PLUGIN / POWER BY）：字距拉开，与下排的粗名字分层 */
-.foot .cap{font-size:19px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;
-  color:${p.muted};line-height:1}
-.foot .side .nm{font-size:38px;font-weight:900;line-height:1;letter-spacing:-.01em}
+.foot .cap{font-size:calc(19px * var(--fs));font-weight:800;letter-spacing:.2em;
+  text-transform:uppercase;color:${p.muted};line-height:1}
+.foot .side .nm{font-size:calc(38px * var(--fs));font-weight:900;line-height:1;
+  letter-spacing:-.01em}
 /* 框架版本跟在框架名后面，小一档并压低不透明度 */
-.foot .side .nm small{font-size:24px;font-weight:700;color:${p.muted};letter-spacing:0}
+.foot .side .nm small{font-size:calc(24px * var(--fs));font-weight:700;color:${p.muted};
+  letter-spacing:0}
 /* 版本号块：与两侧的名字同高，靠 line-height:1 对齐 */
-.foot .ver{display:flex;flex-direction:column;gap:7px}
-.foot .ver .num{font-size:38px;font-weight:900;line-height:1;letter-spacing:-.01em;
-  font-variant-numeric:tabular-nums}
+.foot .ver{display:flex;flex-direction:column;gap:7px;min-width:0}
+.foot .ver .num{font-size:calc(38px * var(--fs));font-weight:900;line-height:1;
+  letter-spacing:-.01em;font-variant-numeric:tabular-nums}
 /* 分隔竖线：高度取文字块高度（19 + 7 + 38 = 64），略收到 56 留出呼吸 */
 .foot .sep{width:3px;height:56px;flex:none;border-radius:9999px;background:${p.border}}
 /* 底部一行小字：时间戳与提示，居中排开，与水印分层 */

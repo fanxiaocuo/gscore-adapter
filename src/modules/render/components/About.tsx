@@ -19,7 +19,9 @@
  */
 import type { Palette } from "../theme.js"
 import type { ReleaseType } from "../env.js"
+import type { Release } from "../changelog.js"
 import { Backdrop, Footer } from "./Layout.js"
+import { fitFontSize } from "../metrics.js"
 
 /** 一条环境信息 */
 export interface AboutRow {
@@ -48,15 +50,43 @@ export interface AboutData {
   rows: AboutRow[]
   /** 内存占用，画一条进度条；不给则不显示 */
   memory?: { percent: number; used: string; total: string }
+  /**
+   * 本版变更，读 CHANGELOG.md 得来；null 则整块不渲染
+   *
+   * 与 #早柚更新日志 的分工：那条命令列 git 提交，答「代码更新到哪了」；
+   * 这里列发布条目，答「这个版本改了什么」。数据源不同，不重复。
+   */
+  changes?: Release | null
   /** 底部的开源信息行 */
   links: { key: string; value: string }[]
 }
+
+/**
+ * 版本号可用宽度
+ *
+ * 1440 画布 - .page 左右 padding 72×2 = 1296，再减去 hero 图标 200px 与 44px 间距。
+ * 几何对应 styles.ts 的 .rt-hero，改那边要同步改这里。
+ */
+const HERO_BUDGET = 1296 - 200 - 44
 
 export function About(data: AboutData) {
   const p = data.palette
   const stable = data.release === "Stable"
   // 版本号与发布类型同色：非正式版 warning，正式版取轮转色的第一个
   const verColor = stable ? p.rotate[0] : p.warning
+
+  /**
+   * 版本号字号：按串长反推，保证一行放得下
+   *
+   * 130px 是给 `v2.1.0` 这类短串的理想值，但 main 分支上 git describe 会给出
+   * `v2.1.0-2-gc6522ee-dirty`（23 字符），130px 下宽约 1790px，远超可用的 1052px，
+   * 于是折成两行——右侧那块「小字 / 巨大数字 / 插件名」的层次被破坏，
+   * 而且第二行会压到下面的插件名上。
+   *
+   * 下限 56px：仍比正文的 38px 大一档，主视觉地位保得住。
+   * 字距 -.05em 与 CSS 一致，长串下这一项能省下约 4% 宽度，不能漏算。
+   */
+  const verSize = fitFontSize(data.version, HERO_BUDGET, 130, 56, -0.05)
 
   return (
     <>
@@ -92,7 +122,7 @@ export function About(data: AboutData) {
           {data.logo && <img className="art" src={data.logo} alt="" />}
           <div className="txt">
             <div className="cap mono">插件版本</div>
-            <div className="num" style={{ color: verColor }}>
+            <div className="num" style={{ color: verColor, fontSize: verSize }}>
               {data.version}
             </div>
             <div className="nm mono">{data.title}</div>
@@ -146,6 +176,43 @@ export function About(data: AboutData) {
             </div>
           )}
         </div>
+
+        {/* 本版变更：照 kkk 的 #kkk版本，环境摘要之后接一段「这个版本改了什么」。
+            分类标题各自轮换一个主情绪色，与摘要区的取色规则一致。 */}
+        {data.changes && data.changes.groups.length > 0 && (
+          <>
+            <div className="rt-sec">
+              <span className="dot" style={{ background: p.rotate[1] }} />
+              <span className="t">本版变更</span>
+              <span className="ver mono">
+                v{data.changes.version}
+                {data.changes.date && <em> · {data.changes.date}</em>}
+              </span>
+              <span
+                className="line"
+                style={{ background: `linear-gradient(90deg,${p.rotate[1]},transparent)` }}
+              />
+            </div>
+
+            <div className="rt-chg">
+              {data.changes.groups.map((g, gi) => (
+                <div className="grp" key={gi}>
+                  <div className="gt" style={{ color: p.rotate[gi % p.rotate.length] }}>
+                    {g.title}
+                  </div>
+                  <ul className="items">
+                    {g.items.map((it, ii) => (
+                      <li key={ii}>
+                        <i style={{ background: p.rotate[gi % p.rotate.length] }} />
+                        <span>{it}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="rt-links">
           {data.links.map((l, i) => (

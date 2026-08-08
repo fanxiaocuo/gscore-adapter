@@ -1,5 +1,6 @@
 import { config } from "@/config"
 import { clients } from "@/modules/client"
+import { forName, snapshot } from "@/modules/stats"
 import { renderStatus, renderAbout } from "@/modules/render/pages"
 import { versionLabel, branch } from "@/modules/render/version"
 import { frameLabel, nodeVersion, releaseLabel, sysInfo } from "@/modules/render/env"
@@ -47,7 +48,9 @@ export default class GsCoreStatus extends plugin {
     const img = await renderStatus()
     if (img) return e.reply(img)
 
-    // 文本回退
+    // 文本回退：与图上同源。中转计数要带上——出不了图往往正是浏览器有问题的时候，
+    // 而「连着但一条没转」这个判断不该因为出图失败就看不到了。
+    const s = snapshot()
     const msg = [`早柚核心适配器\n运行模式：${config.mode}`]
 
     if (config.mode !== "off") {
@@ -55,8 +58,15 @@ export default class GsCoreStatus extends plugin {
         msg.push("\n连接：无")
       } else {
         msg.push("\n连接：")
-        for (const c of clients) msg.push(`\n  ${c.name}：${c.statusText}`)
+        for (const c of clients) {
+          const n = forName(c.name)
+          msg.push(`\n  ${c.name}：${c.statusText}（↑${n.up + n.event} ↓${n.down}）`)
+        }
       }
+      msg.push(
+        `\n今日中转：上行 ${s.today.up + s.today.event}，下行 ${s.today.down}`,
+        `\n累计中转：上行 ${s.total.up + s.total.event}，下行 ${s.total.down}`,
+      )
     }
 
     await e.reply(msg.join(""))

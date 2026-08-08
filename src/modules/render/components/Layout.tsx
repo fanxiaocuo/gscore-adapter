@@ -9,6 +9,7 @@ import type { ReactNode } from "react"
 import type { Palette } from "../theme.js"
 import { FRAME_LOGO, PLUGIN_LOGO, imageDataUri } from "../assets.js"
 import { frameLabel, releaseType } from "../env.js"
+import { textWidth } from "../metrics.js"
 
 /** 背景装饰层：光斑、噪点、气氛大字、角落点缀 */
 export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }) {
@@ -99,12 +100,56 @@ export function Header({
 }
 
 /**
+ * 页脚水印布局常量
+ *
+ * 用于反推「整条水印能不能放进一行」，几何与 styles.ts 的 .foot 规则一一对应，
+ * 改那边的尺寸要同步改这里。
+ */
+const FOOT = {
+  /** 画布内容宽 = 1440 - .foot 的左右 padding 72×2 */
+  width: 1296,
+  /** 图标边长，两侧各一个 */
+  icon: 80,
+  /** 图标与文字块的间距（.foot .side 的 gap） */
+  iconGap: 20,
+  /** 水印内各块之间的间距（.foot .wm 的 gap） */
+  blockGap: 32,
+  /** 分隔竖线宽度 */
+  sep: 3,
+  /** 上排小字字号与字距 */
+  capSize: 19,
+  capTrack: 0.2,
+  /** 下排大字字号与字距 */
+  nameSize: 38,
+  nameTrack: -0.01,
+  /** 框架版本小字字号 */
+  smallSize: 24,
+  /**
+   * 最小缩放比
+   *
+   * 0.62 下大字是 23.6px、小字 11.8px —— 已经很小，但仍比换行好看。
+   * 触发它需要极长的版本串（40 字符以上），正常的 git describe 到不了。
+   */
+  minScale: 0.62,
+}
+
+/**
  * 页脚水印：插件图标 + 插件名/版本 ｜ 框架图标 + POWER BY 框架名/版本
  *
  * 版式照 karin-plugin-kkk 的 DefaultLayout：居中一排，左半是插件、右半是框架，
  * 中间一根竖线分隔，两侧各自「图标 + 上小字 + 下大字」。它那边左边用一个内联
  * SVG 当插件标、右边用 /image/frame-logo.png 当框架标，本插件两边都有位图
  * （logo.png 与 frame-logo.png），所以统一走 <img>。
+ *
+ * 为什么要自己算字号
+ * ------------------
+ * 这一排必须是一行。原来靠 flex-wrap 兜底，结果 main 分支上版本号是
+ * `v2.1.0-2-gc6522ee-dirty`（23 字符），整条水印宽度超出画布，框架半边被挤到
+ * 第二行，「插件 ｜ 框架」的并列关系断掉了。
+ *
+ * 改成 nowrap 之后不能只是禁止换行——那样会溢出被 #container 的 overflow:hidden
+ * 裁掉，比换行更糟。所以在 SSR 阶段估一遍总宽（metrics.ts），超了就整体等比缩小，
+ * 由 CSS 变量 --fs 统一作用到所有字号，各块的比例关系不变。
  *
  * 与 kkk 的差异
  * -------------
@@ -154,12 +199,35 @@ export function Footer({
   const frameNm = m ? m[1] : frame
   const frameVer = m ? m[2] : ""
 
+  // ---- 一行放不下就整体缩小 ----
+  // 每块的宽度取「上排小字」与「下排大字」的较大者，三块加上图标与间距即总宽。
+  const cap = (t: string) => textWidth(t, FOOT.capSize, FOOT.capTrack)
+  const nm = (t: string) => textWidth(t, FOOT.nameSize, FOOT.nameTrack)
+
+  const wPlugin = Math.max(cap("PLUGIN"), nm(name))
+  const wVer = Math.max(cap(rtCap), nm(version))
+  const wFrame = Math.max(
+    cap("POWER BY"),
+    nm(frameNm) + (frameVer ? textWidth(` v${frameVer}`, FOOT.smallSize) : 0),
+  )
+
+  // 固定开销：两个图标 + 各自与文字的间距 + 分隔线 + 三道块间距
+  const fixed = (FOOT.icon + FOOT.iconGap) * 2 + FOOT.sep + FOOT.blockGap * 3
+  const need = fixed + wPlugin + wVer + wFrame
+  const scale =
+    need <= FOOT.width ? 1 : Math.max(FOOT.minScale, (FOOT.width - fixed) / (need - fixed))
+
   return (
     <div className="foot">
-      <div className="wm">
-        {/* 插件半边 */}
+      {/* --fs 由 styles.ts 里所有页脚字号乘上，scale=1 时等价于原来的写死值 */}
+      <div className="wm" style={scale < 1 ? ({ "--fs": scale } as React.CSSProperties) : undefined}>
+        {/* 插件半边。ico-plugin 见 styles.ts：logo.png 自带留白，要放大补偿 */}
         <div className="side">
-          {logo && <img className="ico" src={logo} alt="" />}
+          {logo && (
+            <span className="ico ico-plugin">
+              <img src={logo} alt="" />
+            </span>
+          )}
           <div className="txt">
             <div className="cap mono">PLUGIN</div>
             <div className="nm">{name}</div>
@@ -180,7 +248,11 @@ export function Footer({
 
         {/* 框架半边 */}
         <div className="side">
-          {frameLogo && <img className="ico" src={frameLogo} alt="" />}
+          {frameLogo && (
+            <span className="ico ico-frame">
+              <img src={frameLogo} alt="" />
+            </span>
+          )}
           <div className="txt">
             <div className="cap mono">POWER BY</div>
             <div className="nm">
