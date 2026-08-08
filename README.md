@@ -23,6 +23,7 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 - **插件自更新**：`#早柚更新`，转调本体更新逻辑，自动重装依赖并重启
 - **回环防护**：三层拦截，避免 `核心 → 云崽 → 核心` 死循环
 - **双框架兼容**：TRSS-Yunzai / Miao-Yunzai 均可运行，按能力探测自动适配
+- **大文件外链**：框架没有文件服务时自带一个（零依赖、零配置），大图不再发不出去
 
 ---
 
@@ -42,37 +43,57 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 | `Bot.Buffer` | ✅ | ❌ | 垫片（保持三路返回语义） |
 | `Bot.makeForwardMsg` | ✅ 标记对象 | ⚠️ 语义不同 | 按返回值形状判定，转走 Group/Friend 原生实现 |
 | 主人配置 | `master` 分账号 + `masterQQ` | 仅 `masterQQ` | 按字段形状探测，两种结构都认 |
-| `Bot.fileToUrl` | ✅ | ❌ | **无法垫片**，可用 `upload_hook` 补齐，见下 |
+| `Bot.fileToUrl` | ✅ | ❌ | 无法垫片，改用**内置文件服务**顶上，见下 |
 
-### Miao 上的已知限制
+### 大文件外链
 
-**大文件需要自备图床。** `Bot.fileToUrl` 是文件外链服务，Miao 没有对应能力 ——
-没有 HTTP 文件服务就没有外链可给，这是能力缺失，不是可以绕开的 bug
-（伪造一个假 URL 只会让核心侧拿到打不开的链接）。云崽本身也没有可以调用的图床，
-ICQQ 的 `uploadImages` 只上传到腾讯内部，拿不到公网 URL。
+超过 `media_max_size`（默认 10MB）的图片/语音/视频没法塞进 base64，需要一个 http 外链
+让早柚核心来拉。TRSS 用自带的 `Bot.fileToUrl`；Miao 没有这个能力，
+**插件会自己起一个内置文件服务**顶上，默认开启，不需要配置。
 
-具体影响：超过 `media_max_size`（默认 10MB）的图片/语音/视频需要外链，
-小于该值的走 base64 内联，不受影响。`file` 段本身协议就要求全量 base64，两个框架行为一致。
+小于该值的走 base64 内联，两个框架都不受影响。`file` 段协议本身就要求全量 base64，行为一致。
 
-三种处理方式，任选其一：
+降级顺序（按能力探测，不看框架名）：
 
-1. **配 `upload_hook` 接自己的图床**（推荐）。指向一个模块，默认导出上传函数：
+```
+Bot.fileToUrl  →  内置文件服务  →  upload_hook 图床  →  跳过并打 warn
+```
 
-   ```js
-   // 相对云崽根目录或绝对路径，如 plugins/gscore-adapter/my-upload.js
-   export default async (buf, name) => {
-     // 上传 buf，返回 http(s) 链接
-     return "https://图床地址/xxx.png"
-   }
-   ```
+**内置文件服务**（`file_server`）用 `node:http` 实现，不引入 express ——
+只是按 URL 返回一个 buffer，为此加个框架不划算，何况 Miao 本身也没装 express。
 
-   返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。模块只在真正需要外链时
-   才加载，之后缓存；改配置后热重载会自动重新加载。
+- 只在**真的需要外链时**才监听端口；TRSS 用户、以及从不发大图的用户，端口始终不开
+- 文件只存在内存里，`link_expire` 到期自动清，不落盘
+- 路径是 16 字节随机 token，不可枚举；核心取走即删（`once: true`）
+- 端口默认 `0`，由系统分配，不会撞端口
+- 外链的 host 取 **ws 连接的本机出口地址**，而不是写死 `127.0.0.1` ——
+  核心在 Docker 或另一台机器上时，`127.0.0.1` 指的是它自己，拉不到东西
 
-2. **调大 `media_max_size`** 让大文件也走 base64（代价是内存占用和单帧体积）。
-3. **改用 TRSS-Yunzai**，它自带文件服务，无需配置。
+```yaml
+file_server:
+  enable: true      # 关掉则回落到 upload_hook
+  port: 0           # 0 = 随机可用端口
+  host: 0.0.0.0     # 核心常在 Docker/异机，只听 127.0.0.1 它连不进来
+  public_host: ""   # 留空自动推断；推断不对时在这写死云崽的可达地址
+  once: true        # 取走即删；核心侧会重试时设为 false
+```
 
-都没配时会打一条 warn 说明该怎么办，该段消息被跳过。
+**`upload_hook` 图床**是后备：内置服务被关掉或端口起不来时用，
+内网穿透场景下它给的是公网地址，比内置服务更可靠。指向一个模块，默认导出上传函数：
+
+```js
+// 相对云崽根目录或绝对路径，如 plugins/gscore-adapter/my-upload.js
+export default async (buf, name) => {
+  // 上传 buf，返回 http(s) 链接
+  return "https://图床地址/xxx.png"
+}
+```
+
+返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。模块只在真正需要外链时
+才加载，之后缓存；改配置后热重载会自动重新加载。
+
+两条路都不可用时，才会跳过该段并打一条说明该怎么办的 warn。
+也可以直接调大 `media_max_size` 让大文件走 base64，代价是内存占用和单帧体积。
 
 ---
 
@@ -242,12 +263,13 @@ bot_id_map:
 |---|---|---|
 | `media_max_size` | 10 MiB | 媒体转 base64 上限，超过改用 `link://` 外链 |
 | `file_max_size` | 50 MiB | file 段必须内联 base64（协议无 URL 形式），超过直接拒发 |
-| `link_expire` | 300000 | 外链有效期（毫秒）。云崽默认只留 1 分钟，核心拉取慢会拿到超时占位图 |
-| `upload_hook` | `""` | 自定义图床模块路径。仅在框架没有 `Bot.fileToUrl` 时启用，见「Miao 上的已知限制」 |
+| `link_expire` | 300000 | 外链有效期（毫秒），也是内置文件服务的暂存时长。云崽默认只留 1 分钟，核心拉取慢会拿到超时占位图 |
+| `file_server` | 见上 | 内置文件服务，仅在框架没有 `Bot.fileToUrl` 时启用，见「大文件外链」 |
+| `upload_hook` | `""` | 自定义图床模块路径，内置文件服务的后备，见「大文件外链」 |
 | `log_truncate` | true | 日志中截断 base64 |
 | `notify_master` | false | 断线/重连通知主人 |
 
-> ⚠️ `link://` 用的是云崽自身的文件服务地址（`cfg.server.url`）。**若核心跑在 Docker 里，`127.0.0.1` 解析不到**，需要把 `server.url` 配成核心可达的地址。
+> ⚠️ 外链的地址问题：TRSS 用云崽自身的文件服务（`cfg.server.url`），**若核心跑在 Docker 里，`127.0.0.1` 解析不到**，需要把 `server.url` 配成核心可达的地址。走内置文件服务时会自动取 ws 连接的出口地址，通常无需干预；推断不对时用 `file_server.public_host` 写死。
 
 ---
 
@@ -432,8 +454,10 @@ pnpm run typecheck
 同一条消息被两个早柚核心适配器上报了。检查是否还装着框架自带的 `plugins/adapter/GSUIDCore.js` 或其他核心适配器（如 ws-plugin 的相关功能），只留一个。也可能是同一个核心配了多条连接，用 `#早柚连接列表` 查。
 
 **图片发不出去 / 核心拿到占位图**
-核心跑在 Docker 里而 `link://` 外链指向 `127.0.0.1`。把云崽的 `cfg.server.url` 配成核心可达的地址；或调大 `media_max_size` 让图片走 base64 内联。
-若日志里是「当前框架没有 Bot.fileToUrl」，那是跑在 Miao 上且文件超过了 `media_max_size`，按上面「Miao 上的已知限制」配 `upload_hook` 或调大上限。
+先看外链是谁发的。TRSS 走 `cfg.server.url`，核心在 Docker 里而它指向 `127.0.0.1` 就拉不到，改成核心可达的地址。
+Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若核心与云崽跨网段/跨容器导致推断不对，用 `file_server.public_host` 写死云崽的可达地址，并确认 `file_server.host` 不是 `127.0.0.1`（那样核心连不进来）。
+日志里出现「内置文件服务启动失败」多半是端口被占，`port: 0` 交给系统分配即可。
+实在不想折腾就调大 `media_max_size` 让图片走 base64 内联。
 
 **撤回功能突然失效**
 核心连续 3 次拿不到 `recall_message_id` 就会永久关掉撤回。重启核心恢复。若反复出现，说明当前适配器的 `sendMsg` 返回值里取不到 message_id。
