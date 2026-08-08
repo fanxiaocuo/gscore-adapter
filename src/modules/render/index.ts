@@ -25,8 +25,8 @@ import { makeLog } from "@/utils/compat"
 import { buildCss } from "./styles.js"
 import { getPalette, type Palette } from "./theme.js"
 
-/** 固定外壳，见 resources/template/shell.html 顶部注释 */
-const TPL_FILE = join(ResPath, "template", "shell.html")
+/** 固定外壳，见 resources/template/html/shell.html 顶部注释 */
+const TPL_FILE = join(ResPath, "template", "html", "shell.html")
 
 /**
  * 高清倍率：1440px 画布出 2160px 宽的图，缩放到聊天窗口后文字边缘仍清晰。

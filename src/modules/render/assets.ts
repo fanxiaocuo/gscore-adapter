@@ -7,7 +7,7 @@
  * 绝对 file:// 路径又要处理 Windows 盘符与中文路径的转义。内联成 data URI
  * 之后页面完全自包含，和 styles.ts 内联 CSS 是同一个理由。
  *
- * MIME 按魔数嗅探而不是按扩展名：resources/image/frame-logo.png 实际是 JPEG
+ * MIME 按魔数嗅探而不是按扩展名：resources/template/image/frame-logo.png 实际是 JPEG
  * （开头 ff d8），扩展名是错的。写死 image/png 的话 Chromium 仍能靠嗅探显示出来，
  * 但 data URI 的声明与内容不一致，属于埋着的坑，这里一次性判对。
  */
@@ -29,7 +29,7 @@ function sniff(buf: Buffer): string {
 const cache = new Map<string, string>()
 
 /**
- * 读 resources/image/<name> 并转成 data URI
+ * 读 resources/template/image/<name> 并转成 data URI
  * @returns data URI；文件不存在或格式认不出返回空串（调用方据此不渲染 <img>）
  */
 export function imageDataUri(name: string): string {
@@ -38,7 +38,7 @@ export function imageDataUri(name: string): string {
 
   let uri = ""
   try {
-    const buf = fs.readFileSync(join(ResPath, "image", name))
+    const buf = fs.readFileSync(join(ResPath, "template", "image", name))
     const mime = sniff(buf)
     if (mime) uri = `data:${mime};base64,${buf.toString("base64")}`
     else makeLog("warn", `资源 ${name} 不是可识别的图片格式，已跳过`, "GsCore")
