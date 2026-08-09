@@ -52,6 +52,7 @@
     "tsc-alias": "^1.8.16",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
+    "sqlite3": "npm:@karinjs/sqlite3@^0.4.3",
     "ws": "^8.19.0",
     "yaml": "^2.8.2"
   },
