@@ -158,12 +158,16 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 git clone https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 cd plugins/gscore-adapter
 pnpm install   # typescript 等开发依赖
-pnpm build     # src/*.ts -> lib/*.js
+pnpm build     # src/*.ts -> lib/*.js，再扫 lib/ 产出 Tailwind CSS
 ```
 
 > 运行时加载的是编译产物 `lib/`（不入库）。
 > **改完 `src/` 必须重新 `pnpm build`**，否则改动不会生效。
 > 开发时可用 `pnpm build:watch` 自动增量编译。
+>
+> `build` 的两步有顺序依赖：Tailwind 扫的是 `lib/` 下的组件而不是 `src/`，
+> 所以 `build:css` 必须排在 `tsc` 之后。单独跑 `tsc` 会让样式停留在上一次的产物上
+> —— 页面不会报错，只是新写的 utility 类没有对应规则。
 
 ### 配置
 
@@ -417,9 +421,9 @@ gscore-adapter/
 ├── resources/
 │   ├── config/
 │   │   └── default_config.yaml  出厂默认，勿改（升级会覆盖）
-│   ├── image/              插件与框架图标，出图页脚水印用
-│   └── template/
-│       └── shell.html      出图的 HTML 外壳，SSR 结果塞进它再截图
+│   └── template/           出图用的资源
+│       ├── css/            Tailwind 产物（pnpm build 生成，已 gitignore）
+│       └── image/          插件与框架图标，页脚水印用（转 data URI 内联）
 ├── config/
 │   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
 ├── tsconfig.json
@@ -429,9 +433,30 @@ gscore-adapter/
 两者都在 .gitignore 里，克隆下来的仓库没有它们。
 ```
 
-源码内一律用 `@/` 路径别名（如 `@/config`、`@/modules/client`），编译时由 `tsc-alias` 改写成相对路径。所以 `pnpm build` 是 `tsc && tsc-alias` 两步，只跑 `tsc` 产物无法运行。
+`pnpm build` 分两步：`tsdown` 打包，然后 `build:css` 出 Tailwind 产物。
 
-`outDir` 设为 `lib/`（而非常见的 `dist/`）纯属沿用习惯，不再有额外含义：框架配置由 `modules/client/framework.ts` 从 `YunzaiPath` 拼绝对路径动态 import，不像旧版那样依赖 `../../../lib/config/config.js` 这种与目录深度绑定的相对路径。
+第一步由 [tsdown](https://tsdown.dev)（rolldown 内核）把 `src/` 打成**单个** `lib/index.js`。源码内一律用 `@/` 路径别名（如 `@/config`、`@/modules/client`），别名由打包器解析，不再需要 `tsc-alias`；`tsc` 现在只跑 `--noEmit` 做类型检查，不产出文件。
+
+产物必须落在 `lib/index.js` 这一层：框架 loader 只认 `plugins/<name>/index.js`，而根目录的 `index.js` 是 `export * from "./lib/index.js"`；同时 `src/dir.ts` 靠 `import.meta.url` 上跳一级定位插件根，改 `outDir` 或开子目录分块会让 `resources/` 与宿主配置整体读不到。
+
+依赖不打进产物（tsdown 对 `dependencies` 的默认行为）：`react` / `react-dom` / `lucide-react` 在产物里仍是 import 语句，运行时从 `node_modules` 解析——所以 release / preview 分支装完仍需 `pnpm install`。`ws` / `yaml` / `chokidar` 是 peer，复用宿主那一份；`sqlite3` 是原生模块，打包会让 `db.ts` 的降级分支永远走失败路径。理由都写在 `tsdown.config.ts` 顶部。
+
+### 出图那条链
+
+```
+React 组件 → renderToStaticMarkup → buildHtml() 拼成整页 HTML
+          → 写到 temp/html/ → 本体 screenshot() 打开并截图
+```
+
+整页 HTML 由 `render/index.ts` 的 `buildHtml()` 自己拼（DOCTYPE + charset + title + 内联 `<style>` + 一个 `#container`），不再经过 art-template 模板。CSS 必须内联而不能用 `<link>`：puppeteer 用 `file://` 打开临时目录下的 HTML，相对路径的基准是那个目录，链不到插件里的文件。
+
+仍然走本体 `screenshot()` 而不自己驱动 puppeteer——它还管着浏览器生命周期、超时强制重启、每 N 次渲染主动重启、分片截图的 viewport 计算，套模板只占其中很小一块。把已经拼好的 HTML 当"模板"喂进去即可，art-template 对不含 `{{ }}` 的文本逐字节原样返回。
+
+唯一要留意的是本体按路径缓存模板且永不失效（`lib/renderer/Renderer.js`），所以取「每页固定文件名 + 渲染前清掉该键」：路径固定则 chokidar watcher 不会无限增长，清缓存则每次都读到新内容。两者缺一都会静默出错——要么图永远不更新，要么 watcher 泄漏。
+
+第二步把 `src/modules/render/styles/tailwind.css` 编译成 `resources/template/css/tailwind.css`（不入库，CI 会单独构建后再打包）。它扫的是 `src/modules/render/components/*.tsx` —— 打包后 `lib/` 只剩单个文件，没有逐组件的产物可扫了。出图时这份产物由 `styles/index.ts` 读进来内联到 `<style>`，不能用 `<link>` —— puppeteer 走 `file://`，相对路径的基准是 `temp/html/` 下的临时目录。
+
+`outDir` 用 `lib/`（而非常见的 `dist/`）纯属沿用习惯：框架配置由 `modules/client/framework.ts` 从 `YunzaiPath` 拼绝对路径动态 import，不像旧版那样依赖 `../../../lib/config/config.js` 这种与目录深度绑定的相对路径。
 
 ---
 
@@ -453,6 +478,41 @@ node test/integration/e2e.js      # 协议与消息段转换、回环防护
 ```
 
 当前 122 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
+
+### 渲染层
+
+出图那部分另有一套，用 `node:test`：
+
+```bash
+pnpm test                         # 类名对账、主题切换、Tailwind 产物断言等 8 项
+```
+
+> 这些脚本直接 import `src/` 下的 `.ts` / `.tsx`，不再读 `lib/` —— 打包后 `lib/` 只剩
+> 单个 `index.js`，既不导出组件，import 它还会启动插件（ws、文件监听、http 都在
+> 模块副作用里）。所以 `pnpm test` 带 `--import tsx` 现场转译；直接 `node --test`
+> 会因为 `.tsx` 报 `Unknown file extension`。
+>
+> 另外传目录（`node --test test/`）在 Node 24 上会报 `MODULE_NOT_FOUND`，要用通配符。
+
+改版式时的验证不靠肉眼，靠逐元素比对 computed style：
+
+```bash
+pnpm preview                                   # 出 14 张静态 HTML 到 temp/preview（7 fixture × 深浅）
+pnpm contrast                                  # WCAG 对比度，彩色角色色卡 3.5:1
+node --import tsx test/geom.mjs temp/a.json    # 抓每个元素的 boundingBox + computed style
+node --import tsx test/geomdiff.mjs temp/a.json temp/b.json   # 逐项比对
+node --import tsx test/shot.mjs                # 出 JPEG 到 temp/shots，肉眼复核
+```
+
+Tailwind 迁移就是这么验的：6 页 805 元素 51520 项属性，零差异。比对时忽略 `cls` 字段（类名本来就该变），只看几何与最终样式。
+
+开发时用长驻服务器，改完存盘自动重建 + 浏览器自刷新：
+
+```bash
+pnpm dev        # 默认 5175 端口，--port 改端口，--no-open 不自动开浏览器
+```
+
+它每轮起子进程跑 `pnpm build` + `preview.mjs`，而不是在本进程 `import` 加时间戳——后者只能让被点名的模块重新求值，它内部的静态 `import` 照旧命中 ESM 缓存，改 `Layout.tsx` 这种深一层的文件会「重建成功但画面不变」。
 
 类型检查（不产出文件）：
 
@@ -502,9 +562,11 @@ Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若�
 
 - **[KaguyaJs/Yunzai-DF-Plugin](https://github.com/KaguyaJs/Yunzai-DF-Plugin)**
   —— 目录结构与工程约定的参考来源。`src/` 分层（`dir.ts` 路径常量、`types/`、`utils/`、
-  `constants/`、`modules/`）、`@/*` 路径别名配合 `tsc-alias` 的构建方式、
-  `index.js` 只做 re-export 的薄壳入口、`modules/loader/` 自动加载 apps，
+  `constants/`、`modules/`）、`@/*` 路径别名、`index.js` 只做 re-export 的薄壳入口，
   以及 `guoba.support.js` 转调 `lib/modules/guoba/` 的写法，均参照该项目。
+  两处后来分了道：别名改由打包器解析（不再用 `tsc-alias`），
+  `modules/loader/` 也从「扫目录动态 import」换成了静态导入表——打包成单文件后
+  没有目录可扫，理由见 `tsdown.config.ts`。
 
 - **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**
   —— 早柚核心适配的参考实现。
@@ -528,7 +590,10 @@ Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若�
   —— 图片版式与设计 token 的参考来源。`modules/render/` 的画布结构（弥散光背景、
   概览统计条、分组卡片、页脚角标）照其 React 组件的思路重写；
   `#早柚版本` 也是对照它的 `#kkk版本` 做的。
-  实现路线不同：kkk 用 Vite 构建期打包 + Tailwind，本插件是运行时 SSR + 手写 CSS。
+  样式管线也对齐了：两边都用 Tailwind v4 在构建期扫 JSX 产出一份 CSS，
+  且都是运行时 SSR（kkk 的 `src/main.ts` 同样走 `react-dom/server`，没有 hydration）。
+  剩下的差别是缩放方式：kkk 用 `transform: scale`，本插件用 CSS `zoom`
+  —— 喵崽的 `screenshot()` 只读 `#container` 的 boundingBox，`transform` 不改这个盒子。
 
 ---
 
