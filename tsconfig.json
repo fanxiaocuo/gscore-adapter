@@ -1,4 +1,7 @@
 {
+  // 注意：这份配置已经不再驱动构建。打包交给 tsdown（见 tsdown.config.ts），
+  // tsc 只用来 `--noEmit` 做类型检查。下面的 outDir / declaration / sourceMap
+  // 因此都不产出文件，保留是为了让编辑器与 tsc 对模块解析的判断和打包器一致。
   "compilerOptions": {
     "target": "ES2024",
     "module": "ESNext",
@@ -39,8 +42,5 @@
     // 全局 Bot / segment / logger / redis 声明
     "types": ["node", "trss-yunzai"]
   },
-  "include": ["src/**/*"],
-  "tsc-alias": {
-    "resolveFullPaths": true
-  }
+  "include": ["src/**/*"]
 }

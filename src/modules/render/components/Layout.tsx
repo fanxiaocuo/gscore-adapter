@@ -15,10 +15,14 @@ import { textWidth } from "../metrics.js"
 export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }) {
   return (
     <>
-      <div className="bg">
-        <div className="glow glow-1" />
-        <div className="glow glow-2" />
-        <div className="glow glow-3" />
+      {/* 三团弥散光。尺寸/位置/旋转各不相同，没有可共用的部分，所以不做成子组件；
+          颜色走 var(--glow-n)（base 层下发），rotate 与 blur 用任意值。
+          rounded-[9999px] 而不是 rounded-full：后者是 calc(infinity*1px)，
+          浏览器算出来是 3.35544e+07px，与老规则的计算值不同 */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute top-[-270px] left-[-180px] h-[1440px] w-[1260px] rounded-[9999px] blur-[128px] [transform:rotate(-20deg)] [background:radial-gradient(ellipse_at_40%_40%,var(--glow-1)_0%,transparent_70%)]" />
+        <div className="absolute top-[450px] right-[-90px] h-[1080px] w-[900px] rounded-[9999px] blur-[108px] [transform:rotate(15deg)] [background:radial-gradient(ellipse_at_50%_50%,var(--glow-2)_0%,transparent_70%)]" />
+        <div className="absolute bottom-[-180px] left-[180px] h-[900px] w-[1080px] rounded-[9999px] blur-[128px] [transform:rotate(-10deg)] [background:radial-gradient(ellipse_at_50%_60%,var(--glow-3)_0%,transparent_70%)]" />
       </div>
 
       {/* 噪点：SVG feTurbulence，思路取自 kkk tokens.md
@@ -27,8 +31,8 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
           discrete「0 1」的硬二值化，帮助页光噪点就要吃掉 1.4MB。0.3 的颗粒更粗、
           肉眼几乎看不出差别，但给了编码器可压的低频结构。
           同理去掉 feComponentTransfer 的二值量化，保留灰度渐变颗粒。 */}
-      <div className="noise">
-        <svg xmlns="http://www.w3.org/2000/svg">
+      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.04]">
+        <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
           <filter id="n" x="0%" y="0%" width="100%" height="100%">
             <feTurbulence type="fractalNoise" baseFrequency="0.3" numOctaves={1} stitchTiles="stitch" />
             <feColorMatrix type="saturate" values="0" />
@@ -37,34 +41,178 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
         </svg>
       </div>
 
-      {/* ghostTop 由页面给：默认 560px 是按「标题区 + 概览统计条」量出来的，
-          落在统计条下方的列表区。关于页多了一张 hero 卡，内容整体下移约 260px，
-          用默认值大字就正好压在统计卡与前两行 kv 上（styles/backdrop.ts 里记的
-          就是这个毛病）。所以位置跟着版式走，不写死。 */}
-      <div className="ghost" style={ghostTop ? { top: ghostTop } : undefined}>
+      {/*
+       * 竖排气氛大字
+       *
+       * top 默认 560px：概览统计条占 309~500px，起点更高的话大字正好压在第四张卡
+       * （TRACKING / origin/main）背后，字面笔画透过半透明卡片显出来，像脏了。
+       * 560px 起落在统计条下方的列表区，那里行高一致、底色均匀。
+       * 透明度压到 .028——列表卡片比统计卡更透，同样的 .035 在这里更显眼。
+       *
+       * ghostTop 由页面给：关于页多了一张 hero 卡，内容整体下移约 260px，
+       * 用默认值大字就正好压在统计卡与前两行 kv 上。所以位置跟着版式走，不写死。
+       * top-[560px] 只是兜底，给了 ghostTop 就被内联 top 覆盖。
+       */}
+      <div
+        className="pointer-events-none absolute top-[560px] right-[56px] z-0 text-[200px] font-black leading-none tracking-[-.04em] opacity-[.028] [writing-mode:vertical-rl] [text-orientation:mixed]"
+        style={ghostTop ? { top: ghostTop } : undefined}
+      >
         {word}
       </div>
 
-      {/* 9 个点，3 列 × 3 行：与右上角的 3 条刻度线行数相同，两块高度也几乎相等
-          （点阵 3×5 + 2×7 = 29px，刻度 3×4 + 2×4 = 20px，见 styles/backdrop.ts 的对称说明）。
-          之前是 3 列 × 2 行，只有两行、高 17px，与右边三条线一眼就不对称。
-          整块止于 y≈69，徽标那行从 y=72 起——仍在徽标上方，不会挤到状态灯。 */}
-      <div className="dots">
+      {/*
+       * 角落装饰：左上点阵与右上刻度线是一对，要对称
+       *
+       * left/top 与 .page 的 72px padding 拉开：原来放在 48px，点阵右下角正好压到
+       * 徽标那颗 LED 上（点阵止于 y=68，徽标起于 y=72，只差 4px），看着像挤在一起。
+       * 现在整体退到画布边缘 40px 处、并把点阵缩到 3 列，让出徽标所在的横带。
+       *
+       * 两块的几何对齐：点阵 3 列 × 3 行 = 3×5 + 2×7 = 29px 见方；
+       * 刻度 3 条 = 3×4 + 2×4 = 20px 高，最长 72px。行数相同、高度接近、
+       * 最长边同量级，两个角落才配平。曾经是点阵 2 行（17px 高）配 128px 的长刻度线，
+       * 右边分量重出四倍。
+       *
+       * 列宽仍用 repeat(3,1fr) 而不是 grid-cols-3，理由同 Stats：后者的最小值是 0。
+       */}
+      <div className="absolute top-[40px] left-[40px] z-0 grid [grid-template-columns:repeat(3,1fr)] gap-[7px] opacity-[.16]">
         {Array.from({ length: 9 }, (_, i) => (
-          <i key={i} />
+          // 老规则是 `.dots i`，样式挂在生成出来的子元素上，迁移后直接写在 <i> 上
+          <i key={i} className="size-[5px] rounded-[9999px] bg-fg" />
         ))}
       </div>
       {/* 固定宽度而非随机：随机值会让每次截图产生无意义的像素差异。
           最长 72px 而不是 128px：左边点阵只有 29px 宽，右边拖一条 128px 的长线，
           两个角落的分量差了四倍，就是「不对称」的来源。收到 72px 后两块的
           视觉体量接近，仍保持右侧「由长到短」的方向感。 */}
-      <div className="ticks">
+      <div className="absolute top-[40px] right-[40px] z-0 flex flex-col items-end gap-[4px] opacity-[.16]">
         {[72, 52, 32].map(w => (
-          <i key={w} style={{ width: w }} />
+          <i key={w} className="h-[4px] bg-fg" style={{ width: w }} />
         ))}
       </div>
-      <div className="stripes" />
+      {/* 左下斜纹：45° 重复渐变，5px 实线接 5px 透明（transparent 的两个位置故意是
+          2px 与 10px，不是等分——渐变在 5→2 之间反向，产生一道柔边） */}
+      <div className="absolute bottom-0 left-0 z-0 h-[400px] w-[520px] opacity-[.04] [background:repeating-linear-gradient(45deg,var(--fg),var(--fg)_5px,transparent_2px,transparent_10px)]" />
     </>
+  )
+}
+
+/**
+ * 概览统计条：四张等宽大数字卡
+ *
+ * 帮助页、状态页、更新日志页三处的写法一字不差（含取色规则 rotate[i % len]），
+ * 迁移前是 shared.ts 的 .stats/.stat。utility 化之后如果三页各写一遍，那串
+ * 二十来个类就要重复三份——改一处漏两处，而 classes.test.mjs 查的是「类有没有
+ * 定义」，查不出「三处不一致」。所以这里换成组件：类名只有一份，页面传数据。
+ *
+ * .k/.v/.s 这种块内元素名也随之消失，不必再靠祖先限定防跨页撞车。
+ */
+export function Stats({
+  items,
+  palette,
+}: {
+  items: { key: string; value: string; sub?: string }[]
+  palette: Palette
+}) {
+  // 列宽用 repeat(4,1fr) 而不是 grid-cols-4：后者编出来是 repeat(4,minmax(0,1fr))，
+  // 最小值被钉在 0，四列恒等宽；而 1fr 的最小值是 auto，放不下的列可以超出等分。
+  // 四页里只有更新日志页的上排小字够长（NEW COMMITS / LOCAL AHEAD 这类），它那四列
+  // 实际是 382/162/299/380 而非 306×4，卡片高度也因此是 220px 而非 191px。换成
+  // minmax(0,1fr) 会把那页的统计条压回等宽——那是版式改动，不是等价迁移。
+  return (
+    <div className="mb-[72px] grid [grid-template-columns:repeat(4,1fr)] gap-[24px]">
+      {items.map((s, i) => (
+        // 四张卡等高（grid 默认 stretch），内部三行 flex 竖排
+        <div
+          className="flex flex-col gap-[6px] rounded-[28px] border border-border bg-surface p-[30px]"
+          key={i}
+        >
+          <div className="font-mono text-[19px] font-extrabold uppercase leading-[1.3] tracking-[.16em] text-muted">
+            {s.key}
+          </div>
+          {/* tabular-nums：等宽数字让四张卡的数字宽度一致，不会因 1 比 8 窄而歪 */}
+          <div
+            className="text-[60px] font-black leading-[1.05] tracking-[-.02em] [font-variant-numeric:tabular-nums]"
+            style={{ color: palette.rotate[i % palette.rotate.length] }}
+          >
+            {s.value}
+          </div>
+          {/* mt-auto 贴底：某张卡没有 sub 时，其余三张的数值也不会错位 */}
+          {s.sub && <div className="mt-auto text-[21px] leading-[1.4] text-muted">{s.sub}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * 分节标题：圆点 + 文字 + 一条向右淡出的渐变线
+ *
+ * 关于页的「环境摘要 / 本版变更」与状态页的分组明细都用它。原是 shared.ts 的 .sec
+ * （更早叫 .rt-sec，是关于页私有类被状态页借用——改哪边都会波及对方，见 index.ts
+ * 顶部记的那三条拆分理由）。做成组件后「借用」这件事在类型上就不成立了。
+ *
+ * 渐变线与圆点的颜色都来自运行时轮换色，走内联 style；组件只定形。
+ */
+export function Section({
+  title,
+  color,
+  right,
+}: {
+  title: string
+  color: string
+  /** 标题右侧的次级信息，如版本号与日期 */
+  right?: ReactNode
+}) {
+  return (
+    <div className="mb-[36px] flex items-center gap-[16px]">
+      <span className="size-[11px] flex-none rounded-[9999px]" style={{ background: color }} />
+      <span className="text-[26px] font-extrabold leading-none tracking-[.16em] text-muted">
+        {title}
+      </span>
+      {right && (
+        // 比标题再轻一档
+        <span className="flex-none font-mono text-[22px] font-bold leading-none opacity-80 text-muted">
+          {right}
+        </span>
+      )}
+      {/* max-w 让线不至于在窄标题下拉满整宽，opacity 让渐变末端更柔 */}
+      <span
+        className="h-[3px] max-w-[220px] flex-1 rounded-[9999px] opacity-[.55]"
+        style={{ background: `linear-gradient(90deg,${color},transparent)` }}
+      />
+    </div>
+  )
+}
+
+/**
+ * 空态卡：状态页「暂无连接」、更新日志页「已是最新」
+ *
+ * 虚线描边而不是实线——与两页的实线内容卡区分开，一眼能看出「这里本该有东西」。
+ * whitespace-pre-line 保留说明里的换行（提示文案带 \n 分段）。
+ */
+export function Empty({ title, tip }: { title: string; tip: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-[16px] rounded-[32px] border border-dashed border-border bg-surface px-[80px] py-[96px] text-center">
+      <div className="text-[44px] font-black leading-[1.2]">{title}</div>
+      <div className="text-[26px] leading-[1.7] whitespace-pre-line text-muted">{tip}</div>
+    </div>
+  )
+}
+
+/**
+ * 提示条：fetch 失败等非致命情况用它说明，不占用空态位置
+ *
+ * 左侧粗边当色标，颜色由调用方按语义色内联给（border-l-[6px] 只定宽，
+ * 四边的颜色仍走内联的 borderColor）。
+ */
+export function Notice({ text, color }: { text: string; color: string }) {
+  return (
+    <div
+      className="mb-[44px] rounded-[24px] border border-l-[6px] px-[32px] py-[26px] text-[25px] leading-[1.65] break-words"
+      style={{ color, background: `${color}14`, borderColor: `${color}3d` }}
+    >
+      {text}
+    </div>
   )
 }
 
@@ -83,17 +231,50 @@ export function Header({
   rightValue: string
 }) {
   return (
-    <div className="head">
-      <div className="head-l">
-        <div className="badge">
-          <span className={led === "on" ? "led" : `led ${led}`} />
-          <span className="mono">{status}</span>
+    // border-b-border 而不是 border-border：老规则只给 border-bottom 上色，
+    // 其余三边的颜色仍是 reset 的 currentColor（宽度 0 看不见，但逐元素比对算差异）
+    <div className="mb-[72px] flex items-end justify-between border-b-4 border-b-border pb-[32px]">
+      {/* gap 22px：徽标与 104px 的巨型标题之间原来只隔 10px，上面又压着角落点阵，
+          整条徽标被夹在两者中间。标题字号大，间距也得按比例给 */}
+      <div className="flex flex-col gap-[22px]">
+        {/* pl-[4px]：徽标是个独立胶囊，左移会与巨型标题的左边缘脱开，所以只给很小的
+            内缩——让 LED 离开角落装饰的视觉范围，标题仍与它左对齐 */}
+        <div className="flex items-center gap-[14px] pl-[4px] opacity-70">
+          {/*
+           * 字号字距要写在这颗圆点上，尽管它没有文字
+           * ------
+           * 老规则是 `.badge span`，两个 span 都命中，圆点也就跟着拿到 20px/.22em/700。
+           * 它自身不显示文字，看不出区别，但 letter-spacing 会在行内盒右侧留出
+           * 一个字距的空位——删掉的话徽标整体宽度会变，逐元素比对上是差异。
+           */}
+          {/* text-muted 同理：老规则给两个 span 都上了 muted 前景色，圆点虽然不显示文字，
+              但 color 是计算值，不写就会从 #container 继承 fg。
+              光晕走任意属性而不是 shadow-* 那族：后者是与 ring/inset 合成的复合属性，
+              即使只给一层也会展开成 `rgba(0,0,0,0) 0 0 0 0, …` 那一长串。
+              注意这里刻意不把那个写法原样抄进注释——扫描器是正则级别的，会把注释里
+              带方括号的片段也当候选，抄一次就多一条以省略号为值的死规则。 */}
+          <span
+            className={`size-[10px] flex-none rounded-[9999px] text-[20px] font-bold uppercase leading-none tracking-[.22em] text-muted ${
+              led === "off"
+                ? "bg-muted"
+                : led === "warn"
+                  ? "bg-warning [box-shadow:0_0_12px_var(--warning)]"
+                  : "bg-success [box-shadow:0_0_12px_var(--success)]"
+            }`}
+          />
+          <span className="font-mono text-[20px] font-bold uppercase leading-none tracking-[.22em] text-muted">
+            {status}
+          </span>
         </div>
-        <h1 className="title">{title}</h1>
+        {/* 没引 preflight，h1 仍带浏览器默认字号字重，字号字重必须显式写出 */}
+        <h1 className="text-[104px] font-black leading-[.95] tracking-[-.045em]">{title}</h1>
       </div>
-      <div className="head-r">
-        <div className="k">{rightKey}</div>
-        <div className="v">{rightValue}</div>
+      {/* 与左侧巨型标题的基线对齐靠父级的 items-end，这里只保证两行自身紧凑 */}
+      <div className="flex flex-col gap-[8px] pb-[8px] text-right">
+        <div className="text-[19px] font-extrabold uppercase leading-none tracking-[.2em] text-muted">
+          {rightKey}
+        </div>
+        <div className="text-[34px] font-extrabold leading-[1.1]">{rightValue}</div>
       </div>
     </div>
   )
@@ -218,57 +399,98 @@ export function Footer({
     need <= FOOT.width ? 1 : Math.max(FOOT.minScale, (FOOT.width - fixed) / (need - fixed))
 
   return (
-    <div className="foot">
-      {/* --fs 由 styles/frame.ts 里所有页脚字号乘上，scale=1 时等价于原来的写死值 */}
-      <div className="wm" style={scale < 1 ? ({ "--fs": scale } as React.CSSProperties) : undefined}>
-        {/* 插件半边。ico-plugin 见 styles/frame.ts：logo.png 自带留白，要放大补偿 */}
-        <div className="side">
+    <div className="relative z-10 flex flex-col items-center gap-[26px] px-[72px] pt-0 pb-[64px]">
+      {/*
+       * --fs 由下面所有页脚字号乘上，scale=1 时等价于原来的写死值。
+       * nowrap + white-space:nowrap 一起给：main 分支的版本号是
+       * v2.1.0-2-gc6522ee-dirty，整排宽度超过内容宽 1296px，框架半边会被甩到第二行，
+       * 「插件 × 框架」的并列关系就断了。禁止换行后靠 --fs 等比缩字号保证放得下。
+       */}
+      <div
+        className="flex max-w-full flex-nowrap items-center justify-center gap-[32px] whitespace-nowrap [--fs:1]"
+        style={scale < 1 ? ({ "--fs": scale } as React.CSSProperties) : undefined}
+      >
+        {/* 插件半边：图标 + 两行文字，items-center 让图标对齐文字块中线 */}
+        <div className="flex min-w-0 items-center gap-[20px]">
           {logo && (
-            <span className="ico ico-plugin">
-              <img src={logo} alt="" />
+            /*
+             * 图标：外层 span 定框，内层 img 决定字形实际大小
+             * ------
+             * 两张图构图不同：logo.png（1024²）的字形只占画幅 70.7%（实测 alpha
+             * 包围盒 724px），frame-logo.png 是满幅 JPEG。同样塞进框、同样内缩时，
+             * 早柚字形只有 42px、云崽有 60px——差三分之一，就是「适配器图标偏小」
+             * 的来源。所以这里让 img 溢出框 112% 把那圈留白顶出去（字形 =
+             * 80 × 1.12 × 0.707 ≈ 63px），overflow-hidden 裁掉溢出部分。
+             *
+             * 不给底色和描边：logo.png 是透明底 PNG，加了淡底 + 边框就变成两个方块
+             * 罩在字形外，页脚这行本来只是水印，方框比它要标记的内容更抢眼。
+             * 圆角留着只为裁剪溢出，透明背景下看不出来。
+             */
+            <span className="flex size-[80px] flex-none items-center justify-center overflow-hidden rounded-[20px]">
+              <img className="block size-[112%] object-contain" src={logo} alt="" />
             </span>
           )}
-          <div className="txt">
-            <div className="cap mono">PLUGIN</div>
-            <div className="nm">{name}</div>
+          <div className="flex min-w-0 flex-col gap-[7px]">
+            {/* 上排小字（PLUGIN / POWER BY）：字距拉开，与下排的粗名字分层 */}
+            <div className="font-mono text-[calc(19px*var(--fs))] font-extrabold uppercase leading-none tracking-[.2em] text-muted">
+              PLUGIN
+            </div>
+            <div className="text-[calc(38px*var(--fs))] font-black leading-none tracking-[-.01em]">
+              {name}
+            </div>
           </div>
         </div>
 
-        {/* 版本号 + 发布类型 */}
-        <div className="ver">
-          <div className="cap mono" style={{ color: verColor }}>
+        {/* 版本号块：与两侧的名字同高，靠 leading-none 对齐 */}
+        <div className="flex min-w-0 flex-col gap-[7px]">
+          <div
+            className="font-mono text-[calc(19px*var(--fs))] font-extrabold uppercase leading-none tracking-[.2em]"
+            style={{ color: verColor }}
+          >
             {rtCap}
           </div>
-          <div className="num" style={{ color: verColor }}>
+          <div
+            className="text-[calc(38px*var(--fs))] font-black leading-none tracking-[-.01em] [font-variant-numeric:tabular-nums]"
+            style={{ color: verColor }}
+          >
             {version}
           </div>
         </div>
 
-        <div className="sep" />
+        {/* 分隔竖线：高度取文字块高度（19 + 7 + 38 = 64），略收到 56 留出呼吸 */}
+        <div className="h-[56px] w-[3px] flex-none rounded-[9999px] bg-border" />
 
         {/* 框架半边 */}
-        <div className="side">
+        <div className="flex min-w-0 items-center gap-[20px]">
           {frameLogo && (
-            <span className="ico ico-frame">
-              <img src={frameLogo} alt="" />
+            /* 满幅图内缩 8px，字形 = 80 - 16 = 64px，与左边的 63px 相当。
+               frame-logo 是满幅 JPEG 自带白底，本身就是个方块，不需要再补边框框住它 */
+            <span className="flex size-[80px] flex-none items-center justify-center overflow-hidden rounded-[20px]">
+              <img className="block size-full p-[8px] object-contain" src={frameLogo} alt="" />
             </span>
           )}
-          <div className="txt">
-            <div className="cap mono">POWER BY</div>
-            <div className="nm">
+          <div className="flex min-w-0 flex-col gap-[7px]">
+            <div className="font-mono text-[calc(19px*var(--fs))] font-extrabold uppercase leading-none tracking-[.2em] text-muted">
+              POWER BY
+            </div>
+            <div className="text-[calc(38px*var(--fs))] font-black leading-none tracking-[-.01em]">
               {frameNm}
-              {frameVer && <small className="mono"> v{frameVer}</small>}
+              {/* 框架版本跟在框架名后面，小一档并压低不透明度 */}
+              {frameVer && (
+                <small className="font-mono text-[calc(24px*var(--fs))] font-bold tracking-normal text-muted">
+                  {" "}
+                  v{frameVer}
+                </small>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* 时间戳与提示：kkk 把这类信息放在正文末尾，本插件几个页面都靠页脚给，
-          所以留一行居中小字，与上面的水印分层。
-          类名是 .lines 而不是 .sub —— .sub 是帮助页「子分组」的语义，
-          同名不同义正是拆分前最难改的那类耦合，见 styles/frame.ts */}
+          所以留一行居中小字，与上面的水印分层 */}
       {lines.length > 0 && (
-        <div className="lines mono">
+        <div className="flex flex-wrap items-center justify-center gap-[28px] font-mono text-[20px] leading-[1.5] opacity-75 text-muted">
           {lines.map((t, i) => (
             <span key={i}>{t}</span>
           ))}
@@ -299,7 +521,7 @@ export function Page({
   return (
     <>
       <Backdrop word={word} ghostTop={ghostTop} />
-      <div className="page">{children}</div>
+      <div className="relative z-10 p-[72px]">{children}</div>
     </>
   )
 }

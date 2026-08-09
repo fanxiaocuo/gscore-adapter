@@ -3,7 +3,10 @@
  *
  * 云崽文件字段 <-> 早柚核心媒体串（base64:// 与 link:// 两种形式）
  */
+import { join, isAbsolute } from "node:path"
+import { pathToFileURL } from "node:url"
 import { config, onConfigReload } from "@/config"
+import { YunzaiPath } from "@/dir"
 import { logStr } from "./logger.js"
 import { makeLog, toStr, toBuffer, fileToUrl } from "./compat.js"
 import { serveFile, fileServerEnabled } from "./fileServer.js"
@@ -42,9 +45,6 @@ async function getUploadHook() {
   if (!p) return (uploadHook = null)
 
   try {
-    const { join, isAbsolute } = await import("node:path")
-    const { pathToFileURL } = await import("node:url")
-    const { YunzaiPath } = await import("@/dir")
     // 相对路径按云崽根目录解析，与配置文件里其它路径的习惯一致
     const abs = isAbsolute(p) ? p : join(YunzaiPath, p)
     const mod = await import(pathToFileURL(abs).href)

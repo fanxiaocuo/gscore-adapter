@@ -5,7 +5,7 @@
  * 中间主信息、右侧状态灯胶囊。
  */
 import type { Palette } from "../theme.js"
-import { Footer, Header, Page } from "./Layout.js"
+import { Empty, Footer, Header, Page, Section, Stats } from "./Layout.js"
 
 /** 一条连接的展示数据 */
 export interface ConnRow {
@@ -78,48 +78,66 @@ export function Status(data: StatusData) {
           rightValue={data.mode}
         />
 
-        <div className="stats">
-          {data.summary.map((s, i) => (
-            <div className="stat" key={i}>
-              <div className="k mono">{s.key}</div>
-              <div className="v" style={{ color: p.rotate[i % p.rotate.length] }}>
-                {s.value}
-              </div>
-              {s.sub && <div className="s">{s.sub}</div>}
-            </div>
-          ))}
-        </div>
+        <Stats items={data.summary} palette={p} />
 
         {data.rows.length === 0 ? (
-          <div className="empty">
-            <div className="t">暂无连接</div>
-            <div className="d">{data.emptyTip || "用 #早柚添加连接 <地址> 添加"}</div>
-          </div>
+          <Empty title="暂无连接" tip={data.emptyTip || "用 #早柚添加连接 <地址> 添加"} />
         ) : (
-          <div className="st-conns">
+          <div className="flex flex-col gap-[22px]">
             {data.rows.map(row => {
               const c = toneColor(p, row.tone)
               return (
-                <div className="st-conn" key={row.index}>
-                  <div className="idx mono">{String(row.index).padStart(2, "0")}</div>
-                  <div className="main">
-                    <div className="nm">{row.name}</div>
-                    <div className="url mono">{row.url}</div>
+                // 刻意不给 items-center：序号、主信息、胶囊三者的对齐各有讲究，
+                // 由子元素各自的 self-center 决定（见下面序号那段注释）
+                <div
+                  className="flex gap-[26px] rounded-[28px] border border-border bg-surface px-[32px] py-[28px]"
+                  key={row.index}
+                >
+                  {/*
+                   * self-center 对齐整条连接的垂直中线。
+                   *
+                   * 曾经是 self-start + -mt-[7px] 去对齐「名字那一行」，那个 −7px 按
+                   * 「名字 + url」两行反推：名字行高 46px 中线 23px，方块高 58px 中线 29px。
+                   * 但卡片行数是变的——带 token / 重连次数时多出一行 meta 标签，三行内容下
+                   * 方块就贴到卡片最上沿，与右侧胶囊也不在一条线上。居中后三者共用同一条
+                   * 中线，行数再变都不会飘。
+                   */}
+                  <div className="w-[60px] flex-none self-center rounded-[14px] border border-border bg-inset py-[16px] text-center font-mono text-[26px] font-extrabold leading-none text-muted">
+                    {String(row.index).padStart(2, "0")}
+                  </div>
+                  {/* min-w-0 让长 url 在下面 break-all 得以生效，否则 flex 子项不肯收缩 */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
+                    <div className="text-[38px] font-black leading-[1.2]">{row.name}</div>
+                    <div className="break-all font-mono text-[23px] leading-[1.45] text-muted">
+                      {row.url}
+                    </div>
                     {row.meta.length > 0 && (
-                      <div className="meta">
+                      <div className="mt-[4px] flex flex-wrap gap-[10px]">
                         {row.meta.map((m, i) => (
-                          <em key={i} className="mono">
+                          // not-italic：em 的默认斜体在等宽字下很难看
+                          <em
+                            key={i}
+                            className="rounded-[10px] border border-border bg-inset px-[13px] py-[5px] font-mono text-[20px] not-italic leading-[1.4] text-muted"
+                          >
                             {m}
                           </em>
                         ))}
                       </div>
                     )}
                   </div>
+                  {/*
+                   * 状态胶囊：形由 utility 定，色由语义色内联给。
+                   * 1f / 3d 是给 hex 补 alpha（约 12% 底、24% 描边），var() 拼不出来。
+                   * self-center 是必须的——父级没有 items-center。
+                   */}
                   <div
-                    className="pill"
+                    className="flex flex-none items-center gap-[11px] self-center rounded-[9999px] px-[22px] py-[14px] text-[24px] font-extrabold leading-none"
                     style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
                   >
-                    <span className="led" style={{ background: c, boxShadow: `0 0 10px ${c}` }} />
+                    <span
+                      className="size-[12px] flex-none rounded-[9999px]"
+                      style={{ background: c, boxShadow: `0 0 10px ${c}` }}
+                    />
                     {row.state}
                   </div>
                 </div>
@@ -129,28 +147,32 @@ export function Status(data: StatusData) {
         )}
 
         {/* 分组明细：两列铺开，每块内部是 key/value 行。
-            分节标题用 shared 的 .sec —— 原先借的是关于页私有的 .rt-sec，
-            两页共用的东西现在统一放 styles/shared.ts，不再有借用关系 */}
+            分节标题复用 Layout 的 <Section> —— 原先借的是关于页私有的 .rt-sec，
+            做成组件之后「借用」在类型上就不成立了 */}
         {data.panels && data.panels.length > 0 && (
-          <div className="st-panels">
+          // column-gap 给到 64px：两列都是「左标签右取值」的两端对齐结构，列间距
+          // 小于列内空档时，右列的标签会读成左列取值的一部分。
+          // mt-[72px] 与 Stats 的 mb-[72px] 同值，纵向节奏一致。
+          <div className="mt-[72px] grid [grid-template-columns:repeat(2,1fr)] gap-[56px_64px]">
             {data.panels.map((panel, pi) => (
-              <div className="st-panel" key={pi}>
-                <div className="sec">
-                  <span className="dot" style={{ background: p.rotate[pi % p.rotate.length] }} />
-                  <span className="t">{panel.title}</span>
-                  <span className="ver mono">{panel.key}</span>
-                  <span
-                    className="line"
-                    style={{
-                      background: `linear-gradient(90deg,${p.rotate[pi % p.rotate.length]},transparent)`,
-                    }}
-                  />
-                </div>
-                <div className="st-kv">
+              // min-w-0：否则长取值会把这一列撑宽，两列不再等分
+              <div className="min-w-0" key={pi}>
+                <Section
+                  title={panel.title}
+                  color={p.rotate[pi % p.rotate.length]}
+                  right={panel.key}
+                />
+                <div className="flex flex-col gap-[14px]">
                   {panel.items.map((it, ii) => (
-                    <div className="row" key={ii}>
-                      <span className="k">{it.k}</span>
-                      <span className="v mono">{it.v}</span>
+                    // items-baseline：取值用等宽字、标签用正文字，基线对齐才不会一高一低
+                    <div
+                      className="flex items-baseline gap-[14px] text-[23px] leading-[1.5]"
+                      key={ii}
+                    >
+                      <span className="flex-none text-muted">{it.k}</span>
+                      <span className="min-w-0 flex-1 break-words text-right font-mono font-bold">
+                        {it.v}
+                      </span>
                     </div>
                   ))}
                 </div>

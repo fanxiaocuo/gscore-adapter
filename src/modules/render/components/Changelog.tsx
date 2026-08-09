@@ -10,7 +10,7 @@
  */
 import type { Palette } from "../theme.js"
 import type { Commit } from "@/modules/update/git.js"
-import { Footer, Header, Page } from "./Layout.js"
+import { Empty, Footer, Header, Notice, Page, Stats } from "./Layout.js"
 
 export interface ChangelogData {
   title: string
@@ -48,43 +48,36 @@ export function Changelog(data: ChangelogData) {
           rightValue={data.rightValue}
         />
 
-        <div className="stats">
-          {data.summary.map((s, i) => (
-            <div className="stat" key={i}>
-              <div className="k mono">{s.key}</div>
-              <div className="v" style={{ color: p.rotate[i % p.rotate.length] }}>
-                {s.value}
-              </div>
-              {s.sub && <div className="s">{s.sub}</div>}
-            </div>
-          ))}
-        </div>
+        <Stats items={data.summary} palette={p} />
 
-        {data.notice && (
-          <div
-            className="notice"
-            style={{ color: p.warning, background: `${p.warning}14`, borderColor: `${p.warning}3d` }}
-          >
-            {data.notice}
-          </div>
-        )}
+        {data.notice && <Notice text={data.notice} color={p.warning} />}
 
         {data.commits.length === 0 ? (
-          <div className="empty">
-            <div className="t">{data.emptyTitle}</div>
-            <div className="d">{data.emptyTip}</div>
-          </div>
+          <Empty title={data.emptyTitle} tip={data.emptyTip} />
         ) : (
-          <div className="cl-logs">
+          <div className="flex flex-col gap-[18px]">
             {data.commits.map((c, i) => (
-              <div className="cl-log" key={c.hash + i}>
-                {/* hash 用主情绪色轮换：一屏几十行，纯灰会糊成一片 */}
-                <div className="sha mono" style={{ color: p.rotate[i % p.rotate.length] }}>
+              // align-items:center 而不是 flex-start：右侧「标题 + 时间」两行，左边短
+              // hash 只有一行，顶对齐会让 hash 明显偏上
+              <div
+                className="flex items-center gap-[28px] rounded-[24px] border border-border bg-surface px-[32px] py-[26px]"
+                key={c.hash + i}
+              >
+                {/*
+                 * hash 做成独立胶囊：等宽 + 定宽让标题左边缘对齐成一列（短 hash 恒 7 位），
+                 * 淡底把它和标题分层，一屏几十行时更容易扫读。
+                 * 颜色用主情绪色轮换——纯灰会糊成一片，取值要拼下标所以走内联。
+                 */}
+                <div
+                  className="w-[132px] flex-none rounded-[12px] border border-border bg-inset py-[11px] text-center font-mono text-[25px] font-extrabold leading-none"
+                  style={{ color: p.rotate[i % p.rotate.length] }}
+                >
                   {c.hash}
                 </div>
-                <div className="main">
-                  <div className="msg">{c.subject}</div>
-                  <div className="at mono">{c.date}</div>
+                <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
+                  {/* break-words 而非 break-all：提交标题多为中文，后者会从词中间断开 */}
+                  <div className="text-[30px] font-bold leading-[1.45] break-words">{c.subject}</div>
+                  <div className="font-mono text-[21px] text-muted">{c.date}</div>
                 </div>
               </div>
             ))}

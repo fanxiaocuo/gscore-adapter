@@ -1,0 +1,129 @@
+/*
+ * Tailwind 入口：编译期由 @tailwindcss/cli 扫描 ../components/*.tsx 生成 utility
+ *
+ * 放在 styles/ 而不是 render/ 根下：它与同目录的 base.ts（写 reset 与 :root 变量）、
+ * index.ts（把产物读回来内联）是同一件事的三个部分，摆一起才看得出关系。
+ *
+ * 下面的 @source 是**相对本文件**解析的，挪动本文件就得同步改那一行；改漏了不报错，
+ * 只是扫不到候选、utilities 层静默变空（症状见下面「@source 指向 tsx 源码」一段）。
+ * package.json 的 build:css / build:watch 里也写死了本文件路径，一并改。
+ *
+ * 产物落到 resources/template/css/tailwind.css（不入库，见 .gitignore），
+ * 运行时由 styles/index.ts 读进来内联到 <style>。为什么必须内联而不是 <link>：
+ * 本体把 HTML 写到 temp/html/{name}/ 再让 puppeteer 用 file:// 打开，相对路径的
+ * 基准是那个临时目录而不是插件目录（同 assets.ts 把图片转 data URI 的理由）。
+ *
+ * 刻意不引 preflight
+ * ------------------
+ * 只 import theme.css + utilities.css，跳过 tailwindcss/preflight.css。
+ * preflight 会重置 img 的 display、表单控件外观、以及 h1-h6 的字号字重，
+ * 而这套版面的 reset 已经由 styles/base.ts 那条 `*,*::before,*::after` 负责，
+ * 两者叠加会改变现有像素（img 变 block 会让页脚角标错位）。这次改造的验收标准
+ * 是「像素不变」，所以 reset 保持原样，Tailwind 只提供 utility。
+ *
+ * @source 指向 tsx 源码
+ * --------------------
+ * 曾经扫的是 lib/modules/render/components/*.js（理由是「产物一定与实际渲染同步」），
+ * 换 tsdown 打包后那个目录不存在了——产物是单个 lib/index.js。glob 失配不会报错，
+ * 只是扫不到任何候选，utilities 层静默变空：产物从 13KB 掉到 149 字节，页面整体
+ * 掉样式。所以现在扫源码。
+ *
+ * 扫 tsx 是安全的：v4 的扫描器只做正则级别的候选提取，不解析 TSX 语法，className
+ * 里的字面量照样取得到（这也是当初判断「两边结果一样」的依据）。代价是删掉一个
+ * 组件后若没重新 build，会残留几条用不上的规则——classes.test.mjs 的死规则检查
+ * 会逮到，比静默掉样式好得多。
+ *
+ * source(none) 是必须的：不写它的话 v4 会在入口文件所在目录之上自动探测源文件，
+ * 于是 theme.ts / theme.js 里一句提到 `text-muted` 的注释也会被当成用到了这个类
+ * （曾因此凭空多出 .text-muted 与 .font-mono 两条死规则，被 classes.test.mjs 逮到）。
+ * 关掉自动探测之后，扫描范围就只剩下面这一行显式声明的 glob。
+ */
+/*
+ * 层序：reset 必须排在 utilities 之前
+ * ---------------------------------
+ * reset 层的内容不在这个文件里，而是 styles/base.ts 那条 `*,*::before,*::after`
+ * ——它现在包在 `@layer reset{}` 里。这里只声明顺序，因为层的先后由「首次出现的
+ * 位置」决定，而 buildCss 把本文件的产物拼在最前，正好是宣告顺序的地方。
+ *
+ * 为什么非得这么排：reset 里有 `padding:0`，特异度和层都不管的话，无层规则永远
+ * 压过 @layer——于是 px-[32px] / py-[26px] 这类 utility 会静默失效（生成了规则，
+ * 页面上量到的 padding 仍是 0）。迁移第一页时就是这么翻车的：卡片高度从 132.5px
+ * 掉到 80.5px，CSS 里却明明白白有那条 padding-inline:32px。
+ *
+ * 反过来把 reset 留在无层、让页面样式也无层同样不行：那等于所有 utility 都要跟
+ * reset 打架，而 reset 命中的是每一个元素。
+ */
+@layer reset, theme, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "../components/*.tsx";
+
+/*
+ * 扫描器的误报要在这里挡掉
+ * ------------------------
+ * v4 的候选提取是正则级别的：它不解析 JS，只是把源文件里像类名的词都当候选，
+ * 命中内置 utility 就生成规则。于是这些词被当成了类名——
+ *   contents / visible   注释里提到的 CSS 取值
+ *   fixed                Layout.tsx 的局部变量 `const fixed = …`
+ *   filter               SVG 的 <filter> 元素与 filter="url(#n)" 属性
+ *   hidden               aria-hidden 属性
+ *   container            注释里提到的 #container
+ * 组件里没有任何一个元素真的带这些 class（有 grep 为证），生成的规则全是死的。
+ *
+ * 改成扫 .tsx 源码之后又多了四个，来源全是注释里对写法的解释：
+ *   -mt-[7px]            Status.tsx 讲「曾经用 -mt-[7px] 对齐」的那段
+ *   [box-shadow:         Layout.tsx 讲「用 [box-shadow:…] 而不是 shadow-[…]」
+ *   blur                 Layout.tsx 讲「rotate 与 blur 用任意值」
+ *   tabular-nums         About.tsx 讲「tabular-nums 让数字等宽」
+ * 真正在用的是 blur-[128px] 与 [font-variant-numeric:tabular-nums] 这类完整写法，
+ * 裸的 blur / tabular-nums 没有任何元素带。这正是扫源码要付的代价（扫编译产物时
+ * 注释已被剥掉，不会有这个问题），但比 glob 失配导致整层 utility 变空好得多。
+ *
+ * 死规则不只是体积问题，.container 是个真陷阱：本体外壳的根节点是 #container，
+ * 哪天有人手滑写成 class="container"，1440px 的画布会被 max-width:40rem 压成 640px，
+ * 而这条规则的来源是一句注释——排查时没人会往这儿想。
+ *
+ * 挡在这里而不是放宽 classes.test.mjs 的「死规则」断言：那条断言正是用来发现
+ * 「CSS 里有、页面上没有」的，为了迁移把它调松，等于把唯一能报警的东西关掉。
+ *
+ * 这张名单只放「真的不是类名」的词，不能拿它挡「暂时还没人用」的 utility
+ * ——迁移过程中踩过一次：flex / grid / border / absolute 当初也在名单里（来源同样是
+ * 注释），等组件真的写上 class="flex border" 时被这行静默拦掉，页面回落成 block 布局、
+ * padding 与描边全丢，而 CSS 里查不到任何痕迹。所以某个词一旦成为真类名，就从这里删掉。
+ */
+@source not inline("contents hidden visible fixed filter container");
+@source not inline("blur tabular-nums -mt-[7px]");
+
+
+/*
+ * 设计 token
+ *
+ * 颜色不写死在这里，而是指向 styles/base.ts 在 :root 上下发的 --* 变量
+ * （theme.ts 的 cssVars）。这样 token 只有一处真源：Palette。
+ * 于是 `text-muted` 展开成 color:var(--color-muted)，而 --color-muted 又是
+ * var(--muted) —— 两跳，但保证「改 Palette 一处生效」。
+ *
+ * 间距刻意不定义：这套版面的数值（72px padding、24px gap、28px radius）不成
+ * 4px 网格的等差体系，硬套 spacing scale 会让每个值都变成 p-[18] 之类的近似，
+ * 反而不如任意值 p-[72px] 直白。所以间距/字号全走任意值，token 只管颜色与字体栈。
+ */
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-inset: var(--inset);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans:
+    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+}

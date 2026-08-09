@@ -3,7 +3,9 @@ import ts from "typescript-eslint"
 import prettier from "eslint-config-prettier"
 
 export default ts.config(
-  { ignores: ["lib/", "node_modules/", "docs/"] },
+  // temp/ 是本地产物与一次性探针脚本（预览 HTML、几何指纹、调试用的 puppeteer
+  // 脚本），不入库也不该被 lint。
+  { ignores: ["lib/", "node_modules/", "docs/", "temp/"] },
   js.configs.recommended,
   ...ts.configs.recommended,
   prettier,
@@ -28,9 +30,17 @@ export default ts.config(
     },
   },
   {
-    // 测试用 node:assert 与顶层 await，不做类型约束。
+    // 测试与开发脚本用 node:assert、顶层 await、console/process，不做类型约束。
     // Node 全局在这里显式列出，而不是引入 globals 包 —— 用到的就这几个。
-    files: ["test/**/*.js", "*.js"],
+    //
+    // 必须带 .mjs：test/ 下的文件全是 .mjs，早先这里只写了 test/**/*.js，
+    // 于是这个 override 从来没匹配上任何文件，console/process 一路报 no-undef
+    // （76 个 error）。本地没人跑 lint 所以没暴露，而 CI 的 lint 步骤在 test/
+    // 不入库的前提下克隆不到这些文件，也就一直是绿的——改回入库时才会炸。
+    //
+    // scripts/ 同理：gen-icons.mjs 也是 Node 脚本（在开发期跑，不进产物），
+    // 加进来之前它的 console 会报 no-undef，而这个目录是入库的，CI 一定会撞上。
+    files: ["test/**/*.{js,mjs}", "scripts/**/*.{js,mjs}", "*.{js,mjs}"],
     languageOptions: {
       globals: {
         console: "readonly",
@@ -43,6 +53,10 @@ export default ts.config(
         URL: "readonly",
         globalThis: "readonly",
         __dirname: "readonly",
+        // 在 page.evaluate() 里执行的函数体跑在浏览器上下文，用得到这几个
+        document: "readonly",
+        getComputedStyle: "readonly",
+        window: "readonly",
       },
     },
     rules: { "@typescript-eslint/no-unused-vars": "off" },

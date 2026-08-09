@@ -11,13 +11,19 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "rimraf lib && tsc && tsc-alias",
-    "build:watch": "rimraf lib && tsc && concurrently \"tsc -w\" \"tsc-alias -w\"",
+    "build": "tsdown && pnpm run build:css",
+    "build:css": "tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --minify",
+    "build:watch": "concurrently \"tsdown --watch\" \"tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --watch\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "node --import tsx --test \"test/*.test.mjs\"",
+    "preview": "node --import tsx test/preview.mjs",
+    "contrast": "node --import tsx test/contrast.mjs",
+    "dev": "node --import tsx test/dev.mjs"
   },
   "dependencies": {
+    "lucide-react": "^1.31.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -39,6 +45,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@tailwindcss/cli": "^4",
     "@types/node": "^24.10.9",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -48,11 +55,12 @@
     "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
-    "rimraf": "^6.1.3",
-    "tsc-alias": "^1.8.16",
+    "sqlite3": "npm:@karinjs/sqlite3@^0.4.3",
+    "tailwindcss": "^4",
+    "tsdown": "^0.22.14",
+    "tsx": "^4.23.11",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
-    "sqlite3": "npm:@karinjs/sqlite3@^0.4.3",
     "ws": "^8.19.0",
     "yaml": "^2.8.2"
   },

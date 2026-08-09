@@ -3,7 +3,12 @@ import { dirname, join, basename } from "node:path"
 
 /**
  * 插件根目录
- * 编译后本文件位于 lib/dir.js，上跳一级即插件根
+ *
+ * 打包产物是 lib/index.js，上跳一级即插件根。
+ *
+ * 这条依赖「产物就在 lib/ 一层里」——tsdown.config.ts 的 outDir 必须保持
+ * lib/、且不能开子目录分块，否则 ResPath / YunzaiPath 会整体偏一层，
+ * 表现是读不到 resources/ 和框架配置。改 outDir 前先看这里。
  */
 export const PluginPath = join(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -19,12 +24,6 @@ export const YunzaiPath = join(PluginPath, "../..")
 
 /** 插件名 */
 export const PluginName = basename(PluginPath)
-
-/** 编译产物目录 */
-export const libDir = join(PluginPath, "lib")
-
-/** apps 目录 */
-export const AppsDir = join(libDir, "apps")
 
 /** resources 目录 */
 export const ResPath = join(PluginPath, "resources")

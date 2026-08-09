@@ -12,6 +12,13 @@ node_modules/
 lib/
 *.tsbuildinfo
 
+# Tailwind 编译产物：由 pnpm build 的 build:css 步骤从 src/modules/render/tailwind.css
+# 扫 lib/ 下的组件生成，运行时被 styles/index.ts 读进来内联。
+# 不入库的理由同 lib/：它是编译产物，且内容取决于组件里当前有哪些 className，
+# 入库会让每次改版式都带一个几百行的无意义 diff。
+# CI 的「构建」步骤会生成它，「自检产物完整性」会断言它确实在。
+/resources/template/css/
+
 # 开发笔记与设计稿：留在本地，不入库
 docs/
 

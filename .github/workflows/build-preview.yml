@@ -109,8 +109,9 @@ jobs:
         run: |
           cd dist_branch
           # 用户装插件不需要 tsc/eslint 那一套
-          pnpm pkg delete devDependencies scripts.build scripts.build:watch \
-            scripts.typecheck scripts.lint scripts.lint:fix
+          pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:watch \
+            scripts.typecheck scripts.lint scripts.lint:fix scripts.dev \
+            scripts.test scripts.preview scripts.contrast
 
       # 产物分支是用户直接 clone 就跑的东西，缺一个文件就是坏的。
       # 这里断言关键文件都在——上一版正是因为 .gitignore 的 config/
@@ -120,7 +121,8 @@ jobs:
           set -euo pipefail
           fail=0
           for f in index.js lib/index.js package.json \
-                   resources/config/default_config.yaml guoba.support.js; do
+                   resources/config/default_config.yaml \
+                   resources/template/css/tailwind.css guoba.support.js; do
             if [ -e "dist_branch/$f" ]; then
               echo "  ok  $f"
             else

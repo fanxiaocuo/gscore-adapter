@@ -113,8 +113,9 @@ jobs:
       - name: 移除开发依赖
         run: |
           cd dist_branch
-          pnpm pkg delete devDependencies scripts.build scripts.build:watch \
-            scripts.typecheck scripts.lint scripts.lint:fix
+          pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:watch \
+            scripts.typecheck scripts.lint scripts.lint:fix scripts.dev \
+            scripts.test scripts.preview scripts.contrast
 
       # 发版产物更不能缺文件，同 preview 做一次断言
       - name: 自检产物完整性
@@ -122,7 +123,8 @@ jobs:
           set -euo pipefail
           fail=0
           for f in index.js lib/index.js package.json \
-                   resources/config/default_config.yaml guoba.support.js; do
+                   resources/config/default_config.yaml \
+                   resources/template/css/tailwind.css guoba.support.js; do
             if [ -e "dist_branch/$f" ]; then
               echo "  ok  $f"
             else
