@@ -28,6 +28,9 @@ test/
 .DS_Store
 Thumbs.db
 
+# 运行时数据：中转计数的 sqlite 库（含 WAL 的 -wal / -shm 旁文件）
+/data/
+
 # 日志与临时文件
 *.log
 temp/

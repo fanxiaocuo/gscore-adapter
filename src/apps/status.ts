@@ -1,6 +1,7 @@
 import { config } from "@/config"
+import { makeLog } from "@/utils/compat"
 import { clients } from "@/modules/client"
-import { forName, snapshot } from "@/modules/stats"
+import { forName, snapshot, resetStats } from "@/modules/stats"
 import { renderStatus, renderAbout } from "@/modules/render/pages"
 import { versionLabel, branch } from "@/modules/render/version"
 import { frameLabel, nodeVersion, releaseLabel, sysInfo } from "@/modules/render/env"
@@ -15,6 +16,9 @@ export default class GsCoreStatus extends plugin {
       rule: [
         { reg: "^#?早柚(核心)?状态$", fnc: "status", permission: "master" },
         { reg: "^#?早柚(核心)?重连$", fnc: "reconnect", permission: "master" },
+        // 计数落盘后不再随重启归零，得有条路能清。放在「重连」之后：
+        // 两条正则互不匹配，顺序无关，挨着写只是让相关指令聚在一起
+        { reg: "^#?早柚(核心)?清空统计$", fnc: "resetStats", permission: "master" },
         // 「版本」放在「更新日志」之后无所谓——两者正则互不匹配。
         // 不写成 (版本|版本信息)：早柚版本信息 会被 ^...版本$ 拒掉再由本条的 (信息)? 接住
         { reg: "^#?早柚(核心)?(适配器)?版本(信息)?$", fnc: "about", permission: "master" },
@@ -65,7 +69,9 @@ export default class GsCoreStatus extends plugin {
       }
       msg.push(
         `\n今日中转：上行 ${s.today.up + s.today.event}，下行 ${s.today.down}`,
-        `\n累计中转：上行 ${s.total.up + s.total.event}，下行 ${s.total.down}`,
+        // 标一下累计是不是跨重启的：数据库不可用时它退化成「本次运行」，
+        // 两个数字长得一样但含义差很远，不写清楚会让人以为计数丢了
+        `\n累计中转：上行 ${s.total.up + s.total.event}，下行 ${s.total.down}${s.persisted ? "" : "（本次运行）"}`,
       )
     }
 
@@ -76,5 +82,19 @@ export default class GsCoreStatus extends plugin {
     if (!clients.length) return e.reply("没有可重连的客户端连接")
     for (const c of clients) c.restart()
     await e.reply(`已触发 ${clients.length} 个连接重连`)
+  }
+
+  async resetStats(e) {
+    const s = snapshot()
+    try {
+      await resetStats()
+    } catch (err) {
+      makeLog("error", ["清空中转计数失败", err], "GsCore")
+      return e.reply("清空统计失败，详见日志")
+    }
+    // 回报清掉了多少，免得误触后不知道丢了什么
+    await e.reply(
+      `已清空中转统计（原累计：上行 ${s.total.up + s.total.event}，下行 ${s.total.down}）`,
+    )
   }
 }

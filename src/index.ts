@@ -8,6 +8,7 @@ import { config, configFile } from "@/config"
 import { startClients } from "@/modules/client"
 import { loadApps } from "@/modules/loader"
 import { checkConflicts } from "@/modules/conflict"
+import { initStats } from "@/modules/stats"
 import { makeLog } from "@/utils/compat"
 
 let mode = config.mode || "off"
@@ -37,6 +38,11 @@ if (mode === "client")
     checkConflicts()
     startClients()
   })
+
+// 中转计数的历史必须在连接建立前灌进内存：晚于 startClients 的话，
+// 先到的几条消息会被随后的 load 覆盖。initStats 内部不抛，
+// 数据库不可用时自动退化成纯内存计数。
+await initStats()
 
 if (mode === "client") makeLog("info", "早柚核心适配器已载入", "GsCore")
 else makeLog("warn", "早柚核心适配器已禁用（mode: off）", "GsCore")
