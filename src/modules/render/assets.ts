@@ -5,7 +5,7 @@
  * 本体把渲染用的 HTML 写到 temp/html/{name}/ 下再让 puppeteer 打开
  * （lib/renderer/Renderer.js），相对路径的基准是那个临时目录而不是插件目录，
  * 绝对 file:// 路径又要处理 Windows 盘符与中文路径的转义。内联成 data URI
- * 之后页面完全自包含，和 styles.ts 内联 CSS 是同一个理由。
+ * 之后页面完全自包含，和 styles/ 内联 CSS 是同一个理由。
  *
  * MIME 按魔数嗅探而不是按扩展名：resources/template/image/frame-logo.png 实际是 JPEG
  * （开头 ff d8），扩展名是错的。写死 image/png 的话 Chromium 仍能靠嗅探显示出来，

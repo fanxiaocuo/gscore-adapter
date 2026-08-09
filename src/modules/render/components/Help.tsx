@@ -45,9 +45,10 @@ export interface HelpData {
 
 function Item({ item, color }: { item: HelpItem; color: string }) {
   return (
-    <div className="item">
+    <div className="hp-item">
       {/* 多一层 .row：卡片被同行更高的邻居拉高时，这一层保持内容自身的高度并贴在
-          卡片顶部，图标则在这一层里居中——两件事分开，互不牵连。详见 styles.ts */}
+          卡片顶部，图标则在这一层里居中——两件事分开，互不牵连。
+          详见 styles/pages/help.ts */}
       <div className="row">
         <div
           className="ico"
@@ -63,7 +64,7 @@ function Item({ item, color }: { item: HelpItem; color: string }) {
             <span className="t">{item.cmd}</span>
             {item.master && (
               <span
-                className="tag"
+                className="hp-tag"
                 style={{ color, background: `${color}1f`, border: `1px solid ${color}3d` }}
               >
                 MASTER
@@ -83,15 +84,15 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
     group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
 
   return (
-    <div className="group">
-      <div className="group-h">
+    <div className="hp-group">
+      <div className="hp-group-h">
         <div className="bar" style={{ background: color }} />
         <h2>{group.title}</h2>
         <div className="n mono">{String(total).padStart(2, "0")}</div>
       </div>
 
       {group.items.length > 0 && (
-        <div className="items">
+        <div className="hp-items">
           {group.items.map((it, i) => (
             <Item key={i} item={it} color={color} />
           ))}
@@ -99,12 +100,12 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
       )}
 
       {group.subGroups?.map((sub, i) => (
-        <div className="sub" key={i}>
-          <div className="sub-h">
+        <div className="hp-sub" key={i}>
+          <div className="hp-sub-h">
             <span className="d" />
             {sub.title}
           </div>
-          <div className="items">
+          <div className="hp-items">
             {sub.items.map((it, j) => (
               <Item key={j} item={it} color={color} />
             ))}

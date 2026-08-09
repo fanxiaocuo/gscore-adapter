@@ -39,14 +39,14 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
 
       {/* ghostTop 由页面给：默认 560px 是按「标题区 + 概览统计条」量出来的，
           落在统计条下方的列表区。关于页多了一张 hero 卡，内容整体下移约 260px，
-          用默认值大字就正好压在统计卡与前两行 kv 上（styles.ts 里记的就是这个毛病）。
-          所以位置跟着版式走，不写死。 */}
+          用默认值大字就正好压在统计卡与前两行 kv 上（styles/backdrop.ts 里记的
+          就是这个毛病）。所以位置跟着版式走，不写死。 */}
       <div className="ghost" style={ghostTop ? { top: ghostTop } : undefined}>
         {word}
       </div>
 
       {/* 9 个点，3 列 × 3 行：与右上角的 3 条刻度线行数相同，两块高度也几乎相等
-          （点阵 3×5 + 2×7 = 29px，刻度 3×4 + 2×4 = 20px，见 styles.ts 的对称说明）。
+          （点阵 3×5 + 2×7 = 29px，刻度 3×4 + 2×4 = 20px，见 styles/backdrop.ts 的对称说明）。
           之前是 3 列 × 2 行，只有两行、高 17px，与右边三条线一眼就不对称。
           整块止于 y≈69，徽标那行从 y=72 起——仍在徽标上方，不会挤到状态灯。 */}
       <div className="dots">
@@ -102,7 +102,7 @@ export function Header({
 /**
  * 页脚水印布局常量
  *
- * 用于反推「整条水印能不能放进一行」，几何与 styles.ts 的 .foot 规则一一对应，
+ * 用于反推「整条水印能不能放进一行」，几何与 styles/frame.ts 的 .foot 规则一一对应，
  * 改那边的尺寸要同步改这里。
  */
 const FOOT = {
@@ -219,9 +219,9 @@ export function Footer({
 
   return (
     <div className="foot">
-      {/* --fs 由 styles.ts 里所有页脚字号乘上，scale=1 时等价于原来的写死值 */}
+      {/* --fs 由 styles/frame.ts 里所有页脚字号乘上，scale=1 时等价于原来的写死值 */}
       <div className="wm" style={scale < 1 ? ({ "--fs": scale } as React.CSSProperties) : undefined}>
-        {/* 插件半边。ico-plugin 见 styles.ts：logo.png 自带留白，要放大补偿 */}
+        {/* 插件半边。ico-plugin 见 styles/frame.ts：logo.png 自带留白，要放大补偿 */}
         <div className="side">
           {logo && (
             <span className="ico ico-plugin">
@@ -264,9 +264,11 @@ export function Footer({
       </div>
 
       {/* 时间戳与提示：kkk 把这类信息放在正文末尾，本插件几个页面都靠页脚给，
-          所以留一行居中小字，与上面的水印分层 */}
+          所以留一行居中小字，与上面的水印分层。
+          类名是 .lines 而不是 .sub —— .sub 是帮助页「子分组」的语义，
+          同名不同义正是拆分前最难改的那类耦合，见 styles/frame.ts */}
       {lines.length > 0 && (
-        <div className="sub mono">
+        <div className="lines mono">
           {lines.map((t, i) => (
             <span key={i}>{t}</span>
           ))}
@@ -290,7 +292,7 @@ export function Page({
 }: {
   palette: Palette
   word: string
-  /** 气氛大字的起点，默认见 styles.ts 的 .ghost */
+  /** 气氛大字的起点，默认见 styles/backdrop.ts 的 .ghost */
   ghostTop?: number
   children: ReactNode
 }) {

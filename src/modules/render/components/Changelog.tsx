@@ -75,9 +75,9 @@ export function Changelog(data: ChangelogData) {
             <div className="d">{data.emptyTip}</div>
           </div>
         ) : (
-          <div className="logs">
+          <div className="cl-logs">
             {data.commits.map((c, i) => (
-              <div className="log" key={c.hash + i}>
+              <div className="cl-log" key={c.hash + i}>
                 {/* hash 用主情绪色轮换：一屏几十行，纯灰会糊成一片 */}
                 <div className="sha mono" style={{ color: p.rotate[i % p.rotate.length] }}>
                   {c.hash}

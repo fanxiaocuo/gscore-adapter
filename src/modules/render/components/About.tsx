@@ -72,7 +72,7 @@ export interface AboutData {
  * 版本号可用宽度
  *
  * 1440 画布 - .page 左右 padding 72×2 = 1296，再减去 hero 图标 200px 与 44px 间距。
- * 几何对应 styles.ts 的 .rt-hero，改那边要同步改这里。
+ * 几何对应 styles/pages/about.ts 的 .rt-hero，改那边要同步改这里。
  */
 const HERO_BUDGET = 1296 - 200 - 44
 
@@ -159,8 +159,9 @@ export function About(data: AboutData) {
           </div>
         </div>
 
-        {/* 环境摘要：两列。标题带一条渐变横线，照 kkk 的分节样式 */}
-        <div className="rt-sec">
+        {/* 环境摘要：两列。标题带一条渐变横线，照 kkk 的分节样式。
+            .sec 在 styles/shared.ts —— 状态页的分组明细也用它 */}
+        <div className="sec">
           <span className="dot" style={{ background: p.rotate[0] }} />
           <span className="t">环境摘要</span>
           <span
@@ -211,7 +212,7 @@ export function About(data: AboutData) {
             分类标题各自轮换一个主情绪色，与摘要区的取色规则一致。 */}
         {data.changes && data.changes.groups.length > 0 && (
           <>
-            <div className="rt-sec">
+            <div className="sec">
               <span className="dot" style={{ background: p.rotate[1] }} />
               <span className="t">本版变更</span>
               <span className="ver mono">
@@ -244,7 +245,7 @@ export function About(data: AboutData) {
           </>
         )}
 
-        {/* 两列网格，标签在上取值在下（几何与理由见 styles.ts 的 .rt-links） */}
+        {/* 两列网格，标签在上取值在下（几何与理由见 styles/pages/about.ts 的 .rt-links） */}
         <div className="rt-links">
           {data.links.map((l, i) => (
             <div className="link" key={i}>

@@ -96,11 +96,11 @@ export function Status(data: StatusData) {
             <div className="d">{data.emptyTip || "用 #早柚添加连接 <地址> 添加"}</div>
           </div>
         ) : (
-          <div className="conns">
+          <div className="st-conns">
             {data.rows.map(row => {
               const c = toneColor(p, row.tone)
               return (
-                <div className="conn" key={row.index}>
+                <div className="st-conn" key={row.index}>
                   <div className="idx mono">{String(row.index).padStart(2, "0")}</div>
                   <div className="main">
                     <div className="nm">{row.name}</div>
@@ -129,12 +129,13 @@ export function Status(data: StatusData) {
         )}
 
         {/* 分组明细：两列铺开，每块内部是 key/value 行。
-            分节标题复用关于页的 .rt-sec，两页的小标题保持同一套样式 */}
+            分节标题用 shared 的 .sec —— 原先借的是关于页私有的 .rt-sec，
+            两页共用的东西现在统一放 styles/shared.ts，不再有借用关系 */}
         {data.panels && data.panels.length > 0 && (
-          <div className="panels">
+          <div className="st-panels">
             {data.panels.map((panel, pi) => (
-              <div className="panel" key={pi}>
-                <div className="rt-sec">
+              <div className="st-panel" key={pi}>
+                <div className="sec">
                   <span className="dot" style={{ background: p.rotate[pi % p.rotate.length] }} />
                   <span className="t">{panel.title}</span>
                   <span className="ver mono">{panel.key}</span>
@@ -145,7 +146,7 @@ export function Status(data: StatusData) {
                     }}
                   />
                 </div>
-                <div className="kv">
+                <div className="st-kv">
                   {panel.items.map((it, ii) => (
                     <div className="row" key={ii}>
                       <span className="k">{it.k}</span>
