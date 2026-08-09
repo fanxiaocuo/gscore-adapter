@@ -298,9 +298,31 @@ html,body{background:${p.bg}}
 .rt-eyebrow .sp{opacity:.5}
 .rt-badge{flex:none;padding:12px 26px;border-radius:9999px;line-height:1;
   font-size:22px;font-weight:800;letter-spacing:.1em}
+/* 标题区：左标题右速览
+   ------
+   align-items:flex-end 让两栏底边成一条线。速览三格合计约 270px 高，
+   比左边的标题+说明（约 200px）高，所以底对齐时它会向上探出约 70px——
+   正好填掉标题上方那条空带，而不是在标题下方留出一段。
+   顶对齐则相反：速览悬在上面，标题下方空一截，两栏都不落地。
+   margin-bottom 由原来 .rt-desc 的 64px 移到这里，整块作为一个单位与 hero 拉开。 */
+.rt-lead{display:flex;align-items:flex-end;justify-content:space-between;gap:56px;
+  margin-bottom:64px}
+.rt-lead .txt{min-width:0}
 /* 标题比其他页的 104px 小一档：这页的主视觉是下面的版本号，标题让位 */
 .rt-title{font-size:88px;font-weight:900;line-height:1.05;letter-spacing:-.04em;margin-bottom:18px}
-.rt-desc{font-size:27px;color:${p.muted};line-height:1.6;margin-bottom:64px}
+.rt-desc{font-size:27px;color:${p.muted};line-height:1.6}
+/* 速览格：竖排三行，右对齐
+   ------
+   右对齐而不是左对齐：它贴着画布右边缘，取值的右边缘成一条线才像「标注」，
+   左对齐会在右侧又留出一条不齐的锯齿边。
+   text-align 给在 .g 上、并且 flex-direction:column + align-items:flex-end，
+   两层都要——小标签与大数值的宽度不同，只靠 text-align 在 flex 子项上不生效。
+   数值 44px：比正文 38px 大一档，但远小于 hero 的版本号，层级排在它后面。 */
+.rt-glance{flex:none;display:flex;flex-direction:column;gap:22px;align-items:flex-end}
+.rt-glance .g{display:flex;flex-direction:column;align-items:flex-end;gap:7px;line-height:1}
+.rt-glance .g .k{font-size:19px;font-weight:800;letter-spacing:.18em;color:${p.muted}}
+.rt-glance .g .v{font-size:44px;font-weight:900;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
 
 /* 版本号主视觉
    ------
@@ -377,13 +399,27 @@ html,body{background:${p.bg}}
   border:1px solid ${p.border};overflow:hidden}
 .rt-cell .bar i{display:block;height:100%;border-radius:9999px}
 
-/* 开源信息：紧凑两列，比摘要再轻一档 */
-.rt-links{display:flex;flex-direction:column;gap:12px;padding-top:44px;
+/* 开源信息
+   ------
+   两列 × 两行，标签在上、取值在下，四条正好铺满、没有空格。
+   原来是单列三行「标签 + 取值」左右并排，最长的一条（docs.sayu-bot.com/…）
+   在 22px 等宽下约 567px，整行也只占 720px，右侧 2/3 空着；这块又正压在页脚上方，
+   两片空白连起来，整页尾部像塌下去一半。
+
+   为什么标签要上移：如果保留「标签在左」，每列 616px 减去标签 150px 与 24px 间距，
+   取值只剩 442px，装不下 567px 的文档地址，会折成「…/Adapte + rList.html」两行——
+   断点落在单词中间，比留白更难读。标签上移后取值能用满 616px，最长那条也是一行。
+
+   为什么是两列而不是三列：三列每列只有 (1296-2×48)/3 = 400px，四条里有三条
+   （两个 github 地址加文档地址）都超过 400px，得靠跨列拼凑，反而拼不满；
+   两列时每条都在自己那格里一行放下，2×2 铺满。
+   标签在上、取值在下也与本页 .rt-cell 的结构一致。 */
+.rt-links{display:grid;grid-template-columns:repeat(2,1fr);gap:26px 64px;padding-top:44px;
   border-top:1px solid ${p.border}}
-.rt-links .link{display:flex;align-items:baseline;gap:24px;font-size:22px;line-height:1.6}
-.rt-links .link .k{width:180px;flex:none;color:${p.muted};font-weight:800;letter-spacing:.1em;
-  text-transform:uppercase}
-.rt-links .link .v{flex:1;min-width:0;color:${p.muted};word-break:break-all}
+.rt-links .link{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:22px}
+.rt-links .link .k{color:${p.muted};font-weight:800;letter-spacing:.14em;
+  text-transform:uppercase;font-size:19px;line-height:1}
+.rt-links .link .v{min-width:0;color:${p.muted};word-break:break-all;line-height:1.5}
 .rt-note{margin-top:32px;font-size:21px;color:${p.muted};opacity:.7;line-height:1.6}
 
 
@@ -411,9 +447,13 @@ html,body{background:${p.bg}}
    frame-logo.png 是满幅 JPEG。同样塞进 72px 的框、同样 6px padding 时，
    早柚字形只有 42px、云崽有 60px —— 差了三分之一，就是「适配器图标偏小」的来源。
    所以 ico-plugin 让 img 溢出框 (112%) 把那圈留白顶出去，ico-frame 保留内缩，
-   两边字形的视觉体量才相当。overflow:hidden 负责裁掉溢出部分，圆角不会被破坏。 */
+   两边字形的视觉体量才相当。overflow:hidden 负责裁掉溢出部分。
+
+   不给底色和描边：logo.png 是透明底 PNG，加了淡底+边框就变成两个方块罩在字形外，
+   页脚这一行本来只是水印，方框比它要标记的内容更抢眼。圆角留着只为裁剪溢出，
+   在透明背景下看不出来。frame-logo 是满幅 JPEG 自带白底，本身就是个方块，
+   不需要再补边框去「框住」它。 */
 .foot .side .ico{width:80px;height:80px;flex:none;border-radius:20px;overflow:hidden;
-  background:${p.inset};border:1px solid ${p.border};
   display:flex;align-items:center;justify-content:center}
 .foot .side .ico img{display:block;object-fit:contain}
 /* 放大到 112%：留白占 29.3%，字形 = 80 × 1.12 × 0.707 ≈ 63px，与下面的框架标一致 */

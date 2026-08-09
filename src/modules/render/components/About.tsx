@@ -51,6 +51,13 @@ export interface AboutData {
   /** 内存占用，画一条进度条；不给则不显示 */
   memory?: { percent: number; used: string; total: string }
   /**
+   * 标题右侧的速览格，不给则标题独占整宽
+   *
+   * 补的是标题区右侧那片空白（标题只有四个字，88px 下占不到三分之一宽）。
+   * 内容要选「一眼就想知道」的三两项，多了会和下面的环境摘要重复。
+   */
+  glance?: { key: string; value: string }[]
+  /**
    * 本版变更，读 CHANGELOG.md 得来；null 则整块不渲染
    *
    * 与 #早柚更新日志 的分工：那条命令列 git 提交，答「代码更新到哪了」；
@@ -114,8 +121,31 @@ export function About(data: AboutData) {
           </div>
         </div>
 
-        <h1 className="rt-title">运行环境</h1>
-        <div className="rt-desc">{data.desc}</div>
+        {/* 标题与右侧速览并排
+            ------
+            原来标题「运行环境」+ 一行说明单独占满整宽，右侧从 y=150 到 400 是一大片
+            空背景——标题只有 4 个字，88px 下宽约 360px，剩下 900px 全空着。
+            右边补三格速览：进程健康度（在线连接/内存/运行时长），都是「现在好不好」
+            的答案，与标题「运行环境」同一个语义层，放在一起读得通。
+            不放版本号之类：那是下面 hero 的主视觉，重复会削弱它。 */}
+        <div className="rt-lead">
+          <div className="txt">
+            <h1 className="rt-title">运行环境</h1>
+            <div className="rt-desc">{data.desc}</div>
+          </div>
+          {data.glance && data.glance.length > 0 && (
+            <div className="rt-glance">
+              {data.glance.map((g, i) => (
+                <div className="g" key={i}>
+                  <span className="k mono">{g.key}</span>
+                  <span className="v" style={{ color: p.rotate[i % p.rotate.length] }}>
+                    {g.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* 版本号主视觉：kkk 那张图上最抢眼的就是这一块 */}
         <div className="rt-hero">
@@ -214,6 +244,7 @@ export function About(data: AboutData) {
           </>
         )}
 
+        {/* 两列网格，标签在上取值在下（几何与理由见 styles.ts 的 .rt-links） */}
         <div className="rt-links">
           {data.links.map((l, i) => (
             <div className="link" key={i}>

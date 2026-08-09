@@ -72,6 +72,18 @@ function collect(detail = false) {
     if (c.bind?.length) meta.push(`bind: ${c.bind.length}`)
     if (c.exclude?.length) meta.push(`exclude: ${c.exclude.length}`)
 
+    // 一条都没有时补一句「怎么办」
+    // ------
+    // 没配 token / bot_id / bind / exclude 的连接（默认配置就是这样）meta 是空数组，
+    // 卡片只剩名字和地址两行，右边一大片空。而这种卡片恰好最需要一句提示：
+    // 停用的要说明怎么启用，未启动的要说明重载。有内容时不加——那句话对已经
+    // 连上的连接没有意义，只会挤占位置。
+    if (meta.length === 0) {
+      if (!enabled) meta.push(`用 #早柚启用连接 ${c.name || i + 1} 恢复`)
+      else if (!live) meta.push("尚未建立连接，可用 #早柚重载 重试")
+      else meta.push("未配置 token / bind / exclude，按默认规则中转")
+    }
+
     if (detail) {
       // 用连接名取计数：clients 会被 #早柚重载 整个重建，计数按名字存在模块级
       const n = forName(c.name || String(c.url || ""))
@@ -177,6 +189,17 @@ const onOff = (v: unknown) => (v ? "开" : "关")
  *
  * 隐私边界与 env.ts sysInfo 一致：这张图会发到群里。所以过滤规则只报**条数**，
  * 不报具体的群号、用户号、前缀内容；token 只在连接卡片上标「已设置」，不出现值。
+ *
+ * 第四块「运行环境」
+ * ----------------
+ * .panels 是两列网格（styles.ts），三块明细排下来第四格是空的，右下角一大片留白。
+ * 补的是宿主环境——它和前三块是一类问题的两面：前三块答「适配器自己配成什么样」，
+ * 这块答「它跑在什么上面」。排障时「转发慢/发不出」经常是内存吃满或 Node 版本太旧，
+ * 而不是适配器配错。
+ *
+ * 与 #早柚版本 的重复是有意的：那页是「插件的身份证」，一次看清楚就不用再看；
+ * 这页是随手一敲的运行快照，不该为了去重逼用户再发一条命令。取值同源
+ * （env.ts sysInfo），措辞压到一行以适配 kv 两列的窄栏。
  */
 function statusPanels(): StatusPanel[] {
   const s = snapshot()
@@ -208,8 +231,10 @@ function statusPanels(): StatusPanel[] {
       ],
     },
     {
-      title: "媒体与运行",
-      key: "RUNTIME",
+      // 「运行时长 / 内存占用」挪到下面的运行环境块了：那两项讲的是宿主进程，
+      // 和媒体上限、文件服务不是一类。这块现在只管消息里的附件怎么走。
+      title: "媒体与文件",
+      key: "MEDIA",
       items: [
         { k: "媒体内联上限", v: formatBytes(Number(config.media_max_size) || 0) },
         { k: "文件大小上限", v: formatBytes(Number(config.file_max_size) || 0) },
@@ -218,10 +243,32 @@ function statusPanels(): StatusPanel[] {
           v: fileServerEnabled() ? `开 · 暂存 ${pendingFiles()} 个` : "关",
         },
         { k: "心跳 / 超时", v: hb ? `${hb}s / ${to ? `${to}s` : "关"}` : "关" },
-        { k: "运行时长", v: `${sys.processUptime} · 占用 ${sys.processRss}` },
+        { k: "合并转发", v: fwdLabel() },
+      ],
+    },
+    {
+      title: "运行环境",
+      key: "RUNTIME",
+      items: [
+        { k: "运行框架", v: frameVersion() ? `${frameName()} v${frameVersion()}` : frameName() },
+        { k: "Node.js", v: `v${nodeVersion()}` },
+        { k: "操作系统", v: `${sys.platform} · ${sys.arch}` },
+        // 只给核心数，不给型号：型号串（Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz）
+        // 有 40 多字符，在 kv 的窄栏里会折成两三行，把整块的行距节奏打乱。
+        // 排障要看的也是「几核」——单核跑满和 16 核闲着是两回事。型号在 #早柚版本 上有。
+        { k: "处理器", v: `${sys.cpuCores} 核心` },
+        // 百分比放前面：一眼要看的是「满不满」，具体数字是佐证
+        { k: "内存占用", v: `${sys.memoryPercent}% · ${sys.usedMemory}/${sys.totalMemory}` },
+        { k: "本进程", v: `${sys.processUptime} · ${sys.processRss}` },
       ],
     },
   ]
+}
+
+/** 合并转发走哪条路径，与 #早柚版本 同一套判定 */
+function fwdLabel(): string {
+  const fwd = forwardMode()
+  return fwd === "native" ? "框架原生" : fwd === "target" ? "群/好友接口" : "不可用"
 }
 
 /** 渲染状态图 */
@@ -390,11 +437,23 @@ export async function renderAbout() {
           used: sys.usedMemory,
           total: sys.totalMemory,
         },
+        // 标题右侧速览：三项都是「此刻好不好」，和下面按项铺开的环境摘要不同——
+        // 摘要要一条条读，这三格是扫一眼就走。取值都短（个数、百分比、时长），
+        // 44px 下不会顶到标题
+        glance: [
+          { key: "LINKS", value: `${online}/${total}` },
+          { key: "MEMORY", value: `${sys.memoryPercent}%` },
+          { key: "UPTIME", value: sys.processUptime },
+        ],
         // 传裸版本号（2.1.0）而不是 describe 串：CHANGELOG 的小节标题是纯 semver，
         // 拿 v2.1.0-2-gc6522ee-dirty 去比永远对不上
         changes: trimChanges(currentRelease(bareVersion)),
+        // 四条铺满三列网格的两行（Docs 跨两列，见 About.tsx 的阈值判断）。
+        // Repo 写死常量而不是读 git remote：远端地址可能内嵌凭据，
+        // 与 renderChangelog 不显示仓库地址是同一条理由。
         links: [
           { key: "License", value: "GPL-3.0-only" },
+          { key: "Repo", value: "github.com/fanxiaocuo/gscore-adapter" },
           { key: "Core", value: "github.com/Genshin-bots/gsuid_core" },
           { key: "Docs", value: "docs.sayu-bot.com/LinkBots/AdapterList.html" },
         ],
