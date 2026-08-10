@@ -1,0 +1,328 @@
+/*
+ * 早柚核心适配器 · 面板样式
+ *
+ * 跟随宿主控制台的观感：深色底、圆角卡片、克制的强调色。
+ * 用 CSS 变量下发配色，深浅两套按系统偏好切 —— iframe 里拿不到宿主的主题设置，
+ * prefers-color-scheme 是唯一能对齐的信号。
+ */
+:root {
+  --bg: #f6f7f9;
+  --surface: #fff;
+  --border: #e3e6ea;
+  --fg: #1a1d21;
+  --muted: #6b7280;
+  --primary: #5b7cfa;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --surface: #1e2127;
+    --border: #2c313a;
+    --fg: #e6e8eb;
+    --muted: #9aa3af;
+    --shadow: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sub,
+.hint {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.acts {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--primary);
+}
+
+.btn.primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn.danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 概览四张卡 */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.card .k {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.card .v {
+  margin: 2px 0;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.card .s {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.panel {
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.phead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.phead.end {
+  justify-content: flex-end;
+  margin: 12px 0 0;
+}
+
+/* 连接行 */
+.conns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+/* 状态码对应 constants/index.ts 的 STATUS_TEXT：0 未连接 1 已连接 2 连接中 3 断线重连中 */
+.dot.s1 {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+
+.dot.s2,
+.dot.s3 {
+  background: var(--warning);
+}
+
+.dot.s0 {
+  background: var(--danger);
+}
+
+.dot.soff {
+  background: var(--muted);
+}
+
+.cmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.cname {
+  font-weight: 600;
+}
+
+.curl {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tag {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.cacts {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.empty {
+  margin: 0;
+  padding: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 表单 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flabel {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fhint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="number"],
+.field select {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+
+.field input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+/* 弹层 */
+.mask {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(0 0 0 / 45%);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.modal h2 {
+  margin-bottom: 16px;
+  font-size: 17px;
+}
+
+/* 提示条 */
+.toast {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--success);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  font-size: 13px;
+}
+
+.toast.bad {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}

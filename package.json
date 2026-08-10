@@ -36,6 +36,7 @@
   "files": [
     "./lib",
     "./resources",
+    "./webadapter",
     "./index.js",
     "./guoba.support.js",
     "./README.md",

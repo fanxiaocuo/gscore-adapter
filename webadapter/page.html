@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>早柚核心适配器</title>
+<link rel="stylesheet" href="page.css" />
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <div>
+      <h1>早柚核心适配器</h1>
+      <p class="sub" id="meta">加载中…</p>
+    </div>
+    <div class="acts">
+      <button class="btn" id="refresh">刷新</button>
+      <button class="btn" id="reconnect">全部重连</button>
+    </div>
+  </header>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <section class="cards" id="stats"></section>
+
+  <section class="panel">
+    <div class="phead">
+      <h2>连接</h2>
+      <button class="btn primary" id="add">添加连接</button>
+    </div>
+    <div id="conns" class="conns"></div>
+  </section>
+
+  <section class="panel">
+    <h2>全局设置</h2>
+    <div class="grid" id="settings"></div>
+    <div class="phead end"><button class="btn primary" id="save">保存设置</button></div>
+    <p class="hint" id="cfgfile"></p>
+  </section>
+</div>
+
+<!-- 连接编辑弹层 -->
+<div class="mask" id="mask" hidden>
+  <div class="modal">
+    <h2 id="mtitle">添加连接</h2>
+    <div class="grid" id="mform"></div>
+    <div class="phead end">
+      <button class="btn" id="mcancel">取消</button>
+      <button class="btn primary" id="mok">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="page.js"></script>
+</body>
+</html>
