@@ -11,8 +11,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "rimraf lib && tsc && tsc-alias && pnpm run build:css && pnpm run build:panel",
+    "build": "rimraf lib && tsc && tsc-alias && pnpm run build:css && pnpm run build:panel:css && pnpm run build:panel",
     "build:css": "tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --minify",
+    "build:panel:css": "tailwindcss -i src/webui/styles.css -o webadapter/page.css --minify",
     "build:panel": "esbuild src/webui/main.tsx --bundle --minify --format=iife --jsx=automatic --target=es2020 --define:process.env.NODE_ENV=\\\"production\\\" --outfile=webadapter/page.js --log-level=warning",
     "build:watch": "concurrently \"tsc -w\" \"tsc-alias -w\" \"tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --watch\"",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.webui.json",

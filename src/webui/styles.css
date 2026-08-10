@@ -1,0 +1,88 @@
+/*
+ * Web 面板的 Tailwind 入口
+ *
+ * 与出图那份（modules/render/styles/tailwind.css）刻意分开，因为约束正好相反：
+ *
+ *   出图     不引 preflight —— 版面的 reset 由 base.ts 自己写，两者叠加会改像素；
+ *            颜色 token 指向运行时下发的 --* 变量（深浅按时段切）。
+ *   本面板   引 preflight —— 它是一个普通网页，需要 margin 归零、表单控件规整化
+ *            这些常规重置；配色跟随**系统**偏好（iframe 里读不到宿主的主题设置，
+ *            prefers-color-scheme 是唯一能对齐的信号）。
+ *
+ * 产物是 webadapter/page.css，路径与文件名都不能改：宿主的静态白名单只放行
+ * 描述符里列过的那个 style 文件名（见 modules/webadapter 的 registerPage）。
+ *
+ * @source 相对本文件解析，扫的是同目录的 tsx。glob 失配不报错，只会让 utilities
+ * 层静默变空（页面整体掉样式），改本文件位置时记得一起改。
+ */
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@source "./*.tsx";
+
+/*
+ * 配色
+ *
+ * 原样搬自手写版的 page.css：浅色一套写在 :root，深色只覆盖需要变的几项。
+ * 不用 Tailwind 的 dark: 变体 —— 那要求每处用到颜色的地方都写两遍
+ * （bg-surface dark:bg-surface-dark），而这里的深浅差异只是同一批 token 换值，
+ * 变量覆盖一处就够。
+ */
+:root {
+  --bg: #f6f7f9;
+  --surface: #fff;
+  --border: #e3e6ea;
+  --fg: #1a1d21;
+  --muted: #6b7280;
+  --primary: #5b7cfa;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --shadow: 0 1px 2px rgb(0 0 0 / 6%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181d;
+    --surface: #1e2127;
+    --border: #2c313a;
+    --fg: #e6e8eb;
+    --muted: #9aa3af;
+    --shadow: none;
+  }
+}
+
+/* 把上面那批变量接进 Tailwind 的 token 体系，于是 bg-surface / text-muted 可用 */
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+}
+
+/*
+ * 只留三条自定义规则，其余全走 utility
+ *
+ * body 与 #app 是「页面级」的东西，写在 JSX 上没有落点（body 不由 React 渲染）。
+ * 状态灯的 box-shadow 用了颜色变量做光晕，utility 写出来是
+ * [box-shadow:0_0_8px_var(--success)] 这种长串，不如留一条规则。
+ */
+body {
+  margin: 0;
+  padding: 20px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+/* 状态灯：亮起时带同色光晕，对应 constants/index.ts 的 STATUS_TEXT 四个状态码 */
+.dot-on {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}

@@ -77,42 +77,80 @@ const CFIELDS = [
 
 const dig = (o, path) => path.split(".").reduce((a, k) => a?.[k], o)
 
+/*
+ * 复用的 utility 组合
+ *
+ * 按钮、输入框这些在多处重复出现，抽成常量免得各处手抄跑偏。
+ * 形状与配色分开：同一属性的两个 utility 写在一起时，谁生效由样式表里的
+ * 先后决定而非 className 的顺序，所以变体不叠加基础色，各给各的。
+ */
+const BTN_SHAPE = "cursor-pointer rounded-[8px] border px-[14px] py-[6px] text-[13px]"
+const BTN = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-primary`
+/* 主按钮不跟 hover 描边：原样式表里 .btn.primary 排在 .btn:hover 之后，同权重下后者不生效 */
+const BTN_PRIMARY = `${BTN_SHAPE} border-transparent bg-primary text-white`
+const BTN_DANGER = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-danger hover:text-danger`
+const INPUT = "rounded-[8px] border border-border bg-bg px-[10px] py-[7px] text-[13px] text-fg"
+const HINT = "mt-[2px] text-[12px] text-muted"
+const FHINT = "text-[11px] text-muted"
+const TAG = "rounded-[999px] border border-border px-[8px] py-[1px] text-[11px] text-muted"
+const FIELD = "flex flex-col gap-[4px]"
+const GRID = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-[12px]"
+const PANEL =
+  "mb-[16px] rounded-[12px] border border-border bg-surface p-[16px] shadow-[var(--shadow)]"
+/* 面板头的「靠右」变体：margin 上 12 下 0，与常规 phead 的下 12 相反 */
+const PHEAD_END = "mt-[12px] flex items-center justify-end gap-[12px]"
+
 function Stat({ k, v, sub }) {
   return (
-    <div className="card">
-      <div className="k">{k}</div>
-      <div className="v">{v}</div>
-      <div className="s">{sub}</div>
+    <div className="rounded-[12px] border border-border bg-surface px-[16px] py-[14px] shadow-[var(--shadow)]">
+      <div className="text-[12px] tracking-[0.04em] text-muted">{k}</div>
+      <div className="my-[2px] text-[26px] font-bold tabular-nums">{v}</div>
+      <div className="text-[12px] text-muted">{sub}</div>
     </div>
   )
 }
 
+/* 状态码对应 constants/index.ts 的 STATUS_TEXT：0 未连接 1 已连接 2 连接中 3 断线重连中。
+   已连接那档带同色光晕，box-shadow 用变量拼 utility 太长，留在 styles.css 里当 .dot-on */
+const DOT: Record<string, string> = {
+  0: "bg-danger",
+  1: "dot-on",
+  2: "bg-warning",
+  3: "bg-warning",
+  off: "bg-muted",
+}
+
 function Conn({ c, onAct, onEdit }) {
   return (
-    <div className="conn">
-      <span className={`dot s${c.enable ? c.status : "off"}`} />
-      <div className="cmain">
-        <div className="cname">{c.name}</div>
-        <div className="curl">{c.url}</div>
-        <div className="cmeta">
-          <span className="tag">{c.status_text}</span>
-          {c.retry > 0 && <span className="tag">重连 {c.retry} 次</span>}
-          {c.bot_id && <span className="tag">bot_id {c.bot_id}</span>}
-          {c.has_token && <span className="tag">已配 token</span>}
-          <span className="tag">
+    <div className="flex items-center gap-[12px] rounded-[10px] border border-border p-[12px]">
+      <span
+        className={`size-[10px] flex-none rounded-[50%] ${DOT[c.enable ? c.status : "off"] ?? "bg-muted"}`}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold">{c.name}</div>
+        {/* 字体栈与 Tailwind 的 font-mono 略有出入，按原样式表逐项写死 */}
+        <div className="truncate font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
+          {c.url}
+        </div>
+        <div className="mt-[6px] flex flex-wrap gap-[6px]">
+          <span className={TAG}>{c.status_text}</span>
+          {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
+          {c.bot_id && <span className={TAG}>bot_id {c.bot_id}</span>}
+          {c.has_token && <span className={TAG}>已配 token</span>}
+          <span className={TAG}>
             ↑{c.up} ↓{c.down}
           </span>
         </div>
       </div>
-      <div className="cacts">
-        <button className="btn" onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}>
+      <div className="flex flex-none gap-[6px]">
+        <button className={BTN} onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}>
           {c.enable ? "停用" : "启用"}
         </button>
-        <button className="btn" onClick={() => onEdit(c)}>
+        <button className={BTN} onClick={() => onEdit(c)}>
           编辑
         </button>
         <button
-          className="btn danger"
+          className={BTN_DANGER}
           onClick={() => {
             if (confirm(`删除连接「${c.name}」？`)) onAct({ action: "del", key: c.index })
           }}
@@ -151,28 +189,34 @@ function Modal({ conn, onClose, onSubmit }) {
   }
 
   return (
-    <div className="mask" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <h2>{conn ? `编辑：${conn.name}` : "添加连接"}</h2>
-        <div className="grid">
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px]"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px]">
+        <h2 className="mb-[16px] text-[17px] font-semibold">
+          {conn ? `编辑：${conn.name}` : "添加连接"}
+        </h2>
+        <div className={GRID}>
           {CFIELDS.map(x => (
-            <label className="field" key={x.k}>
-              <span className="flabel">{x.label}</span>
+            <label className={FIELD} key={x.k}>
+              <span className="text-[12px] text-muted">{x.label}</span>
               <input
+                className={INPUT}
                 type={x.type || "text"}
                 placeholder={x.ph || ""}
                 value={form[x.k] ?? ""}
                 onChange={e => setForm({ ...form, [x.k]: e.target.value })}
               />
-              {x.hint && <span className="fhint">{x.hint}</span>}
+              {x.hint && <span className={FHINT}>{x.hint}</span>}
             </label>
           ))}
         </div>
-        <div className="phead end">
-          <button className="btn" onClick={onClose}>
+        <div className={PHEAD_END}>
+          <button className={BTN} onClick={onClose}>
             取消
           </button>
-          <button className="btn primary" onClick={submit}>
+          <button className={BTN_PRIMARY} onClick={submit}>
             保存
           </button>
         </div>
@@ -206,31 +250,33 @@ function Settings({ config, onSave }) {
 
   return (
     <>
-      <div className="grid">
+      <div className={GRID}>
         {FIELDS.map(x => (
-          <label className="field" key={x.k}>
-            <span className="flabel">{x.label}</span>
+          <label className={FIELD} key={x.k}>
+            <span className="text-[12px] text-muted">{x.label}</span>
             {x.type === "switch" ? (
               <input
+                className="size-[18px] accent-primary"
                 type="checkbox"
                 checked={!!form[x.k]}
                 onChange={e => setForm({ ...form, [x.k]: e.target.checked })}
               />
             ) : (
               <input
+                className={INPUT}
                 type="number"
                 value={String(form[x.k] ?? 0)}
                 onChange={e => setForm({ ...form, [x.k]: e.target.value })}
               />
             )}
             {/* 字节数直接看数字读不出量级，跟一行人类可读的 */}
-            {x.type === "bytes" && <span className="fhint">{bytes(Number(form[x.k]))}</span>}
-            {x.hint && <span className="fhint">{x.hint}</span>}
+            {x.type === "bytes" && <span className={FHINT}>{bytes(Number(form[x.k]))}</span>}
+            {x.hint && <span className={FHINT}>{x.hint}</span>}
           </label>
         ))}
       </div>
-      <div className="phead end">
-        <button className="btn primary" onClick={submit}>
+      <div className={PHEAD_END}>
+        <button className={BTN_PRIMARY} onClick={submit}>
           保存设置
         </button>
       </div>
@@ -286,44 +332,55 @@ function App() {
     return () => clearInterval(id)
   }, [load])
 
-  if (!state) return <p className="hint">加载中…</p>
+  if (!state) return <p className={HINT}>加载中…</p>
 
   const online = state.connections.filter(c => c.status === 1).length
   const s = state.stats
 
   return (
     <>
-      <header className="bar">
-        <div className="ident">
+      <header className="mb-[16px] flex items-center justify-between gap-[16px]">
+        <div className="flex min-w-0 items-center gap-[12px]">
           {/* 图标经接口取：宿主的静态白名单只放行 page.html/css/js，
               直连 resources/ 会 403。加载失败就不显示，页面其余部分不依赖它 */}
+          {/* 图标是透明底的字形，不加底色与描边 —— 那会在标题旁多出一个方块 */}
           <img
-            className="logo"
+            className="size-[40px] flex-none object-contain"
             src={`${API}/logo`}
             alt=""
             hidden={!logoOk}
             onLoad={() => setLogoOk(true)}
           />
           <div>
-            <h1>早柚核心适配器</h1>
-            <p className="sub">
+            <h1 className="text-[20px] font-bold">早柚核心适配器</h1>
+            <p className={HINT}>
               {state.plugin.name} {state.plugin.version}
             </p>
           </div>
         </div>
-        <div className="acts">
-          <button className="btn" onClick={load}>
+        <div className="flex gap-[8px]">
+          <button className={BTN} onClick={load}>
             刷新
           </button>
-          <button className="btn" onClick={() => send("/reconnect", {})}>
+          <button className={BTN} onClick={() => send("/reconnect", {})}>
             全部重连
           </button>
         </div>
       </header>
 
-      {toast && <div className={`toast${toast.bad ? " bad" : ""}`}>{toast.text}</div>}
+      {toast && (
+        <div
+          className={`mb-[12px] rounded-[10px] border px-[14px] py-[10px] text-[13px] ${
+            toast.bad
+              ? "border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
+              : "border-success bg-[color-mix(in_srgb,var(--success)_12%,transparent)]"
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
 
-      <section className="cards">
+      <section className="mb-[16px] grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-[12px]">
         <Stat k="连接" v={`${online}/${state.connections.length}`} sub="已连接 / 总数" />
         <Stat
           k="今日上行"
@@ -338,16 +395,16 @@ function App() {
         />
       </section>
 
-      <section className="panel">
-        <div className="phead">
-          <h2>连接</h2>
-          <button className="btn primary" onClick={() => setModal(null)}>
+      <section className={PANEL}>
+        <div className="mb-[12px] flex items-center justify-between gap-[12px]">
+          <h2 className="text-[15px] font-semibold">连接</h2>
+          <button className={BTN_PRIMARY} onClick={() => setModal(null)}>
             添加连接
           </button>
         </div>
-        <div className="conns">
+        <div className="flex flex-col gap-[8px]">
           {state.connections.length === 0 ? (
-            <p className="empty">
+            <p className="rounded-[10px] border border-dashed border-border p-[28px] text-center text-muted">
               还没有连接。点「添加连接」，或直接发 #早柚添加连接 127.0.0.1:8765
             </p>
           ) : (
@@ -363,10 +420,10 @@ function App() {
         </div>
       </section>
 
-      <section className="panel">
-        <h2>全局设置</h2>
+      <section className={PANEL}>
+        <h2 className="mb-[12px] text-[15px] font-semibold">全局设置</h2>
         <Settings config={state.config} onSave={b => send("/config", b)} />
-        <p className="hint">配置文件：{state.plugin.configFile}</p>
+        <p className={HINT}>配置文件：{state.plugin.configFile}</p>
       </section>
 
       {modal !== undefined && (
