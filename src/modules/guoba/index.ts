@@ -45,7 +45,7 @@ export function supportGuoba() {
       },
 
       setConfigData(data: Record<string, any>, { Result }) {
-        // mode 改动需要重启才生效（连接在 online 时拉起），
+        // enable 改动需要重启才生效（连接在 online 时拉起），
         // client.* 可以靠 reloadClients 热生效，这里据此给出不同提示
         let needRestart = false
         let touchedClient = false
@@ -57,7 +57,7 @@ export function supportGuoba() {
               const path = field.split(".")
               // 值没变就不写，避免把用户手写的等价格式（如 'a' vs "a"）改掉
               if (JSON.stringify(getValue(field)) === JSON.stringify(value)) continue
-              if (field === "mode") needRestart = true
+              if (field === "enable") needRestart = true
               if (path[0] === "client") touchedClient = true
               doc.setIn(path, value)
             }
@@ -68,7 +68,7 @@ export function supportGuoba() {
         }
 
         if (touchedClient) reloadClients()
-        if (needRestart) return Result.ok({}, "保存成功，运行模式需重启云崽生效")
+        if (needRestart) return Result.ok({}, "保存成功，启用开关需重启云崽生效")
         return Result.ok({}, "保存成功~")
       },
     },

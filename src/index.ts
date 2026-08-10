@@ -4,7 +4,7 @@
  * 由 index.js 转调，index.js 保持 .js 是因为框架 loader 只认
  * plugins/<name>/index.js（lib/plugins/loader.js:55）。
  */
-import { config, configFile } from "@/config"
+import { configFile, enabled } from "@/config"
 import { startClients } from "@/modules/client"
 import { loadApps } from "@/modules/loader"
 import { checkConflicts } from "@/modules/conflict"
@@ -12,26 +12,16 @@ import { initStats } from "@/modules/stats"
 import { initPassive } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
 
-let mode = config.mode || "off"
-
-// server / both 已移除：早柚核心 core.py 只有入站路由 @app.websocket("/ws/{bot_id}")，
-// gss.connect() 首句即 websocket.accept()，全仓库没有任何出站连接——
-// 核心永远不会主动来连云崽，服务端方向注册了也收不到东西。
-// 老配置不报错、不静默，按 client 继续跑并提示改配置。
-if (mode === "server" || mode === "both") {
-  makeLog(
-    "warn",
-    `mode: ${mode} 已废弃（早柚核心不会主动连接云崽），已按 client 运行。请把配置改为 mode: client`,
-    "GsCore",
-  )
-  mode = "client"
-}
+// 启用与否在加载时定下：连接只在 online 时拉起，改配置后要重启才生效。
+// 老配置的 mode: client/off（以及更早的 server/both）已由 config/upgrade.ts
+// 在读取前迁成 enable，这里不必再认那个字段。
+const on = enabled()
 
 // 适配器 load() 早于 online。此时 Bot.bots 通常还是空的，
 // 早到的 MessageSend 会经 Proxy 兜底到随机一个 bot，把消息发错账号；
 // 且在框架 lib/events/message.js 之前注册 Bot.on("message") 会把我们排到
 // 监听器队列最前，正是 e.isMaster 尚未定义的那个顺序。
-if (mode === "client")
+if (on)
   Bot.once("online", () => {
     // 放在 startClients 之前：先让"可能重复上报"的告警出现在连接日志上方，
     // 用户看到"已连接"时才不会以为一切正常。checkConflicts 内部自带兜底，
@@ -49,8 +39,8 @@ await initStats()
 // 不带 id，回复掉出引用形态。内部同样不抛。
 await initPassive()
 
-if (mode === "client") makeLog("info", "早柚核心适配器已载入", "GsCore")
-else makeLog("warn", "早柚核心适配器已禁用（mode: off）", "GsCore")
+if (on) makeLog("info", "早柚核心适配器已载入", "GsCore")
+else makeLog("warn", "早柚核心适配器已禁用（enable: false）", "GsCore")
 
 // 更新检查不在这里排期：它走本体的 task 机制，由 apps/update.ts 的 task 字段声明，
 // 开关与间隔在 tick() 里按配置判，改配置即刻生效，无需重启。

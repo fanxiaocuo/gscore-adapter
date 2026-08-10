@@ -1,4 +1,4 @@
-import { config } from "@/config"
+import { enabled } from "@/config"
 import { makeLog } from "@/utils/compat"
 import { clients } from "@/modules/client"
 import { forName, snapshot, resetStats } from "@/modules/stats"
@@ -39,7 +39,7 @@ export default class GsCoreStatus extends plugin {
         `操作系统：${sys.os}（${sys.platform} ${sys.arch}）`,
         `运行框架：${frameLabel()}`,
         `Node 版本：v${nodeVersion()}`,
-        `运行模式：${config.mode || "off"}`,
+        `运行状态：${enabled() ? "已启用" : "已禁用"}`,
         `处理器：${sys.cpuModel}（${sys.cpuCores} 核心）`,
         `内存占用：${sys.memoryPercent}%（${sys.usedMemory} / ${sys.totalMemory}）`,
         `运行时长：${sys.processUptime}`,
@@ -55,9 +55,9 @@ export default class GsCoreStatus extends plugin {
     // 文本回退：与图上同源。中转计数要带上——出不了图往往正是浏览器有问题的时候，
     // 而「连着但一条没转」这个判断不该因为出图失败就看不到了。
     const s = snapshot()
-    const msg = [`早柚核心适配器\n运行模式：${config.mode}`]
+    const msg = [`早柚核心适配器\n运行状态：${enabled() ? "已启用" : "已禁用"}`]
 
-    if (config.mode !== "off") {
+    if (enabled()) {
       if (!clients.length) {
         msg.push("\n连接：无")
       } else {

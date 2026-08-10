@@ -1,4 +1,4 @@
-import { config, saveConfig, getConnections } from "@/config"
+import { saveConfig, getConnections, enabled } from "@/config"
 import { clients, startClient, stopClient } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
@@ -8,7 +8,7 @@ import { helpText } from "@/modules/render/commands"
 
 /** 关闭状态下不热启动连接 */
 function clientMode() {
-  return config.mode !== "off"
+  return enabled()
 }
 
 /** 单条连接的字段，由 #早柚添加连接 / #早柚修改连接 消费 */
@@ -24,7 +24,7 @@ const CONNECTION_KEYS = [
 
 /** 全局字段，由 #早柚设置 消费 */
 const GLOBAL_KEYS = [
-  "mode",
+  "enable",
   "only_reply_at",
   "report_private",
   "report_group",
@@ -144,7 +144,7 @@ export default class GsCoreAdmin extends plugin {
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
             ? "配置已保存，可用 #早柚重连 启动"
-            : `当前模式为 ${config.mode}，未启用客户端。改 #早柚设置 mode=client 后重启生效`),
+            : "适配器当前已禁用（enable: false）。发 #早柚设置 enable=true 并重启云崽后生效"),
     )
   }
 
@@ -171,7 +171,7 @@ export default class GsCoreAdmin extends plugin {
     const list = getConnections()
     if (!list.length) return e.reply("还没有配置任何连接\n用 #早柚添加连接 <地址> 添加")
 
-    const msg = [`早柚核心连接（共 ${list.length} 个）  模式：${config.mode}`]
+    const msg = [`早柚核心连接（共 ${list.length} 个）  ${enabled() ? "已启用" : "已禁用"}`]
     list.forEach((c, i) => {
       const live = clients.find(x => x.name === c.name)
       const state = c.enable === false ? "已停用" : STATUS_TEXT[live?.status ?? 0] || "未启动"
@@ -207,7 +207,9 @@ export default class GsCoreAdmin extends plugin {
 
     if (on) {
       if (!clientMode())
-        return e.reply(`已启用连接 ${hit.conf.name}\n但当前模式为 ${config.mode}，客户端未运行`)
+        return e.reply(
+          `已启用连接 ${hit.conf.name}\n但适配器本体已禁用（enable: false），客户端未运行`,
+        )
       startClient({ ...hit.conf, enable: true })
       return e.reply(`已启用连接 ${hit.conf.name}，正在连接`)
     }
@@ -219,7 +221,7 @@ export default class GsCoreAdmin extends plugin {
     const raw = e.msg.replace(/^#?早柚(核心)?设置\s*/, "").trim()
     const kv = parseKV(raw)
     if (!Object.keys(kv).length)
-      return e.reply(`用法：#早柚设置 mode=client\n可设：${GLOBAL_KEYS.join(" / ")}`)
+      return e.reply(`用法：#早柚设置 enable=true\n可设：${GLOBAL_KEYS.join(" / ")}`)
 
     const done: string[] = []
     const errs: string[] = []
@@ -228,13 +230,13 @@ export default class GsCoreAdmin extends plugin {
       saveConfig(doc => {
         for (const [k, v] of Object.entries(kv)) {
           switch (k) {
-            case "mode":
-              if (!["client", "off"].includes(v)) {
-                errs.push(`mode 只能是 client/off，收到 ${v}`)
+            case "enable":
+              if (!["true", "false"].includes(v)) {
+                errs.push(`enable 只能是 true/false，收到 ${v}`)
                 break
               }
-              doc.setIn(["mode"], v)
-              done.push(`mode = ${v}（需重启生效）`)
+              doc.setIn(["enable"], v === "true")
+              done.push(`enable = ${v}（需重启生效）`)
               break
             case "only_reply_at":
               doc.setIn(["filter", "only_reply_at"], v === "true")

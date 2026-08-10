@@ -36,8 +36,8 @@ export interface HelpGroup {
 export interface HelpData {
   title: string
   version: string
-  /** 运行模式，展示在右上 */
-  mode: string
+  /** 适配器是否启用，展示在右上 */
+  enabled: boolean
   /** 连接数概览 */
   summary: { key: string; value: string; sub?: string }[]
   groups: HelpGroup[]
@@ -251,9 +251,9 @@ export function Help(data: HelpData) {
         <Header
           title="COMMANDS"
           status="GSCORE_ADAPTER"
-          led={data.mode === "client" ? "on" : "off"}
-          rightKey="RUNNING MODE"
-          rightValue={data.mode}
+          led={data.enabled ? "on" : "off"}
+          rightKey="ADAPTER"
+          rightValue={data.enabled ? "ENABLED" : "DISABLED"}
         />
 
         <Stats items={data.summary} palette={data.palette} />

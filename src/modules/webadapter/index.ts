@@ -24,14 +24,17 @@
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
-import { config, configFile, saveConfig, getConnections } from "@/config"
+import { config, configFile, saveConfig, getConnections, enabled } from "@/config"
 import { clients, startClient, stopClient, reloadClients } from "@/modules/client"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
-import { PluginName } from "@/dir"
+import { PluginName, ResPath } from "@/dir"
 import { requireWsUrl } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
+import { PLUGIN_LOGO } from "@/modules/render/assets.js"
+import fs from "node:fs"
+import path from "node:path"
 
 /** 原型链污染防护：这三个键写进配置对象会污染 Object.prototype */
 const BAD_KEYS = ["__proto__", "prototype", "constructor"]
@@ -75,7 +78,7 @@ function payload() {
     ok: true,
     plugin: { name: PluginName, version: versionLabel(), configFile },
     config: {
-      mode: config.mode || "off",
+      enable: enabled(),
       heartbeat: Number(config.client?.heartbeat) || 0,
       heartbeat_timeout: Number(config.client?.heartbeat_timeout) || 0,
       notify_master: config.notify_master === true,
@@ -125,12 +128,11 @@ function saveGlobal(body) {
   let needRestart = false
 
   saveConfig(doc => {
-    if (body.mode !== undefined) {
-      const v = String(body.mode)
-      if (!["client", "off"].includes(v)) throw new Error(`mode 只能是 client 或 off，收到 ${v}`)
-      if (v !== config.mode) needRestart = true
-      doc.setIn(["mode"], v)
-      changed.push("mode")
+    if (body.enable !== undefined) {
+      const v = bool(body.enable, true)
+      if (v !== enabled()) needRestart = true
+      doc.setIn(["enable"], v)
+      changed.push("enable")
     }
     if (body.notify_master !== undefined) {
       doc.setIn(["notify_master"], bool(body.notify_master, false))
@@ -160,7 +162,7 @@ function saveGlobal(body) {
 
   // 心跳参数在建连时读，改了要重连才生效；其余项每条消息现读，即时生效
   const touchedClient = changed.some(k => k.startsWith("client."))
-  if (touchedClient && config.mode !== "off") reloadClients()
+  if (touchedClient && enabled()) reloadClients()
 
   return { changed, needRestart, touchedClient }
 }
@@ -191,7 +193,7 @@ function addConnection(body) {
     ;(doc.getIn(["client", "connections"]) as any).add(doc.createNode(conf))
   })
 
-  if (config.mode !== "off" && conf.enable) startClient(conf)
+  if (enabled() && conf.enable) startClient(conf)
   return conf.name
 }
 
@@ -231,7 +233,7 @@ function editConnection(body) {
 
   stopClient(oldName)
   const next = getConnections()[hit.index]
-  if (config.mode !== "off" && next?.enable !== false) startClient(next)
+  if (enabled() && next?.enable !== false) startClient(next)
   return next?.name || oldName
 }
 
@@ -253,7 +255,7 @@ function toggleConnection(body) {
   saveConfig(doc => doc.setIn(["client", "connections", hit.index, "enable"], on))
   const name = hit.conf.name || hit.conf.url
   if (on) {
-    if (config.mode !== "off") startClient({ ...hit.conf, enable: true })
+    if (enabled()) startClient({ ...hit.conf, enable: true })
   } else stopClient(name)
   return name
 }
@@ -276,7 +278,7 @@ export function init(ctx) {
   registerPage({
     id: "gscore-adapter",
     title: "早柚核心适配器",
-    icon: "🦊",
+    icon: "🐱",
     src: "page.html",
     // iframe 模式下宿主不会把 style/script 注入外层 DOM（页面自己 <link>/<script>
     // 引），但这两项同时是**文件访问白名单** —— /api/web-page/ 只放行描述符里
@@ -299,6 +301,29 @@ export function init(ctx) {
 
   registerApi("get", "/gscore-adapter/config", guard(() => payload(), 500))
 
+  /**
+   * 插件图标
+   *
+   * 页面里的 <img> 不能直接指向 resources/template/image/ —— 宿主的
+   * /api/web-page/ 只放行描述符里列过的 src/style/script 三个文件（index.js:271-278），
+   * 别的路径一律 403。所以图标由本插件自己回，走同一套鉴权。
+   *
+   * 顺带一提：导航栏那颗 icon 只能是 emoji。宿主用 textContent 渲染它
+   * （web/app.js:146），给图片路径会被当字面量显示出来。
+   */
+  registerApi("get", "/gscore-adapter/logo", (_req, res) => {
+    try {
+      const file = path.join(ResPath, "template/image", PLUGIN_LOGO)
+      const buf = fs.readFileSync(file)
+      res.setHeader("Content-Type", "image/webp")
+      // 图标随版本走，版本不变就不必重取
+      res.setHeader("Cache-Control", "public, max-age=86400")
+      res.end(buf)
+    } catch {
+      res.status(404).end()
+    }
+  })
+
   registerApi(
     "post",
     "/gscore-adapter/config",
@@ -307,7 +332,7 @@ export function init(ctx) {
       return {
         ...payload(),
         message: r.changed.length
-          ? `已保存 ${r.changed.length} 项${r.needRestart ? "，mode 需重启云崽生效" : ""}`
+          ? `已保存 ${r.changed.length} 项${r.needRestart ? "，enable 需重启云崽生效" : ""}`
           : "没有需要保存的改动",
       }
     }),

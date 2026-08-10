@@ -72,6 +72,22 @@ h2 {
   gap: 8px;
 }
 
+/* 标题区：图标 + 名称版本 */
+.ident {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.logo {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  /* 图标是透明底的字形，不加底色与描边 —— 那会在标题旁多出一个方块 */
+  object-fit: contain;
+}
+
 .btn {
   padding: 6px 14px;
   border: 1px solid var(--border);

@@ -38,7 +38,8 @@ export interface StatusPanel {
 export interface StatusData {
   title: string
   version: string
-  mode: string
+  /** 适配器是否启用，展示在右上 */
+  enabled: boolean
   /** 页面主标题，连接列表与状态页共用本组件 */
   heading: string
   ghost: string
@@ -73,9 +74,9 @@ export function Status(data: StatusData) {
         <Header
           title={data.heading}
           status="GSCORE_ADAPTER"
-          led={data.mode === "client" ? "on" : "off"}
-          rightKey="RUNNING MODE"
-          rightValue={data.mode}
+          led={data.enabled ? "on" : "off"}
+          rightKey="ADAPTER"
+          rightValue={data.enabled ? "ENABLED" : "DISABLED"}
         />
 
         <Stats items={data.summary} palette={p} />

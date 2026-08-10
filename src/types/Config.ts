@@ -33,6 +33,13 @@ export interface ClientConnection {
  * "server" / "both" 已移除（早柚核心不会主动连云崽），
  * 但保留在类型里：老配置仍可能写着它们，src/index.ts 会按 client 兼容并提示。
  */
+/**
+ * 已废弃：旧配置的 mode
+ *
+ * 只剩 client / off 有效，等价于一个布尔，已换成 enable。server / both 更早就
+ * 只是「按 client 跑并提示改配置」——早柚核心没有出站连接，服务端方向不存在。
+ * 类型留着是为了 config/upgrade.ts 读老文件时有个名字可引用。
+ */
 export type Mode = "off" | "client" | "server" | "both"
 
 /** 消息过滤，仅影响 client 方向的上报 */
@@ -102,7 +109,13 @@ export interface UpdateCheckConfig {
 
 /** 插件配置文件结构（对应 config/default_config/config.yaml） */
 export interface Config {
-  mode?: Mode
+  /**
+   * 是否启用适配器。false 则完全不连早柚核心
+   *
+   * 取代旧的 mode（client/off）。老配置由 config/upgrade.ts 一次性迁移，
+   * 迁移后文件里不再有 mode。
+   */
+  enable?: boolean
   client?: {
     /** ws ping 间隔（秒），0 关闭 */
     heartbeat?: number

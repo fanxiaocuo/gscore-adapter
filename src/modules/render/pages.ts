@@ -4,7 +4,7 @@
  * 把配置与运行时状态整理成组件要的形状，再交给 render()。
  * 单独一层是为了让 apps/*.ts 只写一行调用，也方便未来加新页面。
  */
-import { config, getConnections } from "@/config"
+import { config, getConnections, enabled } from "@/config"
 import { clients } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
 import { PluginName } from "@/dir"
@@ -123,7 +123,7 @@ export async function renderHelp() {
       Help({
         title: PluginName,
         version,
-        mode: config.mode || "off",
+        enabled: enabled(),
         palette,
         time: stamp(),
         summary: [
@@ -152,7 +152,7 @@ export async function renderList() {
       Status({
         title: PluginName,
         version,
-        mode: config.mode || "off",
+        enabled: enabled(),
         heading: "CONNECTIONS",
         ghost: "LINKS",
         palette,
@@ -300,20 +300,19 @@ export async function renderStatus() {
       Status({
         title: PluginName,
         version,
-        mode: config.mode || "off",
+        enabled: enabled(),
         heading: "STATUS",
         ghost: "STATUS",
         palette,
         time: stamp(),
         rows,
-        emptyTip:
-          config.mode === "off"
-            ? "当前模式为 off，适配器未启用\n用 #早柚设置 mode=client 开启"
-            : "用 #早柚添加连接 <地址> 添加",
-        // 四格换成「模式 / 在线 / 上行 / 下行」：已停用的连接在卡片上自带
+        emptyTip: enabled()
+          ? "用 #早柚添加连接 <地址> 添加"
+          : "适配器已禁用\n用 #早柚设置 enable=true 开启",
+        // 四格换成「开关 / 在线 / 上行 / 下行」：已停用的连接在卡片上自带
         // 「已停用」胶囊，不必再占一格，而收发量是这页最该先看到的数字。
         summary: [
-          { key: "MODE", value: (config.mode || "off").toUpperCase(), sub: "运行模式" },
+          { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
           { key: "ONLINE", value: `${online}/${total}`, sub: "在线 / 总数" },
           { key: "UPLINK", value: String(s.today.up + s.today.event), sub: "今日上报核心" },
           { key: "DOWNLINK", value: String(s.today.down), sub: "今日核心下发" },
@@ -409,13 +408,12 @@ export async function renderAbout() {
             sub: `V8 ${process.versions.v8}`,
           },
           {
-            key: "运行模式",
-            value: config.mode || "off",
+            key: "运行状态",
+            value: enabled() ? "已启用" : "已禁用",
             mono: true,
-            sub:
-              config.mode === "off"
-                ? "适配器未启用，用 #早柚设置 mode=client 开启"
-                : "云崽作为 ws 客户端主动连接核心",
+            sub: enabled()
+              ? "云崽作为 ws 客户端主动连接核心"
+              : "用 #早柚设置 enable=true 开启",
           },
           {
             key: "处理器",

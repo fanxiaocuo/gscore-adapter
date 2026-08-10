@@ -9,9 +9,15 @@
 <body>
 <div id="app">
   <header class="bar">
-    <div>
-      <h1>早柚核心适配器</h1>
-      <p class="sub" id="meta">加载中…</p>
+    <div class="ident">
+      <!-- src 由 page.js 按 __webBase 拼（宿主可能挂在 /qqbot-web 这类前缀下，
+           写死 /api/... 会 404）。图标经 /api/gscore-adapter/logo 取，
+           不能直连 resources/：宿主只放行描述符里那三个文件，别的路径 403 -->
+      <img class="logo" id="logo" alt="" hidden />
+      <div>
+        <h1>早柚核心适配器</h1>
+        <p class="sub" id="meta">加载中…</p>
+      </div>
     </div>
     <div class="acts">
       <button class="btn" id="refresh">刷新</button>

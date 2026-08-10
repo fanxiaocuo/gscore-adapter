@@ -5,6 +5,7 @@ import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
 import type { Config } from "@/types"
 import { isChannel } from "@/utils/session.js"
+import { upgradeUserConfig } from "./upgrade.js"
 
 /**
  * 默认值与用户配置分属两个目录：
@@ -51,6 +52,21 @@ function load() {
       globalThis.Bot?.makeLog?.("mark", `已生成配置 ${userFile}`, "GsCore")
     } catch (err) {
       globalThis.Bot?.makeLog?.("error", ["生成配置失败", err], "GsCore")
+    }
+  } else {
+    // 已有配置：把默认里后加的顶层项连注释补进去，并把旧的 mode 迁成 enable。
+    // 运行时 merge 本就能兜住值，补写是为了让用户在**文件里看得到**这些项。
+    // 只在这里做（模块首次求值），热重载走的是 reload()，不会反复改用户文件。
+    try {
+      const changes = upgradeUserConfig(userFile)
+      if (changes.length)
+        globalThis.Bot?.makeLog?.(
+          "mark",
+          `配置已升级（原文件备份为 config.yaml.bak）：${changes.join("、")}`,
+          "GsCore",
+        )
+    } catch (err) {
+      globalThis.Bot?.makeLog?.("error", ["升级配置失败，按原配置运行", err], "GsCore")
     }
   }
   return merge(read(defFile), read(userFile, true))
@@ -141,6 +157,19 @@ export function saveConfig(fn) {
 export function getConnections() {
   const list = config.client?.connections
   return Array.isArray(list) ? list : []
+}
+
+/**
+ * 适配器是否启用
+ *
+ * 只认 `enable`。老配置里的 `mode: client/off` 由 config/upgrade.ts 在启动时
+ * 一次性迁成 enable 并从文件里删掉，所以这里不做双读 —— 两个键同时可用会留下
+ * 「以谁为准」的长期歧义，而迁移是看得见的一次性改动。
+ *
+ * 缺省为 true：配置里没写过这项时按启用算，与「装了插件就想用」一致。
+ */
+export function enabled(): boolean {
+  return config.enable !== false
 }
 
 /**
