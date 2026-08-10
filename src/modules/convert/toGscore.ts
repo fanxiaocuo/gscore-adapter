@@ -1,7 +1,7 @@
 /**
  * 云崽 -> 早柚核心
  */
-import { toGscoreMedia, toGscoreFile } from "@/utils"
+import { toGscoreMedia, toGscoreFile, isChannel, resolveReplyId } from "@/utils"
 import type { MessageReceive, UserPm } from "@/types"
 import { buttonsToGscore } from "./buttons.js"
 import { toStr } from "@/utils/compat"
@@ -119,10 +119,14 @@ export async function yunzaiToGscore(e, botId, opts: { isMaster?: boolean } = {}
   // ai_core 的字段说明（capability_agents/profiles.py:781）也写的是"回复的消息ID"。
   // 额外塞 image 段不但帮不到这个消费者，还会污染 event.image / image_list
   // （handler.py:763-766），让"引用了一张图"在所有插件眼里变成"刚发了一张图"。
-  if (e.source?.message_id != null) {
-    content.push({ type: "reply", data: String(e.source.message_id) })
-  } else if (e.reply_id != null && !e.message?.some?.(i => i?.type === "reply")) {
-    content.push({ type: "reply", data: String(e.reply_id) })
+  //
+  // id 的取法各适配器不一，ICQQ 更是两种常规字段都没有，需由 e.source 反算 ——
+  // 全部收敛到 utils/reply.ts 的 resolveReplyId，理由见那里。
+  const replyId = resolveReplyId(e)
+  // 消息段里已经有 reply 时不再补：msgToGscore 会把那一段转成 reply，
+  // 两处都加就会出现两个 reply 段
+  if (replyId && !e.message?.some?.(i => i?.type === "reply")) {
+    content.push({ type: "reply", data: replyId })
   }
 
   content.push(...(await msgToGscore(e.message || [])))
@@ -156,8 +160,14 @@ export async function yunzaiToGscore(e, botId, opts: { isMaster?: boolean } = {}
     user_type: "direct",
   }
 
-  if (e.isGuild || e.message_type === "guild") {
+  // isChannel 而不是 e.isGuild || e.message_type === "guild"：QQBot-Plugin 的
+  // 频道消息把 message_type 标成 group、且不设 isGuild，靠 group_id 的 qg_ 前缀
+  // 才认得出来。判据与理由见 utils/message.ts 的 isChannel。
+  if (isChannel(e)) {
     data.user_type = "channel"
+    // 保持 qg_ 前缀原样：核心把 group_id 当不透明定位符回传到 MessageSend.target_id，
+    // 而 QQBot-Plugin 的 pickGroup 正是靠这个前缀分派到 pickGuild（index.js:1103）。
+    // 剥掉它下行就 pick 不到频道了。
     data.group_id = String(e.group_id ?? e.channel_id)
   } else if (e.message_type === "group" || e.isGroup) {
     data.user_type = "group"

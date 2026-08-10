@@ -9,6 +9,7 @@ import { startClients } from "@/modules/client"
 import { loadApps } from "@/modules/loader"
 import { checkConflicts } from "@/modules/conflict"
 import { initStats } from "@/modules/stats"
+import { initPassive } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
 
 let mode = config.mode || "off"
@@ -43,6 +44,10 @@ if (mode === "client")
 // 先到的几条消息会被随后的 load 覆盖。initStats 内部不抛，
 // 数据库不可用时自动退化成纯内存计数。
 await initStats()
+
+// 被动回复的会话记录同理，且更要紧：晚于 startClients 时，重启后 4 分半窗口内
+// 的下发会全部走主动推送，白烧 QQBot 配额。内部同样不抛。
+await initPassive()
 
 if (mode === "client") makeLog("info", "早柚核心适配器已载入", "GsCore")
 else makeLog("warn", "早柚核心适配器已禁用（mode: off）", "GsCore")

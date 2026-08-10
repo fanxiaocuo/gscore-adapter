@@ -2,6 +2,23 @@
  * 消息过滤与回环防护的共享工具
  */
 import { config } from "@/config"
+import { isChannel } from "./session.js"
+
+/**
+ * 会话方向开关：私聊 / 群（含频道）
+ *
+ * 比黑白名单粗一档 —— 想「只让群消息过核心」时不必把所有私聊用户列进 black_user。
+ * 默认都开（不配等于全上报），只有显式写 false 才拦。
+ *
+ * 频道算群：核心侧 channel 与 group 是两种 user_type，但从「要不要上报」的角度
+ * 它们同属群聊语境，没必要再分一个开关。
+ */
+export function passDirection(e): boolean {
+  const f = config.filter || {}
+  const isGroup = e?.message_type === "group" || e?.isGroup || isChannel(e) || e?.group_id != null
+  if (isGroup) return f.report_group !== false
+  return f.report_private !== false
+}
 
 /** 群/用户黑白名单，消息与 meta 事件路径共用同一份 filter 配置 */
 export function passFilter(e) {

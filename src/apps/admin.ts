@@ -25,6 +25,9 @@ const CONNECTION_KEYS = [
 const GLOBAL_KEYS = [
   "mode",
   "only_reply_at",
+  "report_private",
+  "report_group",
+  "report_meta",
   "notify_master",
   "media_max_size",
   "update_check",
@@ -249,6 +252,13 @@ export default class GsCoreAdmin extends plugin {
             case "only_reply_at":
               doc.setIn(["filter", "only_reply_at"], v === "true")
               done.push(`only_reply_at = ${v === "true"}`)
+              break
+            // 三个上报方向开关：都在 filter 下，改完即时生效（每条消息都读一遍配置）
+            case "report_private":
+            case "report_group":
+            case "report_meta":
+              doc.setIn(["filter", k], v === "true")
+              done.push(`${k} = ${v === "true"}`)
               break
             case "notify_master":
               doc.setIn(["notify_master"], v === "true")

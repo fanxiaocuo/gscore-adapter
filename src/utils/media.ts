@@ -189,6 +189,22 @@ export function fromGscoreMedia(data) {
     if (!/^https?:\/\//.test(s)) s = `http://${s}`
     return s
   }
+
+  // data: URI 必须转成 base64://，不能原样放行。
+  //
+  // 下游没有一处认它：
+  //   - icqq 的 Image 构造器（lib/message/image.js:98-115）只认 Buffer /
+  //     Readable / base64:// / http(s):// / 其余按本地路径走 fromLocal，
+  //     data: 会掉进 fromLocal 当文件名去 stat，必然失败
+  //   - 框架的 Bot.Buffer（lib/util.js）同样只认那几种
+  //   - Milky 的 fixUri 也不识别，原样透给协议端
+  // 而 base64:// 是三者都认的形式，data: 的载荷本身就是 base64，转过去零成本。
+  //
+  // 只处理 ;base64, 形式：data:text/plain,foo 这种 URL 编码的载荷不是媒体，
+  // 转过去只会得到一张坏图，不如照旧原样放行让下游报错更容易查。
+  const m = /^data:[^,]*;base64,/.exec(s)
+  if (m) return `base64://${s.slice(m[0].length)}`
+
   if (/^(base64:\/\/|https?:\/\/|file:\/\/|data:)/.test(s)) return s
   return `base64://${s}` // 裸 base64
 }

@@ -102,6 +102,12 @@ export const HELP_GROUPS: HelpGroup[] = [
         master: true,
       },
       {
+        cmd: "#早柚设置 report_private=false",
+        dsc: "关掉私聊上报。另有 report_group（群，含频道）与 report_meta（入群/退群/戳一戳）",
+        icon: "settings",
+        master: true,
+      },
+      {
         cmd: "#早柚设置 notify_master=true",
         dsc: "连接断开与重连成功时私聊通知主人",
         icon: "settings",

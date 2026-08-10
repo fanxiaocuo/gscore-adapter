@@ -9,7 +9,7 @@
  * 所以必需字段缺失时宁可整包丢弃，不发残包。
  */
 import { SUB_TYPE_MAP } from "@/constants"
-import { str, passFilter } from "@/utils"
+import { str, passFilter, isChannel } from "@/utils"
 import { toStr } from "@/utils/compat"
 
 export { passFilter }
@@ -70,7 +70,9 @@ export function metaToGscore(e, meta, botId, opts: { isMaster?: boolean } = {}) 
     bot_id: botId,
     bot_self_id: str(e.self_id),
     msg_id: "",
-    user_type: group_id ? "group" : "direct",
+    // 频道要判在前：QQBot-Plugin 的频道事件 group_id 带 qg_ 前缀但 message_type
+    // 是 group，只看 group_id 有无会把频道事件标成 group（同 toGscore 的处理）
+    user_type: group_id ? (isChannel(e) ? "channel" : "group") : "direct",
     group_id: group_id || null,
     user_id: meta.data.user_id,
     user_pm: opts.isMaster ? 1 : 6,

@@ -1,12 +1,13 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT, GS_LOG_RE } from "@/constants"
-import { logStr } from "@/utils"
+import { logStr, sendError, sendMessageId } from "@/utils"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
 import { metaToGscore, metaLogStr } from "@/modules/notice"
 import { count } from "@/modules/stats/index.js"
+import { isQQBot, take } from "@/modules/passive"
 import { echoKey, markSent } from "./echo.js"
 
 export class GsCoreClient {
@@ -350,6 +351,81 @@ export class GsCoreClient {
     return false
   }
 
+  /**
+   * 实际发送
+   *
+   * QQBot 上尽量走**被动回复**：带上该会话最近一条入站消息的 id，不消耗主动推送
+   * 配额。核心下发不带原消息 id，所以那个 id 由 modules/passive 自己记着。
+   *
+   * 为什么不直接 target.sendMsg
+   * -------------------------
+   * QQBot-Plugin 的 pick* 返回的 sendMsg 只收一个参数
+   * （index.js:1114 `sendMsg: msg => this.sendGroupMsg(i, msg)`），第三个 event
+   * 参数被吃掉了 —— 从 pick 出来的对象上没法传被动回复凭据。而 adapter 上的
+   * sendGroupMsg(data, msg, event) 收得到，所以这条路径直接调它，
+   * 把 pick 出来的对象当上下文传进去（QQBot-Plugin 内部也正是这么用的）。
+   *
+   * 失败即回退：被动回复用的 id 可能已被平台判为过期（4 分半的窗口是估算，
+   * 时钟与网络延迟都算不进去），也可能这条会话不支持。那种情况下退回普通发送，
+   * 宁可烧一次配额，不能让消息发不出去。
+   */
+  async doSend(target, message, bot, data, targetId) {
+    if (!isQQBot(bot)) return await target.sendMsg(message)
+
+    const type = data.target_type === "direct" ? "direct" : "group"
+
+    // 先确认有能收 event 的发送函数，再去 take —— take 是**取出即删**，
+    // 顺序反了会在「这条路径不支持被动回复」时白白消耗掉一个还能用的 id
+    const fn = this.passiveSender(bot.adapter, type, targetId)
+    if (!fn) return await target.sendMsg(message)
+
+    const msgId = take(data.bot_self_id, type, targetId)
+    if (!msgId) return await target.sendMsg(message)
+
+    try {
+      const ret = await fn(target, message, { id: msgId })
+      // 返回派的失败（Milky/OneBot 那种不抛错的）在外层统一判，这里只看抛没抛，
+      // 以及返回值里是否已经明确失败 —— 后者要回退，不能当成功
+      if (!sendError(ret)) {
+        this.log("debug", "已按被动回复发送（省一次主动推送额度）")
+        return ret
+      }
+      this.log("debug", "被动回复失败，回退主动推送")
+    } catch (err) {
+      this.log("debug", ["被动回复异常，回退主动推送", err])
+    }
+    return await target.sendMsg(message)
+  }
+
+  /**
+   * 取能接收 event 参数的发送函数
+   *
+   * QQBot-Plugin 有四条发送路径，按目标形状分派（同它自己 pickGroup/pickFriend
+   * 里的判断，index.js:1051/1103）：
+   *   群       sendGroupMsg
+   *   好友     sendFriendMsg
+   *   频道     sendGuildMsg    —— group_id 带 qg_ 前缀
+   *   频道私聊 sendDirectMsg   —— **不走被动回复**，见下
+   *
+   * 频道私聊排除在外：sendDirectMsg 会在缺 guild_id 时先去 createDirectSession
+   * 建会话并改写 data（index.js:995-1007），把它塞进被动回复这条路径要连带处理
+   * 那段副作用，收益（频道私聊本就少）不值这个风险。它照常走 target.sendMsg。
+   *
+   * @returns 找不到对应函数返回 null，调用方回退
+   */
+  passiveSender(adapter, type: "direct" | "group", targetId: string) {
+    if (!adapter) return null
+    const isGuild = targetId.startsWith("qg_")
+
+    // 频道私聊：不接
+    if (type === "direct" && isGuild) return null
+
+    const name = type === "direct" ? "sendFriendMsg" : isGuild ? "sendGuildMsg" : "sendGroupMsg"
+    const fn = adapter[name]
+    if (typeof fn !== "function") return null
+    return (t, msg, event) => fn.call(adapter, t, msg, event)
+  }
+
   /* ---------- 下行：早柚核心 -> 云崽 ---------- */
   async onMessage(raw) {
     let data
@@ -394,9 +470,13 @@ export class GsCoreClient {
         target = bot.pickFriend(Number(targetId) || targetId)
         tag = `好友 ${targetId}`
       } else {
-        // 复合 id 先原样传（QQ 频道 id 本身就含 -），拿不到再退化为末段
+        // 复合 id 先原样传：QQ 频道的 group_id 是 `qg_{guild}-{channel}`，
+        // QQBot-Plugin 靠 qg_ 前缀分派到 pickGuild（index.js:1103），拆开就找不到了。
         let g = bot.pickGroup(Number(targetId) || targetId)
-        if (!g?.sendMsg && targetId.includes("-")) {
+        // 退化取末段只对「纯粹用 - 连接两段数字」的复合 id 有意义。
+        // qg_ 开头的绝不能拆 —— 拆出来的 channel_id 在 pickGroup 里会走进
+        // 普通群分支，pick 到一个不存在的群。
+        if (!g?.sendMsg && targetId.includes("-") && !targetId.startsWith("qg_")) {
           const last = targetId.split("-").at(-1)
           g = bot.pickGroup(Number(last) || last)
         }
@@ -421,12 +501,26 @@ export class GsCoreClient {
         `${this.name} => ${data.bot_self_id}, ${tag}`,
         true,
       )
-      const ret = await target.sendMsg(message)
+      const ret = await this.doSend(target, message, bot, data, targetId)
+
       // 计数放在 await 之后：sendMsg 抛错说明没发出去，那不算一次成功中转。
       // 纯日志帧和空消息在上面就 return 了，不会计进来。
+      //
+      // 但「没抛错」不等于成功：Milky 的 callApi 失败时返回
+      // { retcode: -1, status: "failed", error }（Milky.js:424-434）而从不抛，
+      // OneBot 系同理。只 await 不看返回值会把失败记成成功中转，
+      // 而「连着但不通」恰是这个计数该抓到的情况。判定见 utils/send.ts。
+      const err = sendError(ret)
+      if (err) {
+        this.log("error", `发送失败：${err}`)
+        // 不计数，但仍要走 finally 里的回执 —— 漏回会被核心 latch 成「不支持撤回」
+        return
+      }
+
       count("down", this.name)
-      // 核心用这个 id 实现定时撤回；取不到就回 null，别让它干等 10s
-      recallId = ret?.message_id ?? ret?.msg_id ?? ret?.id ?? null
+      // 核心用这个 id 实现定时撤回；取不到就回 null，别让它干等 10s。
+      // 可能是数组（ICQQ-Plugin 风控重试会拆多组），协议允许，原样透传
+      recallId = sendMessageId(ret)
     } catch (err) {
       this.log("error", ["处理下行消息错误", err])
     } finally {

@@ -37,6 +37,16 @@ export type Mode = "off" | "client" | "server" | "both"
 
 /** 消息过滤，仅影响 client 方向的上报 */
 export interface FilterConfig {
+  /**
+   * 是否上报私聊消息。
+   * 比黑白名单粗一档：想「只让群消息过核心」时不必把所有私聊用户列进黑名单。
+   * 思路取自 xiowo/yunzai-gscore-adapter 的 reportPrivate。
+   */
+  report_private?: boolean
+  /** 是否上报群消息（含频道） */
+  report_group?: boolean
+  /** 是否上报非消息事件（入群/退群/戳一戳等 meta event） */
+  report_meta?: boolean
   /** 仅在被 @ 或带前缀时才上报群消息 */
   only_reply_at?: boolean
   /** only_reply_at 为 true 时，这些前缀也视为触发 */
@@ -101,7 +111,10 @@ export interface Config {
     connections?: ClientConnection[]
   }
   filter?: FilterConfig
-  /** 适配器 id 或 self_id -> 早柚核心 bot_id 的映射，含 default 兜底 */
+  /**
+   * 适配器 id / name / self_id -> 早柚核心 bot_id 的映射，含 default 兜底。
+   * 特殊键 QQGuild 用于 QQ 频道（与 QQ 群共用 adapter.id，只能按事件形状分）。
+   */
   bot_id_map?: Record<string, string>
   /** 媒体转 base64 的大小上限（字节），超限改用 link:// 外链 */
   media_max_size?: number

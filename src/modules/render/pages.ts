@@ -11,6 +11,7 @@ import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
 import { fileServerEnabled, pendingFiles } from "@/utils/fileServer.js"
 import { forName, snapshot } from "@/modules/stats/index.js"
+import { passiveCount } from "@/modules/passive/index.js"
 import { Help } from "./components/Help.js"
 import { Status, type ConnRow, type StatusPanel } from "./components/Status.js"
 import { Changelog } from "./components/Changelog.js"
@@ -224,6 +225,12 @@ function statusPanels(): StatusPanel[] {
       title: "消息过滤",
       key: "FILTER",
       items: [
+        // 三个方向开关放最前：它们是最粗的一刀，也是「核心收不到某类消息」时
+        // 第一个该看的地方。合成一行以免把这块挤到五行以上
+        {
+          k: "上报 私聊/群/事件",
+          v: `${onOff(f.report_private !== false)} / ${onOff(f.report_group !== false)} / ${onOff(f.report_meta !== false)}`,
+        },
         { k: "仅响应 @", v: onOff(f.only_reply_at) },
         { k: "触发前缀", v: countOf(f.prefix, "无") },
         { k: "屏蔽前缀 / 关键词", v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0}` },
@@ -245,6 +252,11 @@ function statusPanels(): StatusPanel[] {
         },
         { k: "心跳 / 超时", v: hb ? `${hb}s / ${to ? `${to}s` : "关"}` : "关" },
         { k: "合并转发", v: fwdLabel() },
+        // QQBot 被动回复：记着多少个会话可以「不烧主动推送额度」地回复。
+        // 只在真的有记录时显示 —— 没装 QQBot 的用户看到这一行会莫名其妙
+        ...(passiveCount() > 0
+          ? [{ k: "被动回复窗口", v: `${passiveCount()} 个会话可用` }]
+          : []),
       ],
     },
     {

@@ -4,6 +4,7 @@ import YAML from "yaml"
 import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
 import type { Config } from "@/types"
+import { isChannel } from "@/utils/session.js"
 
 /**
  * 默认值与用户配置分属两个目录：
@@ -92,7 +93,7 @@ function reload() {
 }
 
 // cfg.bot.file_watch 为 false 时框架已全局 stub 掉 chokidar.watch，此处自动尊重
-chokidar.watch(userFile).on("change", () => {
+const watcher = chokidar.watch(userFile).on("change", () => {
   if (selfWrite) {
     selfWrite = false
     return
@@ -100,6 +101,20 @@ chokidar.watch(userFile).on("change", () => {
   reload()
   globalThis.Bot?.makeLog?.("mark", "配置已重载（连接变更需 #早柚重连）", "GsCore")
 })
+
+/**
+ * 停掉配置监听
+ *
+ * chokidar v4 的 FSWatcher **没有 unref()**（只有 close()），所以它会一直持有
+ * 事件循环 —— 表现是任何 import 过本模块的 node 进程都不会自己退出。
+ * 插件跑在常驻的云崽里时这不是问题，但测试进程会挂住直到超时被杀，
+ * 且失败信息只有一句 'test failed'，看不出原因。
+ *
+ * 所以提供一个显式的收尾入口。返回 promise 是因为 close() 是异步的。
+ */
+export function stopConfigWatch(): Promise<void> {
+  return watcher.close()
+}
 
 /**
  * 修改用户配置并写盘，保留原有注释
@@ -130,15 +145,53 @@ export function getConnections() {
 
 /**
  * 解析上报用的平台 bot_id
- * 优先级：连接自身配置 > self_id 精确匹配 > 适配器 id > 兜底
+ *
+ * 优先级：连接自身配置 > self_id 精确匹配 > 频道特判 > 适配器 id > 适配器 name > 兜底
+ *
+ * 为什么要查 name
+ * --------------
+ * 框架填的 e.adapter_id 取自 adapter.**id**（lib/bot.js:346），而实测本机各适配器
+ * 的 id 与 name 大量不一致，且 id 严重撞车：
+ *
+ *   插件          adapter.id   adapter.name
+ *   ICQQ-Plugin   QQ           ICQQ
+ *   OneBotv11     QQ           OneBotv11
+ *   OPQBot        QQ           OPQBot
+ *   ComWeChat     WeChat       ComWeChat
+ *   QQBot-Plugin  QQBot        QQBot
+ *   Milky         Milky        Milky
+ *
+ * 老配置把键写成了 ICQQ / OneBotv11 / OPQBot / ComWeChat —— 那些是 name，
+ * 用 id 查永远命中不了，只是恰好都该映射成 onebot，靠 default 兜底掩盖了。
+ * 反过来只查 id 也不行：ICQQ / OneBot / OPQBot 三家 id 同为 "QQ"，
+ * 想给其中一家单独指定平台标识就做不到。
+ *
+ * 所以两者都查、id 优先 name 兜底：既保持「精确到具体适配器」的能力
+ * （写 name 命中唯一一家），又让 "QQ" 这种粗粒度键可用。
+ *
+ * 频道单独判
+ * ---------
+ * QQBot-Plugin 用**同一个** adapter（id 恒为 QQBot）同时处理 QQ 群与 QQ 频道，
+ * 所以按适配器查表分不开这两者 —— 而核心侧 qqgroup 与 qqguild 是两个平台。
+ * 判据只能来自事件形状，见 utils/message.ts 的 isChannel。
+ * 键名 QQGuild 与 xiowo/yunzai-gscore-adapter 的 ADAPTER_BOT_ID_MAP 对齐。
  */
 export function resolveBotId(e, conf?) {
   if (conf?.bot_id) return conf.bot_id
   const map = config.bot_id_map || {}
+
+  // self_id 精确覆盖优先级最高（同一适配器下的不同账号可各指其一）
+  const bySelf = map[String(e.self_id)]
+  if (bySelf) return bySelf
+
+  // 频道要在适配器之前：QQBot 的群与频道共用 adapter.id
+  if (isChannel(e) && map.QQGuild) return map.QQGuild
+
   return (
-    map[String(e.self_id)] ||
     map[e.bot?.adapter?.id] ||
     map[e.adapter_id] ||
+    map[e.bot?.adapter?.name] ||
+    map[e.adapter_name] ||
     map.default ||
     "onebot"
   )

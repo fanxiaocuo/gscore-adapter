@@ -4,8 +4,9 @@
  * 回环防护共三层，详见 README「回环防护」一节。
  */
 import { config } from "@/config"
-import { isFromGsCore, eventText, passFilter } from "@/utils"
+import { isFromGsCore, eventText, passFilter, passDirection } from "@/utils"
 import { noticeToMeta } from "@/modules/notice"
+import { remember } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
 import { clients } from "./state.js"
 import { echoKey, isEcho } from "./echo.js"
@@ -25,6 +26,9 @@ function shouldForward(e) {
 
   // 3) 刚由本客户端代发的内容被回显
   if (isEcho(echoKey(e.self_id, e.group_id ?? e.user_id, e.message || []))) return false
+
+  // 会话方向开关（report_private / report_group），比黑白名单粗一档
+  if (!passDirection(e)) return false
 
   if (!passFilter(e)) return false
 
@@ -48,6 +52,13 @@ function shouldForward(e) {
 export async function onYunzaiMessage(e) {
   try {
     if (!clients.length) return
+
+    // 记入站 message_id 供 QQBot 被动回复用。放在 shouldForward 之前：
+    // 被过滤掉的消息（如 only_reply_at 没命中）同样能作为被动回复的凭据 ——
+    // 用户确实刚发过话，额度窗口是开着的，与我们要不要上报给核心无关。
+    // 内部自带适配器与 id 有效性判断，非 QQBot 直接返回。
+    remember(e)
+
     if (!shouldForward(e)) return
 
     // 主人判定的两框架差异见 framework.ts。
@@ -73,8 +84,14 @@ function shouldForwardNotice(e) {
   if (e.post_type !== "notice") return false
   if (!e.self_id) return false
 
+  // 事件总开关：核心侧没装消费 meta 事件的插件时，关掉能省掉全部无用上报
+  if (config.filter?.report_meta === false) return false
+
   // 来源是早柚核心方向的 Bot —— 不挡就是 Core -> 云崽 -> Core 死循环
   if (isFromGsCore(e)) return false
+
+  // 方向开关同样作用于事件：只关心群事件时不必收私聊戳一戳
+  if (!passDirection(e)) return false
 
   return passFilter(e)
 }

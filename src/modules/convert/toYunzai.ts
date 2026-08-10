@@ -16,6 +16,11 @@ import { makeLog, toStr, makeForwardMsg } from "@/utils/compat"
  *
  * 修复 ws-plugin 的 bug：上游 makeGSUidSendMsg 只检查 content[0] 是否为 log 段，
  * 命中就丢弃整条消息的其余内容。这里逐段过滤，log 之后的正文照常发送。
+ *
+ * 段一律原样转换，不按适配器能力做降级：发不出 button / markdown 的适配器
+ * （Milky、OneBotv11、OPQBot）本来就会把这些段丢掉，再加一层降级只是用文本
+ * 噪音替换静默丢弃，并没有让内容真的送达。而按钮目前基本只有 QQBot 在用，
+ * QQBot 原生支持，降级路径实际服务不到什么人。
  */
 export async function gscoreToYunzai(content, target?) {
   const message = []
