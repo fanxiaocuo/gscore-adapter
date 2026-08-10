@@ -6,6 +6,7 @@
 import { config } from "@/config"
 import { isFromGsCore, eventText, passFilter, passDirection } from "@/utils"
 import { noticeToMeta } from "@/modules/notice"
+import { remember } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
 import { clients } from "./state.js"
 import { echoKey, isEcho } from "./echo.js"
@@ -51,6 +52,12 @@ function shouldForward(e) {
 export async function onYunzaiMessage(e) {
   try {
     if (!clients.length) return
+
+    // 记入站 message_id 供 QQBot 被动回复用。放在 shouldForward 之前：
+    // 被过滤掉的消息（如 only_reply_at 没命中）同样能作为被动回复的凭据 ——
+    // 用户确实刚发过话，5 分钟窗口是开着的，与我们要不要上报给核心无关。
+    // 内部自带适配器与 id 有效性判断，非 QQBot 直接返回。
+    remember(e)
 
     if (!shouldForward(e)) return
 
