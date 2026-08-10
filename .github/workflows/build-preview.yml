@@ -148,9 +148,13 @@ jobs:
           # lib/modules/guoba/index.js 必须单独列：guoba.support.js 只是个转调壳，
           # 它在不在说明不了目标在不在。锅巴面板曾经就是这样坏掉的——壳还在，
           # 而产物换了布局，转调指向一个不存在的路径。
+          # webadapter/ 同理：index.js 是壳，转调的是 lib/modules/webadapter/index.js；
+          # page.html / .css / .js 三个静态文件由宿主按白名单直接取，少一个就 403。
           for f in index.js lib/index.js lib/modules/guoba/index.js package.json \
                    resources/config/default_config.yaml \
                    resources/template/css/tailwind.css guoba.support.js \
+                   webadapter/index.js lib/modules/webadapter/index.js \
+                   webadapter/page.html webadapter/page.css webadapter/page.js \
                    resources/template/image/logo.webp \
                    resources/template/image/frame-logo.webp; do
             if [ -e "dist_branch/$f" ]; then

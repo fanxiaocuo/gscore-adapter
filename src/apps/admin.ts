@@ -2,6 +2,7 @@ import { config, saveConfig, getConnections } from "@/config"
 import { clients, startClient, stopClient } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
+import { normalizeUrl } from "@/utils/url"
 import { renderHelp, renderList } from "@/modules/render/pages"
 import { helpText } from "@/modules/render/commands"
 
@@ -55,20 +56,6 @@ function parseKV(text): Record<string, string> {
 /** 是否为 key=value 片段（用于把剩下的那个片段认作地址） */
 function isKV(seg) {
   return KV_RE.test(seg)
-}
-
-function normalizeUrl(url) {
-  if (!url) return ""
-  url = url.trim()
-  // 允许只填 host:port，自动补全为完整的 /ws/{bot_id} 路由
-  if (!/^wss?:\/\//i.test(url)) url = `ws://${url}`
-  try {
-    const u = new URL(url)
-    if (u.pathname === "/" || u.pathname === "") u.pathname = "/ws/Yunzai"
-    return u.toString()
-  } catch {
-    return url
-  }
 }
 
 export default class GsCoreAdmin extends plugin {

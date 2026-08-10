@@ -61,4 +61,25 @@ export default ts.config(
     },
     rules: { "@typescript-eslint/no-unused-vars": "off" },
   },
+  {
+    // webadapter/page.js 是**浏览器**代码：宿主 QQBot-Web-Adapter 用 iframe 加载
+    // page.html，由它引入这个脚本。它不经过 tsc、不进 lib/，Node 全局一个都没有，
+    // 反过来 DOM 与 fetch 那批全局都有。
+    //
+    // 注意不能靠上面那条 `*.{js,mjs}` 覆盖：那个 glob 只匹配仓库根一层，
+    // 匹配不到 webadapter/ 下的文件（早先 test/**/*.js 漏掉 .mjs 是同一类错）。
+    files: ["webadapter/*.js"],
+    languageOptions: {
+      globals: {
+        document: "readonly",
+        location: "readonly",
+        fetch: "readonly",
+        confirm: "readonly",
+        URLSearchParams: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+      },
+    },
+  },
 )

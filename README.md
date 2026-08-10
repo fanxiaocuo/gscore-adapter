@@ -58,7 +58,18 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 
 ## 📝 配置
 
-首次运行自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。**改后者**，前者是出厂默认值、升级会被覆盖。只需写想改的项，其余自动继承默认。装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)也可以在面板里改。
+首次运行自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。**改后者**，前者是出厂默认值、升级会被覆盖。只需写想改的项，其余自动继承默认。装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)或 QQBot-Web-Adapter 也可以在面板里改，见下。
+
+<details>
+<summary>Web 面板</summary>
+
+装了 **QQBot-Web-Adapter** 的话，它的控制台左侧会多一页「早柚核心适配器」🦊：连接的实时状态、今日/累计中转计数、连接的增删改与启停、全局设置，都能点着改。
+
+面板不自带服务器，是挂在那个宿主上的插件页 —— 它开机时扫 `webadapter/index.js` 并注册页面与接口，接口由宿主统一加登录鉴权（非内网直接 403）。宿主没装时这部分就是死代码，不影响插件其余功能。
+
+改配置走的是和指令同一条路径，**yaml 里的注释会保留**。两处例外要知道：`mode` 改了要重启云崽；心跳参数改了会自动重连一次。token 在面板上只显示「已配 token」，不回原值，留空保存表示不改动。
+
+</details>
 
 最常见的场景——本机已跑着核心（默认 8765），想让云崽连过去：
 
@@ -378,7 +389,8 @@ src/
 │   ├── notice/     meta event 转换     ├── render/    出图
 │   ├── stats/      中转计数            ├── update/    检查更新与拉取
 │   ├── passive/    QQBot 被动回复窗口  ├── guoba/     锅巴面板
-│   ├── conflict/   适配器冲突检测      └── loader/    apps 静态导入表
+│   ├── conflict/   适配器冲突检测      ├── webadapter/ web 面板
+│   └── loader/     apps 静态导入表
 └── apps/           status / admin / update 三组指令
 ```
 
