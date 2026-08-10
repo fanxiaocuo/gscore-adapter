@@ -22,6 +22,9 @@ const $ = id => document.getElementById(id)
 const logo = $("logo")
 logo.onload = () => (logo.hidden = false)
 logo.src = `${API}/logo`
+// 标签页图标用同一张。iframe 里设 favicon 对外层标签页无效，但这个页面也可以
+// 被直接打开（宿主的 /api/web-page/ 路由就能单独访问），那时它是有用的
+$("favicon").href = `${API}/logo`
 
 /** 文本一律走 textContent / 属性赋值，不拼 innerHTML —— 连接名与地址是用户输入 */
 function el(tag, cls, text) {
