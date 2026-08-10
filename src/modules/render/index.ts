@@ -63,10 +63,23 @@ import { pickPalette, DARK, LIGHT, type Palette } from "./theme.js"
 const HTML_DIR = join(YunzaiPath, "temp", "html", `${PluginName}-html`)
 
 /**
- * 高清倍率：1440px 画布出 2160px 宽的图，缩放到聊天窗口后文字边缘仍清晰。
+ * 高清倍率：1440px 画布出 1800px 宽的图，缩放到聊天窗口后文字边缘仍清晰。
  *
- * 取 1.5 而不是 2：帮助页本身就有 3900px 高，2 倍出图接近 7800px、5.8MB，
- * 不少 QQ 适配器会直接拒发或压成马赛克。1.5 倍文字依旧锐利，体积小一个量级。
+ * 为什么是 1.25 而不是更高
+ * ----------------------
+ * 这个数字直接决定出图耗时——瓶颈是 Chromium 把画布编码成 jpeg，耗时随像素数
+ * 超线性增长。实测状态页（本体 screenshot()，同一台机器各取 4 次中位数）：
+ *
+ *   zoom   尺寸          耗时      体积
+ *   1.5    2160x2785    3427ms    588KB
+ *   1.25   1800x2322    1451ms    443KB
+ *   1.0    1440x1859     536ms    316KB
+ *
+ * 1.5 → 1.25 只少 17% 的边长，却省掉 58% 的时间。裁图逐像素比对过，文字边缘
+ * 没有可见劣化（画布本来就是 1440 的两倍多，聊天窗口里再缩一次）。
+ * 1.0 更快，但那是原生尺寸，QQ 客户端放大查看时会糊。
+ *
+ * 曾经写死 1.5 的理由是「2 倍太大」——那个判断没错，只是没往下试。
  *
  * 用 CSS zoom 而不是 screenshot 的 deviceScaleFactor —— 本体的渲染后端
  * （renderers/puppeteer/lib/puppeteer.js）从没读过 data.deviceScaleFactor，
@@ -79,7 +92,7 @@ const HTML_DIR = join(YunzaiPath, "temp", "html", `${PluginName}-html`)
  * 它自己的渲染服务能做到；本体的 screenshot() 只按 #container 的 boundingBox 截，
  * 所以这里必须用会改布局盒的 zoom。
  */
-const SCALE = 1.5
+const SCALE = 1.25
 
 /** 本体 puppeteer 模块，首次渲染时惰性加载 */
 let puppeteer: any
@@ -256,7 +269,10 @@ export async function render(opts: RenderOptions) {
     // jpeg 而非 png：整页是渐变照片式背景（深浅两套都是），png 无损存这种内容
     // 体积极大（帮助页 5.8MB → 600KB 上下），质量 92 下看不出差别，也不需要透明通道
     imgType: "jpeg" as const,
-    quality: 92,
+    // 88 而非 92：实测质量档只影响体积、几乎不影响耗时（各档中位数都在 2s 上下，
+    // 时间全花在像素数上，见 SCALE 那段）。92→88 少 20% 体积，照片式背景上看不出
+    // 差别。真正的提速来自 SCALE。
+    quality: 88,
     pageGotoParams: { waitUntil: "load" as const },
     multiPage: opts.multiPage,
   }
