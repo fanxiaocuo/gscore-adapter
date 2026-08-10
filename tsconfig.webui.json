@@ -1,0 +1,23 @@
+{
+  // web 面板（src/webui/）的类型检查
+  //
+  // 为什么单独一份
+  // -------------
+  // 主 tsconfig 把 src/webui 排除在外——那份配置是给 Node 侧用的，编出来的东西进
+  // lib/，而面板是浏览器代码、由 esbuild 单独打包。但 exclude 之后它就彻底没人
+  // 检查类型了：esbuild 只剥类型不校验（实测塞一个 const x: number = "字符串"
+  // 照样退出码 0）。所以这里补一份只管 src/webui 的配置，由 typecheck 一并跑。
+  //
+  // 与主配置的差异只有两处：lib 去掉 Node 那部分只留 DOM，且 noEmit —— 产物由
+  // esbuild 出，这里纯粹是把类型错误在提交前抓出来。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    // 浏览器代码不该拿到 Node 与云崽的全局（Bot / segment / process 那批）。
+    // 只留 react 的类型。
+    "types": ["react", "react-dom"]
+  },
+  "include": ["src/webui/**/*"],
+  "exclude": []
+}

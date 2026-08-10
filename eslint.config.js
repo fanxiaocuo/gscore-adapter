@@ -5,7 +5,7 @@ import prettier from "eslint-config-prettier"
 export default ts.config(
   // temp/ 是本地产物与一次性探针脚本（预览 HTML、几何指纹、调试用的 puppeteer
   // 脚本），不入库也不该被 lint。
-  { ignores: ["lib/", "node_modules/", "docs/", "temp/"] },
+  { ignores: ["lib/", "node_modules/", "docs/", "temp/", "webadapter/page.js"] },
   js.configs.recommended,
   ...ts.configs.recommended,
   prettier,
@@ -62,13 +62,13 @@ export default ts.config(
     rules: { "@typescript-eslint/no-unused-vars": "off" },
   },
   {
-    // webadapter/page.js 是**浏览器**代码：宿主 QQBot-Web-Adapter 用 iframe 加载
-    // page.html，由它引入这个脚本。它不经过 tsc、不进 lib/，Node 全局一个都没有，
-    // 反过来 DOM 与 fetch 那批全局都有。
+    // src/webui/ 是**浏览器**代码：由 build:panel 用 esbuild 打包成
+    // webadapter/page.js，宿主 QQBot-Web-Adapter 用 iframe 加载 page.html 时引入。
+    // 它不经过 tsc、不进 lib/，Node 全局一个都没有，反过来 DOM 与 fetch 那批全局都有。
     //
-    // 注意不能靠上面那条 `*.{js,mjs}` 覆盖：那个 glob 只匹配仓库根一层，
-    // 匹配不到 webadapter/ 下的文件（早先 test/**/*.js 漏掉 .mjs 是同一类错）。
-    files: ["webadapter/*.js"],
+    // 产物 webadapter/page.js 本身在顶部的 ignores 里——那是 minify 过的 React 运行时，
+    // 没有可读性也没有 lint 价值。
+    files: ["src/webui/**/*.tsx"],
     languageOptions: {
       globals: {
         document: "readonly",
@@ -79,6 +79,7 @@ export default ts.config(
         setTimeout: "readonly",
         clearTimeout: "readonly",
         setInterval: "readonly",
+        clearInterval: "readonly",
       },
     },
   },

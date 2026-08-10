@@ -19,6 +19,11 @@ lib/
 # CI 的「构建」步骤会生成它，「自检产物完整性」会断言它确实在。
 /resources/template/css/
 
+# web 面板产物：由 build:panel 从 src/webui/main.tsx 打包（含 React 运行时，200KB）。
+# 理由同上——源码在 src/webui/，入库产物只会让每次改面板都带一个两百KB的 diff。
+# 两个 workflow 都会在构建后断言它存在。
+/webadapter/page.js
+
 # 开发笔记与设计稿：留在本地，不入库
 docs/
 
