@@ -1,143 +1,49 @@
 # gscore-adapter
 
-Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
+Miao-Yunzai / TRSS-Yunzai 的 **早柚核心（[gsuid_core](https://github.com/Genshin-bots/gsuid_core)）适配器**。
 
-把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。
+把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。云崽作为 ws 客户端主动连接核心，即 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
 
-云崽作为 ws 客户端主动连接核心，即文档 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
+> **只有 client 一个方向。** 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。老配置写着 `mode: server` / `both` 不会报错，会按 `client` 运行并提示改配置。
 
-> **只有 client 一个方向**：早柚核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，
-> 全仓库没有任何出站连接——**核心不会主动来连云崽**。本插件曾实现过的 server 方向已移除，
-> 框架自带的 `plugins/adapter/GSUIDCore.js` 是为旧版核心准备的，同样不适用于当前版本。
-> 老配置写着 `mode: server` / `both` 不会报错，会按 `client` 运行并提示改配置。
+## ✨ 特性
 
----
-
-## 特性
-
-- **多连接**：可同时连多个核心，各自独立重连、独立账号绑定
+- **多连接**：同时连多个核心，各自独立重连、独立账号绑定
 - **消息段双向转换**：文本 / 图片 / 语音 / 视频 / 文件 / @ / 引用 / 按钮 / 合并转发 / markdown
 - **非消息事件**：入群、退群、戳一戳上报为核心的 meta event
-- **控制指令**：核心下发的撤回消息、禁言用户
 - **命令式管理**：`#早柚添加连接` 等指令直接改配置并热启动，不必手改 yaml 重启
-- **插件自更新**：`#早柚更新`，转调本体更新逻辑，自动重装依赖并重启
 - **回环防护**：三层拦截，避免 `核心 → 云崽 → 核心` 死循环
-- **双框架兼容**：TRSS-Yunzai / Miao-Yunzai 均可运行，按能力探测自动适配
+- **双框架兼容**：TRSS / Miao 均可运行，**按能力探测**自动适配，改过名的 fork 也认得
 - **大文件外链**：框架没有文件服务时自带一个（零依赖、零配置），大图不再发不出去
-- **QQBot 省额度**：官方 Bot 上尽量走被动回复，不消耗主动推送配额；窗口记录落盘，重启不丢
-- **上报开关**：私聊 / 群 / 非消息事件三档粗粒度开关，不必靠黑名单逐个排除
+- **QQBot 省额度**：官方 Bot 上尽量走被动回复，不消耗主动推送配额，窗口记录落盘
+- **出图**：状态 / 帮助 / 版本 / 更新日志四页，React SSR + Tailwind，深浅主题按时段切
 
----
+## 🛠️ 安装
 
-## 框架兼容
-
-同时支持 **TRSS-Yunzai** 与 **Miao-Yunzai**，装上即用，无需改配置或切分支。
-
-两个框架的 `Bot` 对象差异不小：Miao 的 `lib/bot.js` 是 `class Yunzai extends Client`（ICQQ 的 Client），
-只有协议方法，TRSS 额外挂的那批工具函数它一个都没有。插件通过兼容层
-（[`src/utils/compat.ts`](src/utils/compat.ts)）逐个探测、缺谁补谁 ——
-**按能力探测，不按框架名分支**，所以改过名的 fork 也能正确识别。
-
-| 能力 | TRSS | Miao | 处理 |
-| --- | --- | --- | --- |
-| `Bot.makeLog` | ✅ | ❌ | 垫片转 `global.logger` |
-| `Bot.String` | ✅ | ❌ | 垫片（含循环引用处理） |
-| `Bot.Buffer` | ✅ | ❌ | 垫片（保持三路返回语义） |
-| `Bot.makeForwardMsg` | ✅ 标记对象 | ⚠️ 语义不同 | 按返回值形状判定，转走 Group/Friend 原生实现 |
-| 主人配置 | `master` 分账号 + `masterQQ` | 仅 `masterQQ` | 按字段形状探测，两种结构都认 |
-| `Bot.fileToUrl` | ✅ | ❌ | 无法垫片，改用**内置文件服务**顶上，见下 |
-
-### 大文件外链
-
-超过 `media_max_size`（默认 10MB）的图片/语音/视频没法塞进 base64，需要一个 http 外链
-让早柚核心来拉。TRSS 用自带的 `Bot.fileToUrl`；Miao 没有这个能力，
-**插件会自己起一个内置文件服务**顶上，默认开启，不需要配置。
-
-小于该值的走 base64 内联，两个框架都不受影响。`file` 段协议本身就要求全量 base64，行为一致。
-
-降级顺序（按能力探测，不看框架名）：
-
-```
-Bot.fileToUrl  →  内置文件服务  →  upload_hook 图床  →  跳过并打 warn
-```
-
-**内置文件服务**（`file_server`）用 `node:http` 实现，不引入 express ——
-只是按 URL 返回一个 buffer，为此加个框架不划算，何况 Miao 本身也没装 express。
-
-- 只在**真的需要外链时**才监听端口；TRSS 用户、以及从不发大图的用户，端口始终不开
-- 文件只存在内存里，`link_expire` 到期自动清，不落盘
-- 路径是 16 字节随机 token，不可枚举；核心取走即删（`once: true`）
-- 端口默认 `0`，由系统分配，不会撞端口
-- 外链的 host 取 **ws 连接的本机出口地址**，而不是写死 `127.0.0.1` ——
-  核心在 Docker 或另一台机器上时，`127.0.0.1` 指的是它自己，拉不到东西
-
-```yaml
-file_server:
-  enable: true      # 关掉则回落到 upload_hook
-  port: 0           # 0 = 随机可用端口
-  host: 0.0.0.0     # 核心常在 Docker/异机，只听 127.0.0.1 它连不进来
-  public_host: ""   # 留空自动推断；推断不对时在这写死云崽的可达地址
-  once: true        # 取走即删；核心侧会重试时设为 false
-```
-
-**`upload_hook` 图床**是后备：内置服务被关掉或端口起不来时用，
-内网穿透场景下它给的是公网地址，比内置服务更可靠。指向一个模块，默认导出上传函数：
-
-```js
-// 相对云崽根目录或绝对路径，如 plugins/gscore-adapter/my-upload.js
-export default async (buf, name) => {
-  // 上传 buf，返回 http(s) 链接
-  return "https://图床地址/xxx.png"
-}
-```
-
-返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。模块只在真正需要外链时
-才加载，之后缓存；改配置后热重载会自动重新加载。
-
-两条路都不可用时，才会跳过该段并打一条说明该怎么办的 warn。
-也可以直接调大 `media_max_size` 让大文件走 base64，代价是内存占用和单帧体积。
-
----
-
-## 安装
-
-在 **Yunzai 根目录**（不是 `plugins/`）任选以下一条运行。
-
-**稳定版**（release，推荐，发版后更新）：
+在 **Yunzai 根目录**（不是 `plugins/`）任选一条运行，两个分支都是编译好的 js，不用自己编译：
 
 ```bash
+# 稳定版（推荐，发版后更新）
 git clone --depth=1 --branch release https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
-```
 
-**预览版**（preview，跟 `main` 每次提交即时更新）：
-
-```bash
+# 预览版（跟 main 每次提交即时更新，没经过发版把关）
 git clone --depth=1 --branch preview https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
 ```
 
-两者都是编译好的 js，**不用自己编译**，但克隆完需要装一次运行时依赖：
+克隆完装一次运行时依赖，然后重启云崽：
 
 ```bash
-cd plugins/gscore-adapter
-pnpm install --prod
+cd plugins/gscore-adapter && pnpm install --prod
 ```
 
-装完重启云崽即可。
+> 出图用 JSX 写版式，运行时要 `react` / `react-dom` / `lucide-react` / `@karinjs/template-react`，而产物分支不带 `node_modules`。不装会在第一个 import 处报 `Cannot find package 'react'`。`ws` / `yaml` / `chokidar` 是云崽自带的，不用管。
 
-> 为什么要这一步：出图（`#早柚状态` 等图片）用 JSX 写版式，运行时依赖 `react` / `react-dom`。
-> 而 release / preview 分支只推 `lib/` 与 `resources/`、不带 `node_modules`，
-> 不装的话会在第一个 import 处报 `Cannot find package 'react'`。
-> `ws` / `yaml` / `chokidar` 则是云崽自带的，不需要额外装。
+后续更新：`git pull && pnpm install --prod`
 
-预览版没经过发版把关，可能带上刚引入的问题；拿不准就用稳定版。
+<details>
+<summary>两版之间切换 / 我装的是哪个版本</summary>
 
-后续更新（两者相同）：
-
-```bash
-cd plugins/gscore-adapter && git pull && pnpm install --prod
-```
-
-想在两版之间切换，不必重新克隆（`--depth=1` 的浅克隆也适用）：
+不必重新克隆（`--depth=1` 的浅克隆也适用）：
 
 ```bash
 cd plugins/gscore-adapter
@@ -146,46 +52,15 @@ git fetch --depth=1 origin
 git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 ```
 
-### 我装的是哪个版本
+三个分支的版本号是同一个，光看版本号分不出来，所以 `#早柚版本` 按**本地分支**判定：`release` → 正式版，`preview` → 预览版，`main` → 开发版；识别不出分支（如下载 zip）时按预览版算，不会误报成正式版。
 
-三个分支的 `package.json` 版本号是同一个（发版时一起写），光看版本号分不出来，所以 `#早柚版本` 按**本地分支**判定发布类型：`release` → 正式版，`preview` → 预览版，`main` → 开发版；识别不出分支（如下载 zip 安装，没有 git 信息）时按预览版算，不会误报成正式版。
+</details>
 
-版本号本身用 `git describe` 风格：能描述到 tag 就显示 `v2.1.0-2-gc6522ee`（tag 之后又走了 2 个提交），描述不到就退成 `v2.1.0+40f2dd4`（版本号 + 当前提交）。preview / release 是编译产物分支，历史与 main 的 tag 不连通，通常是后一种形式。
+## 📝 配置
 
-### 参与开发（main）
+首次运行自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。**改后者**，前者是出厂默认值、升级会被覆盖。只需写想改的项，其余自动继承默认。装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)也可以在面板里改。
 
-`main` 分支放 TypeScript 源码，跑之前必须自己编译：
-
-```bash
-git clone https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
-cd plugins/gscore-adapter
-pnpm install   # typescript 等开发依赖
-pnpm build     # src/*.ts -> lib/*.js，再扫 lib/ 产出 Tailwind CSS
-```
-
-> 运行时加载的是编译产物 `lib/`（不入库）。
-> **改完 `src/` 必须重新 `pnpm build`**，否则改动不会生效。
-> 开发时可用 `pnpm build:watch` 自动增量编译。
->
-> `build` 的两步有顺序依赖：Tailwind 扫的是 `lib/` 下的组件而不是 `src/`，
-> 所以 `build:css` 必须排在 `tsc` 之后。单独跑 `tsc` 会让样式停留在上一次的产物上
-> —— 页面不会报错，只是新写的 utility 类没有对应规则。
-
-### 配置
-
-首次运行会自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。
-
-**改 `config/config.yaml`，别改 `resources/config/default_config.yaml`**（后者是出厂默认值，升级会被覆盖）。`config/` 已在 `.gitignore` 中，你的改动不会入库，升级也不会被覆盖。配置只需写想改的项，其余自动继承默认值。
-
-装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)的话也可以在面板里改，无需手动编辑 yaml。
-
-运行时依赖 `react` / `react-dom`（出图用），随 `pnpm install` 一并装上；`ws`、`yaml`、`chokidar` 均为云崽自带，无需额外安装。
-
----
-
-## 快速开始
-
-最常见的场景 —— 本机已跑着早柚核心（默认 8765 端口），想让云崽连过去：
+最常见的场景——本机已跑着核心（默认 8765），想让云崽连过去：
 
 ```yaml
 # config/config.yaml
@@ -198,40 +73,38 @@ client:
       enable: true
 ```
 
-重启后 `#早柚状态` 应显示「已连接」。
+重启后 `#早柚状态` 应显示「已连接」。也可以不碰配置文件，直接发 `#早柚添加连接 127.0.0.1:8765`，只填 `host:port` 时会自动补全为 `/ws/Yunzai`。
 
-也可以不碰配置文件，直接发指令：
+| 配置项 | 说明 | 默认值 |
+| :--- | :--- | :--- |
+| `mode` | `client` 连核心 / `off` 关闭 | `client` |
+| `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
+| `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
+| `client.connections[]` | 连接列表，见下 | — |
+| `filter.report_private` | 是否上报私聊消息 | `true` |
+| `filter.report_group` | 是否上报群消息（QQ 频道也算群） | `true` |
+| `filter.report_meta` | 是否上报进群 / 退群 / 戳一戳 | `true` |
+| `filter.only_reply_at` | 仅在被 @ 或带前缀时才上报群消息 | `false` |
+| `bot_id_map` | 云崽适配器 → 核心平台标识，见下 | 见默认配置 |
+| `media_max_size` | 媒体转 base64 上限，超过改用外链 | 10 MiB |
+| `file_max_size` | file 段必须内联 base64，超过直接拒发 | 50 MiB |
+| `link_expire` | 外链有效期（毫秒），也是内置文件服务的暂存时长 | `300000` |
+| `file_server` | 内置文件服务，见下 | 开 |
+| `upload_hook` | 自定义图床模块路径，内置服务的后备 | `""` |
+| `log_truncate` | 日志中截断 base64 | `true` |
+| `notify_master` | 断线 / 重连通知主人 | `false` |
+| `update_check` | 定时检查插件更新 | 关 |
 
-```
-#早柚添加连接 127.0.0.1:8765
-```
-
-地址只填 `host:port` 时会自动补全为 `/ws/Yunzai`。
-
----
-
-## 配置说明
-
-### mode
-
-| 值 | 含义 |
-|---|---|
-| `client` | 云崽主动连核心（**默认**） |
-| `off` | 关闭 |
-
-> `server` / `both` 已移除，见开头说明。
-
-### client
+<details>
+<summary>连接项的全部字段 · 多账号分流</summary>
 
 ```yaml
 client:
-  heartbeat: 30           # ws ping 间隔（秒），0 关闭
-  heartbeat_timeout: 90   # 超时无 pong 判定掉线，0 关闭
   connections:
     - name: gsuid_core                        # 连接名，仅用于日志和 #早柚状态
       url: ws://127.0.0.1:8765/ws/Yunzai      # 路由 /ws/{bot_id}，bot_id 可自定义
       token: ""                               # 核心以 ?token= 查询参数接收
-      bot_id: ""                              # 上报的平台标识，留空则按 bot_id_map 推断
+      bot_id: ""                              # 上报的平台标识，留空按 bot_id_map 推断
       enable: true
       reconnect_interval: 5                   # 重连间隔（秒）
       max_reconnect_attempts: 0               # <=0 无限重连
@@ -241,14 +114,13 @@ client:
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
 
-### filter（影响上报到核心的消息）
+</details>
+
+<details>
+<summary>filter 的其余字段</summary>
 
 ```yaml
 filter:
-  report_private: true    # 是否上报私聊消息
-  report_group: true      # 是否上报群消息（QQ 频道也算群）
-  report_meta: true       # 是否上报非消息事件（入群/退群/戳一戳）
-  only_reply_at: false    # 仅在被 @ 或带前缀时才上报群消息
   prefix: ["#", "*"]      # only_reply_at 为 true 时，这些前缀也视为触发
   block_prefix: []        # 命中即不上报（避免与本地插件抢命令）
   block_include: []       # 包含任意一项就丢弃
@@ -257,412 +129,323 @@ filter:
   black_user: []
 ```
 
-三个 `report_*` 是最粗的一刀，默认全开（只有显式写 `false` 才拦）：想「只让群消息过核心」时不必把所有私聊用户列进 `black_user`；核心侧没装消费 meta 事件的插件时，关掉 `report_meta` 能省下全部无用上报。
+三个 `report_*` 是最粗的一刀，默认全开：想「只让群消息过核心」时不必把所有私聊用户列进 `black_user`；核心侧没装消费 meta 事件的插件时，关掉 `report_meta` 能省下全部无用上报。
 
 黑白名单同时作用于消息和 meta 事件；`only_reply_at` / `block_prefix` / `block_include` 基于文本，只作用于消息。
 
-### bot_id_map
+</details>
 
-把云崽的适配器映射成核心认识的平台标识：
+<details>
+<summary>bot_id_map：为什么 id 和 name 都要查</summary>
 
 ```yaml
 bot_id_map:
-  # adapter.id（粗粒度，一个键覆盖多家）
-  QQ: onebot            # ICQQ / OneBotv11 / OPQBot 的 id 都是 QQ
+  QQ: onebot            # adapter.id 粗粒度，一个键覆盖多家
   QQBot: qqgroup
-  Milky: onebot
-  # adapter.name（精确到具体适配器，优先级低于 id）
-  ICQQ: onebot
-  OPQBot: onebot
-  # 频道特判
-  QQGuild: qqguild
+  ICQQ: onebot          # adapter.name 精确到具体适配器，优先级低于 id
+  QQGuild: qqguild      # 频道特判
   default: onebot       # 兜底
 ```
 
-优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > **频道特判（`QQGuild`）** > `adapter.id` > `adapter.name` > `default`。
+优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > 频道特判 > `adapter.id` > `adapter.name` > `default`。
 
-**为什么 id 和 name 都查**：框架填的 `adapter_id` 取自 `adapter.id`，而 ICQQ / OneBotv11 / OPQBot 三家的 `adapter.id` **全都是 `QQ`** —— 只查 id 就分不开它们，只查 name 则 `QQ` 这种粗粒度键写了没用。所以两者都查，粗粒度写 id、要精确到某一家就写它的 name。
+框架填的 `adapter_id` 取自 `adapter.id`，而 ICQQ / OneBotv11 / OPQBot 三家的 `adapter.id` **全是 `QQ`**——只查 id 分不开它们，只查 name 则 `QQ` 这种粗粒度键写了没用。所以两者都查。
 
-> 旧版本的默认配置把键写成了 `ICQQ` / `OneBotv11` / `OPQBot` / `ComWeChat`，那些是 `name` 不是 `id`，**实际从未命中**，只是恰好都该映射成 `onebot`，被 `default` 兜底掩盖了。升级后这张表才真正起作用。
+> 旧版默认配置把键写成了 `ICQQ` / `OneBotv11` / `OPQBot` / `ComWeChat`，那些是 `name` 不是 `id`，**实际从未命中**，只是恰好都该映射成 `onebot`、被 `default` 掩盖了。
 
-**频道为什么要单独判**：QQBot-Plugin 用同一个 adapter（`adapter.id` 恒为 `QQBot`）同时处理 QQ 群和 QQ 频道，按适配器查表分不开，而核心侧 `qqgroup` 与 `qqguild` 是两个平台。所以频道按事件形状识别（`group_id` 带 `qg_` 前缀）。
+**频道单独判**：QQBot-Plugin 用同一个 adapter 同时处理 QQ 群和频道（`adapter.id` 恒为 `QQBot`），按适配器查表分不开，而核心侧 `qqgroup` 与 `qqguild` 是两个平台。所以频道按事件形状识别（`group_id` 带 `qg_` 前缀）。
 
+</details>
 
-### 其它
+<details>
+<summary>大文件外链：谁来发、怎么配</summary>
 
-| 项 | 默认 | 说明 |
-|---|---|---|
-| `media_max_size` | 10 MiB | 媒体转 base64 上限，超过改用 `link://` 外链 |
-| `file_max_size` | 50 MiB | file 段必须内联 base64（协议无 URL 形式），超过直接拒发 |
-| `link_expire` | 300000 | 外链有效期（毫秒），也是内置文件服务的暂存时长。云崽默认只留 1 分钟，核心拉取慢会拿到超时占位图 |
-| `file_server` | 见上 | 内置文件服务，仅在框架没有 `Bot.fileToUrl` 时启用，见「大文件外链」 |
-| `upload_hook` | `""` | 自定义图床模块路径，内置文件服务的后备，见「大文件外链」 |
-| `log_truncate` | true | 日志中截断 base64 |
-| `notify_master` | false | 断线/重连通知主人 |
-| `update_check` | 关 | 定时检查插件更新，见下 |
+超过 `media_max_size` 的图片 / 语音 / 视频没法塞进 base64，需要一个 http 外链让核心来拉。降级顺序（按能力探测，不看框架名）：
 
-`update_check` 四项：`enable`（默认 `false`，关掉后 `#早柚检查更新` 仍可手动用）、`interval`（间隔分钟，默认 180，低于 30 按 30 处理）、`delay`（启动后多久做第一次检查，默认 5 分钟，错开启动高峰）、`notify`（发现新版本时私聊通知主人，默认 `true`）。改完即时生效，不用重启。
+```
+Bot.fileToUrl  →  内置文件服务  →  upload_hook 图床  →  跳过并打 warn
+```
 
-> ⚠️ 外链的地址问题：TRSS 用云崽自身的文件服务（`cfg.server.url`），**若核心跑在 Docker 里，`127.0.0.1` 解析不到**，需要把 `server.url` 配成核心可达的地址。走内置文件服务时会自动取 ws 连接的出口地址，通常无需干预；推断不对时用 `file_server.public_host` 写死。
+TRSS 有 `Bot.fileToUrl`；Miao 没有，**插件会自己起一个内置文件服务**顶上，默认开启、不用配置。它用 `node:http` 实现（只是按 URL 返回一个 buffer，为此加 express 不划算，Miao 本身也没装）：
 
----
+- 只在真的需要外链时才监听端口；TRSS 用户、以及从不发大图的用户，端口始终不开
+- 文件只存在内存里，`link_expire` 到期自动清，不落盘
+- 路径是 16 字节随机 token，不可枚举；核心取走即删
+- 外链 host 取 **ws 连接的本机出口地址**而非写死 `127.0.0.1`——核心在 Docker 或另一台机器上时，`127.0.0.1` 指的是它自己
 
-## 指令
+```yaml
+file_server:
+  enable: true      # 关掉则回落到 upload_hook
+  port: 0           # 0 = 随机可用端口
+  host: 0.0.0.0     # 核心常在 Docker/异机，只听 127.0.0.1 它连不进来
+  public_host: ""   # 留空自动推断；推断不对时在这写死云崽的可达地址
+  once: true        # 取走即删；核心侧会重试时设为 false
+```
+
+`upload_hook` 是后备（内置服务被关或端口起不来时用，内网穿透场景下它给的是公网地址）。指向一个模块，默认导出上传函数：
+
+```js
+// 相对云崽根目录或绝对路径，如 plugins/gscore-adapter/my-upload.js
+export default async (buf, name) => "https://图床地址/xxx.png"
+```
+
+返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。也可以直接调大 `media_max_size` 让大文件走 base64，代价是内存占用和单帧体积。
+
+</details>
+
+<details>
+<summary>update_check 四项</summary>
+
+`enable`（默认 `false`，关掉后 `#早柚检查更新` 仍可手动用）、`interval`（间隔分钟，默认 180，低于 30 按 30 处理）、`delay`（启动后多久做第一次检查，默认 5 分钟，错开启动高峰）、`notify`（发现新版本时私聊通知主人，默认 `true`）。改完即时生效，不用重启。
+
+</details>
+
+## 🐱 指令
 
 全部限主人使用，`#` 可省略。
 
 | 指令 | 说明 |
-|---|---|
-| `#早柚状态` | 查看运行模式、服务端监听、各连接状态 |
+| :--- | :--- |
+| `#早柚状态` | 运行模式、各连接状态、中转计数（出图） |
+| `#早柚连接列表` | 只列连接及其实时状态（出图） |
+| `#早柚帮助` | 指令一览（出图） |
+| `#早柚版本` | 插件版本、发布类型与本机运行环境快照（出图） |
+| `#早柚更新日志` | 本地已有的提交记录（出图） |
 | `#早柚重连` | 重连全部客户端连接 |
-| `#早柚连接列表` | 列出所有连接及其实时状态 |
 | `#早柚添加连接 <地址> [name=x] [token=x] [bot_id=x]` | 添加并立即启动 |
-| `#早柚删除连接 <名字或序号>` | |
-| `#早柚开启连接 <名字或序号>` | |
-| `#早柚关闭连接 <名字或序号>` | |
-| `#早柚设置 <key>=<value>` | 可设 `mode` / `only_reply_at` / `report_private` / `report_group` / `report_meta` / `notify_master` / `media_max_size` |
-| `#早柚帮助` | |
-| `#早柚版本` | 插件版本、发布类型与本机运行环境快照 |
+| `#早柚删除连接 <名字或序号>` | 也可 `开启` / `关闭` 连接 |
+| `#早柚设置 <key>=<value>` | 可设 `mode` / `only_reply_at` / `report_*` / `notify_master` / `media_max_size` |
 | `#早柚检查更新` | 拉一次远端，看有没有新提交 |
-| `#早柚更新日志` | 列出本地已有的提交记录 |
 | `#早柚更新` | 拉取更新（`#早柚强制更新` 覆盖本地改动） |
 
-以上除 `#早柚状态`、`#早柚连接列表`、`#早柚帮助`、`#早柚版本`、`#早柚更新日志` 出图外，其余回文本。出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。
-
-示例：
+出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。改配置会**保留 yaml 原有注释**；`mode` 的变更需重启生效，其余即时生效。
 
 ```
-#早柚添加连接 ws://127.0.0.1:8765/ws/Yunzai
 #早柚添加连接 127.0.0.1:8765 name=主核心 token=abc
-#早柚删除连接 2
-#早柚设置 only_reply_at=true
 #早柚设置 report_private=false
 ```
 
-改配置会**保留 yaml 原有注释**。`mode` 的变更需重启生效，其余即时生效。
+## ❓ 常见问题
 
----
+<details>
+<summary>连不上，日志刷「连接错误」</summary>
 
-## 支持的消息段
+检查核心是否在跑、地址端口是否正确、`token` 是否匹配。路由要带 `/ws/{bot_id}`，只填 `host:port` 时插件会自动补 `/ws/Yunzai`。容器部署时别把地址写成容器内的 `127.0.0.1`。
 
-| 云崽 | 早柚核心 | 方向 |
-|---|---|---|
-| `text` | `text` | 双向 |
-| `image` | `image`（+ `image_size`） | 双向 |
-| `record` | `record` | 双向 |
-| `video` | `video` | 双向 |
-| `file` | `file` | 双向 |
-| `at` | `at` | 双向 |
-| `reply` | `reply` | 双向 |
-| `button` | `buttons` | 双向 |
-| `node`（合并转发） | `node` | 双向 |
-| `markdown` | `markdown` | 双向 |
+</details>
 
-核心下发的 `log_*` 段（如 `log_INFO`、`log_WARNING`）会被转成云崽日志打印，不作为消息发出；同一包里若还有真实内容，内容照常发送，只有整包纯日志时才完全跳过。
+<details>
+<summary>连上了但核心没反应</summary>
 
-> 核心的 `Button` 结构中权限字段拼写为 **`permisson`**（少一个 i），是核心源码即如此，非笔误。转换层照此对齐。
+核心侧看是否收到消息。若消息到了但插件没触发，多半是 `bot_id` 不对——核心用它区分平台，改 `bot_id_map` 或连接的 `bot_id`。
 
-**不是每个适配器都发得出这些段**。核心不知道下游是什么平台，会按 onebot 一律照发 —— Milky / OneBotv11 的 `makeMsg` 没有 button / markdown 分支，OPQBot 连 `video` / `file` / `reply` 都直接跳过，这些段会静默消失。本插件**不做降级**：适配器本来就会丢弃它们，再加一层「转成文本」只是用噪音替换静默丢弃，内容并没有真的送达；而按钮目前基本只有 QQBot 在用，QQBot 原生支持。要按钮就用支持按钮的适配器。
+</details>
 
-**引用回复在 ICQQ 上曾完全失效**。icqq 的 `e.source` 只有 `user_id` / `time` / `seq` / `rand`，**没有 `message_id`**；而框架的 `e.reply_id` 派生自 `reply` **段**，偏偏 icqq 的 parser 永不产出该段。两个常规字段双双为空，引用信息传不到核心且不报错。现由 `utils/reply.ts` 用 icqq 自己的 `genGroupMessageId` / `genDmMessageId` 从 `seq`/`rand`/`time` 反算 —— 与当初上报该消息时用的 id 必然一致，核心才查得到自己缓存的图。
+<details>
+<summary>每条消息被处理两次</summary>
 
-**`@全体成员` 不上报**。云崽用 `at` 段的 `qq: "all"` 表示它，早柚核心没有这个概念：`handler.py:754-762` 只把 at 分成「等于 `bot_self_id`」和「其它」，`"all"` 会落进后者被 append 进 `at_list`。而 `at_list` 是一串用户 id —— `core_pm` 会把它直接 extend 进封禁参数，`handler.py:671` 又拿 `not at_list` 当「没 @ 具体某人」的判据，字面量混进去两边都会误判。所以这一段整体丢弃，同条消息的正文照常上报。
+同一条消息被两个早柚核心适配器上报了。检查是否还装着框架自带的 `plugins/adapter/GSUIDCore.js` 或其他核心适配器（如 ws-plugin 的相关功能），只留一个。也可能是同一个核心配了多条连接，用 `#早柚连接列表` 查。
 
-**引用消息只传 message_id**，不会把被引用消息的图片一并抓下来发过去。核心 `handler.py:773` 只做 `event.reply = data`，消费者拿它当**键**去查核心自己缓存的图片（GenshinUID 的「原图」功能），额外注入 `image` 段会污染 `event.image` / `image_list`，让「引用了一张图」在插件眼里变成「刚发了一张图」。
+</details>
 
----
+<details>
+<summary>图片发不出去 / 核心拿到占位图</summary>
 
-## 非消息事件（meta events）
+先看外链是谁发的。TRSS 走 `cfg.server.url`，核心在 Docker 里而它指向 `127.0.0.1` 就拉不到，改成核心可达的地址。
 
-以下事件会上报为核心的 meta event：
+Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若跨网段 / 跨容器导致推断不对，用 `file_server.public_host` 写死云崽的可达地址，并确认 `file_server.host` 不是 `127.0.0.1`。日志里「内置文件服务启动失败」多半是端口被占，`port: 0` 交给系统分配即可。
+
+实在不想折腾就调大 `media_max_size` 让图片走 base64 内联。
+
+</details>
+
+<details>
+<summary>撤回功能突然失效</summary>
+
+核心连续 3 次拿不到 `recall_message_id` 就会永久关掉撤回。重启核心恢复。若反复出现，说明当前适配器的 `sendMsg` 返回值里取不到 message_id。
+
+</details>
+
+<details>
+<summary>按钮 / markdown 发出去没了</summary>
+
+不是每个适配器都发得出这些段，而核心不知道下游是什么平台、会按 onebot 一律照发。Milky / OneBotv11 的 `makeMsg` 没有 button / markdown 分支，OPQBot 连 `video` / `file` / `reply` 都直接跳过。
+
+本插件**不做降级**：适配器本来就会丢弃它们，再加一层「转成文本」只是用噪音替换静默丢弃，内容并没有真的送达。按钮目前基本只有 QQBot 在用，而 QQBot 原生支持。要按钮就用支持按钮的适配器。
+
+</details>
+
+## 🔌 协议与兼容
+
+<details>
+<summary>支持的消息段</summary>
+
+`text` / `image`（+ `image_size`）/ `record` / `video` / `file` / `at` / `reply` / `button`（核心侧叫 `buttons`）/ `node`（合并转发）/ `markdown`，均双向。
+
+核心下发的 `log_*` 段（如 `log_INFO`）会转成云崽日志打印，不作为消息发出；同一包里若还有真实内容则照常发送，只有整包纯日志时才完全跳过。
+
+三处不直觉但有意为之的行为：
+
+- **`@全体成员` 不上报。** 云崽用 `at` 段的 `qq: "all"` 表示它，而核心 `handler.py:754-762` 只把 at 分成「等于 `bot_self_id`」和「其它」，`"all"` 会落进后者被 append 进 `at_list`。而 `at_list` 是一串用户 id——`core_pm` 会把它直接 extend 进封禁参数，`handler.py:671` 又拿 `not at_list` 当「没 @ 具体某人」的判据，字面量混进去两边都会误判。所以这一段整体丢弃，正文照常上报。
+- **引用消息只传 message_id**，不把被引用消息的图片一并抓下来。核心 `handler.py:773` 只做 `event.reply = data`，消费者拿它当**键**去查核心自己缓存的图（GenshinUID 的「原图」功能），额外注入 `image` 段会污染 `event.image` / `image_list`，让「引用了一张图」在插件眼里变成「刚发了一张图」。
+- **引用回复在 ICQQ 上曾完全失效。** icqq 的 `e.source` 只有 `user_id` / `time` / `seq` / `rand`，**没有 `message_id`**；而框架的 `e.reply_id` 派生自 `reply` **段**，偏偏 icqq 的 parser 永不产出该段。两个常规字段双双为空，引用信息传不到核心且不报错。现由 `utils/reply.ts` 用 icqq 自己的 `genGroupMessageId` / `genDmMessageId` 从 `seq`/`rand`/`time` 反算——与当初上报时用的 id 必然一致，核心才查得到自己缓存的图。
+
+> 核心 `Button` 结构中权限字段拼写为 **`permisson`**（少一个 i），是核心源码即如此，非笔误。转换层照此对齐。
+
+</details>
+
+<details>
+<summary>非消息事件（meta events）</summary>
 
 | 云崽 notice | 上报段 type |
-|---|---|
+| :--- | :--- |
 | `notice_type=group`, `sub_type=increase` | `meta-user_join_group` |
 | `notice_type=group`, `sub_type=decrease` | `meta-user_exit_group` |
 | `sub_type=poke`（群聊或私聊） | `meta-poke` |
 
 其余事件（禁言、头衔、撤回等）静默丢弃，只打 debug 日志。
 
-**注意事件形状**：本 fork 的 `plugins/adapter/OneBotv11.js:1330-1333` 会把 `notice_type` 按 `_` 拆成两段（`group_increase` → `notice_type="group"` + `sub_type="increase"`），ICQQ 原生亦是此形状。所以匹配主键是 `sub_type` —— 写成 `notice_type === "group_increase"` 在本项目上**恒为 false**。
+**注意事件形状**：`plugins/adapter/OneBotv11.js:1330-1333` 会把 `notice_type` 按 `_` 拆成两段（`group_increase` → `notice_type="group"` + `sub_type="increase"`），ICQQ 原生亦是此形状。所以匹配主键是 `sub_type`——写成 `notice_type === "group_increase"` **恒为 false**。
 
-**已知限制**：OneBot 原生的 `approve`/`invite`/`kick`/`leave` 这个原始 `sub_type` 被上述拆分覆盖，取不回来，故上报的 data 中不含 `sub_type` 字段。要恢复需改框架适配器文件。
+**已知限制**：OneBot 原生的 `approve`/`invite`/`kick`/`leave` 这个原始 `sub_type` 被上述拆分覆盖、取不回来，故上报的 data 中不含 `sub_type` 字段。
 
----
+</details>
 
-## 协议要点
+<details>
+<summary>协议要点（几处容易踩的坑，都已对核心源码核实）</summary>
 
-几处容易踩的坑，都已对核心源码核实：
-
-- **上行必须是二进制帧**。核心 `core.py` 的读循环是 `await websocket.receive_bytes()`。文档 `CodeAdapter/Protocol.html` 称「均使用 text 类型」，**文档过时，以源码为准**。改成文本帧会让 Starlette 侧直接报错。
+- **上行必须是二进制帧。** 核心 `core.py` 的读循环是 `await websocket.receive_bytes()`。文档 `CodeAdapter/Protocol.html` 称「均使用 text 类型」，**文档过时，以源码为准**。改成文本帧会让 Starlette 侧直接报错。
 - **鉴权走 `?token=` 查询参数**，不是请求头。
-- **meta 段的 type 带 `meta-` 前缀**，核心 `handler.py` 用 `startswith("meta-")` 识别，剥离前缀后作为 `meta_event_type`；data 为 dict 时整体存入 `meta_event_data`，并用其中的 `user_id`/`group_id` 回填顶层缺失字段供鉴权使用 —— 所以必需字段缺失时本插件宁可整包丢弃，不发残包。
-- **撤回回执必须回**。核心 `bot.py` 的 `target_send` 在 `wait_recall` 时会等 `recall_message_id`（超时 10s），连续 3 次拿不到就把本适配器标记为 `_supports_recall=False` **永久关掉撤回能力**。故本插件即使发送失败也回一帧（id 给 `null`）。
-- **核心下发的控制指令拼写是 `excute_` 不是 `execute_`**（`excute_delete_message` / `excute_ban_user`），核心源码即如此。
+- **meta 段的 type 带 `meta-` 前缀**，核心用 `startswith("meta-")` 识别，剥离前缀后作为 `meta_event_type`；data 为 dict 时整体存入 `meta_event_data`，并用其中的 `user_id`/`group_id` 回填顶层缺失字段供鉴权使用——所以必需字段缺失时本插件宁可整包丢弃，不发残包。
+- **撤回回执必须回。** 核心 `bot.py` 的 `target_send` 在 `wait_recall` 时会等 `recall_message_id`（超时 10s），连续 3 次拿不到就把本适配器标记为 `_supports_recall=False` **永久关掉撤回能力**。故本插件即使发送失败也回一帧（id 给 `null`）。
+- **控制指令拼写是 `excute_` 不是 `execute_`**（`excute_delete_message` / `excute_ban_user`），核心源码即如此。
 
----
+</details>
 
-## 回环防护
-
-`核心 → 云崽 → 核心` 的死循环有三层拦截：
+<details>
+<summary>回环防护的三层拦截</summary>
 
 1. 适配器回显自己发出的消息（`user_id === self_id` / `message_sent` / `sub_type === "self"`）
 2. 来源 adapter id 是 `GSUIDCore` 或 `GsCore`，或事件带 `gscore_origin` 标记
 3. 内容指纹：本插件刚代发出去的内容在 10s 内被回显则丢弃
 
-第 2 层里 `gscore_origin` 由本插件已移除的 server 方向打过；现在保留是为了兼容**其他**早柚核心适配器（如框架自带的 `GSUIDCore.js`）打的同名标记 —— 判断成本极低，挡不住的话就是死循环。
+第 2 层里 `gscore_origin` 由本插件已移除的 server 方向打过；现在保留是为了兼容**其他**早柚核心适配器（如框架自带的 `GSUIDCore.js`）打的同名标记——判断成本极低，挡不住的话就是死循环。
 
----
+</details>
 
-## 目录结构
+<details>
+<summary>双框架兼容：按能力探测，不按框架名分支</summary>
 
-```
-gscore-adapter/
-├── index.js                入口，仅 re-export lib/index.js（框架 loader 只认 index.js，故保持 .js）
-├── guoba.support.js        锅巴面板入口，同理保持 .js
-├── src/                    TypeScript 源码 —— 改这里
-│   ├── index.ts            真正的入口：按 mode 拉起方向，并加载 apps
-│   ├── dir.ts              路径常量（插件根、resources 等，全部由 import.meta.url 推出）
-│   ├── types/              类型声明（纯类型，无运行时代码）
-│   │   ├── Protocol.ts     早柚核心协议
-│   │   └── Config.ts       插件配置
-│   ├── constants/          状态文案、回环缓存上限、日志正则等常量
-│   ├── config/             配置读写、热重载、bot_id 解析
-│   ├── utils/              日志、媒体、消息判定等无状态工具
-│   │                       session 会话类型判定 / reply 引用 id 解析
-│   │                       send 发送结果判定
-│   ├── modules/
-│   │   ├── convert/        消息段双向转换（toGscore / toYunzai / buttons）
-│   │   ├── notice/         meta event 转换（纯函数）
-│   │   ├── stats/          中转计数（内存为准，sqlite 定时回写）
-│   │   ├── passive/        QQBot 被动回复：入站 id 记录 + sqlite 落盘
-│   │   ├── conflict/       与其它早柚适配器插件的冲突检测
-│   │   ├── client/         连接类、生命周期、钩子、回环缓存
-│   │   ├── render/         出图：React SSR -> HTML -> 本体 puppeteer 截图
-│   │   ├── update/         git 检查更新与拉取
-│   │   ├── guoba/          锅巴配置面板
-│   │   └── loader/         自动加载 apps
-│   └── apps/
-│       ├── status.ts       #早柚状态 / #早柚重连 / #早柚版本
-│       ├── admin.ts        连接增删改查、#早柚帮助
-│       └── update.ts       #早柚更新 / #早柚检查更新 / #早柚更新日志，含定时检查
-├── lib/                    编译产物，pnpm build 生成（已 gitignore，勿手改）
-├── resources/
-│   ├── config/
-│   │   └── default_config.yaml  出厂默认，勿改（升级会覆盖）
-│   └── template/           出图用的资源
-│       ├── css/            Tailwind 产物（pnpm build 生成，已 gitignore）
-│       └── image/          插件与框架图标，页脚水印用（转 data URI 内联）
-├── config/
-│   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
-├── data/                   运行时 sqlite（已 gitignore）
-│   ├── stats.db            中转计数，长期留存
-│   └── passive.db          QQBot 被动回复窗口，行的寿命只有 4 分半
-├── tsconfig.json
-└── eslint.config.js
+两个框架的 `Bot` 对象差异不小：Miao 的 `lib/bot.js` 是 `class Yunzai extends Client`（ICQQ 的 Client），只有协议方法，TRSS 额外挂的那批工具函数它一个都没有。插件通过 [`src/utils/compat.ts`](src/utils/compat.ts) 逐个探测、缺谁补谁，所以改过名的 fork 也能正确识别。
 
-另有 docs/（开发笔记）与 test/（测试，目录划分对齐 src/modules）仅存于本地，
-两者都在 .gitignore 里，克隆下来的仓库没有它们。
+| 能力 | TRSS | Miao | 处理 |
+| :--- | :-: | :-: | :--- |
+| `Bot.makeLog` | ✅ | ❌ | 垫片转 `global.logger` |
+| `Bot.String` | ✅ | ❌ | 垫片（含循环引用处理） |
+| `Bot.Buffer` | ✅ | ❌ | 垫片（保持三路返回语义） |
+| `Bot.makeForwardMsg` | ✅ 标记对象 | ⚠️ 语义不同 | 按返回值形状判定，转走 Group/Friend 原生实现 |
+| 主人配置 | `master` 分账号 + `masterQQ` | 仅 `masterQQ` | 按字段形状探测，两种结构都认 |
+| `Bot.fileToUrl` | ✅ | ❌ | 无法垫片，改用内置文件服务顶上 |
+
+</details>
+
+## 🧑‍💻 参与开发
+
+`main` 分支放 TypeScript 源码，跑之前必须自己编译：
+
+```bash
+git clone https://github.com/fanxiaocuo/gscore-adapter.git ./plugins/gscore-adapter
+cd plugins/gscore-adapter
+pnpm install
+pnpm build       # src/*.ts -> lib/*.js，再出 Tailwind CSS
 ```
 
-`pnpm build` 分两步：`tsdown` 打包，然后 `build:css` 出 Tailwind 产物。
+运行时加载的是 `lib/`（不入库），**改完 `src/` 必须重新 build**，或用 `pnpm build:watch` 增量编译。`pnpm dev` 起长驻服务器，改完存盘自动重建并刷新浏览器。
 
-第一步由 [tsdown](https://tsdown.dev)（rolldown 内核）把 `src/` 打成**单个** `lib/index.js`。源码内一律用 `@/` 路径别名（如 `@/config`、`@/modules/client`），别名由打包器解析，不再需要 `tsc-alias`；`tsc` 现在只跑 `--noEmit` 做类型检查，不产出文件。
-
-产物必须落在 `lib/index.js` 这一层：框架 loader 只认 `plugins/<name>/index.js`，而根目录的 `index.js` 是 `export * from "./lib/index.js"`；同时 `src/dir.ts` 靠 `import.meta.url` 上跳一级定位插件根，改 `outDir` 或开子目录分块会让 `resources/` 与宿主配置整体读不到。
-
-依赖不打进产物（tsdown 对 `dependencies` 的默认行为）：`react` / `react-dom` / `lucide-react` 在产物里仍是 import 语句，运行时从 `node_modules` 解析——所以 release / preview 分支装完仍需 `pnpm install`。`ws` / `yaml` / `chokidar` 是 peer，复用宿主那一份；`sqlite3` 是原生模块，打包会让 `db.ts` 的降级分支永远走失败路径。理由都写在 `tsdown.config.ts` 顶部。
-
-### 出图那条链
+<details>
+<summary>目录结构与构建链</summary>
 
 ```
-React 组件 → renderToStaticMarkup → buildHtml() 拼成整页 HTML
-          → 写到 temp/html/ → 本体 screenshot() 打开并截图
+src/
+├── index.ts        真正的入口：按 mode 拉起方向，并加载 apps
+├── dir.ts          路径常量（全部由 import.meta.url 推出）
+├── types/          协议与配置的类型声明（无运行时代码）
+├── constants/      状态文案、回环缓存上限、日志正则
+├── config/         配置读写、热重载、bot_id 解析
+├── utils/          日志 / 媒体 / 会话判定 / 引用 id 反算 / 发送结果判定 / 能力探测
+├── modules/
+│   ├── convert/    消息段双向转换      ├── client/    连接类、生命周期、回环缓存
+│   ├── notice/     meta event 转换     ├── render/    出图
+│   ├── stats/      中转计数            ├── update/    检查更新与拉取
+│   ├── passive/    QQBot 被动回复窗口  ├── guoba/     锅巴面板
+│   ├── conflict/   适配器冲突检测      └── loader/    apps 静态导入表
+└── apps/           status / admin / update 三组指令
 ```
 
-整页 HTML 由 `render/index.ts` 的 `buildHtml()` 自己拼（DOCTYPE + charset + title + 内联 `<style>` + 一个 `#container`），不再经过 art-template 模板。CSS 必须内联而不能用 `<link>`：puppeteer 用 `file://` 打开临时目录下的 HTML，相对路径的基准是那个目录，链不到插件里的文件。
+产物由 `tsc` **逐文件**输出到 `lib/`，镜像 `src/` 的层级，不打包（`tsc-alias` 负责把 `@/` 别名与目录 import 补成完整路径）。不用打包器的理由：`sqlite3` 是原生模块，打进去会让降级分支永远走失败路径；`ws` / `yaml` / `chokidar` 复用宿主那一份；而单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用。
 
-仍然走本体 `screenshot()` 而不自己驱动 puppeteer——它还管着浏览器生命周期、超时强制重启、每 N 次渲染主动重启、分片截图的 viewport 计算，套模板只占其中很小一块。把已经拼好的 HTML 当"模板"喂进去即可，art-template 对不含 `{{ }}` 的文本逐字节原样返回。
+产物必须落在 `lib/index.js` 这一层——框架 loader 只认 `plugins/<name>/index.js`，根目录 `index.js` 只是 `export * from "./lib/index.js"`；`src/dir.ts` 也靠 `import.meta.url` 上跳一级定位插件根。
 
-唯一要留意的是本体按路径缓存模板且永不失效（`lib/renderer/Renderer.js`），所以取「每页固定文件名 + 渲染前清掉该键」：路径固定则 chokidar watcher 不会无限增长，清缓存则每次都读到新内容。两者缺一都会静默出错——要么图永远不更新，要么 watcher 泄漏。
+`build:css` 把 `src/modules/render/styles/tailwind.css` 编译到 `resources/template/css/`（不入库）。它扫的是 **`lib/` 下的组件产物**，所以必须排在 `tsc` 之后。
 
-第二步把 `src/modules/render/styles/tailwind.css` 编译成 `resources/template/css/tailwind.css`（不入库，CI 会单独构建后再打包）。它扫的是 `src/modules/render/components/*.tsx` —— 打包后 `lib/` 只剩单个文件，没有逐组件的产物可扫了。出图时这份产物由 `styles/index.ts` 读进来内联到 `<style>`，不能用 `<link>` —— puppeteer 走 `file://`，相对路径的基准是 `temp/html/` 下的临时目录。
+</details>
 
-`outDir` 用 `lib/`（而非常见的 `dist/`）纯属沿用习惯：框架配置由 `modules/client/framework.ts` 从 `YunzaiPath` 拼绝对路径动态 import，不像旧版那样依赖 `../../../lib/config/config.js` 这种与目录深度绑定的相对路径。
+<details>
+<summary>出图那条链</summary>
 
----
+```
+React 组件 → @karinjs/template-react 的 createRenderer / HtmlWrapper
+          → 整页 HTML 写到 temp/html/ → 本体 screenshot() 打开并截图
+```
 
-## 测试
+外壳与 SSR 写盘直接用 `@karinjs/template-react`（kkk 那条渲染路径本身）。它按「目录即路由」约定扫 `.ktr/`，本插件绕过了这层，直接给 `createRenderer` 一张 route → 组件的表。
 
-> **测试不入库**（`test/` 在 `.gitignore` 里，同 `docs/`）。克隆下来的仓库没有 `test/`，
-> 下面的内容面向手上有这份目录的开发者。CI 也因此没有测试步骤，
-> 把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
+仍然走本体 `screenshot()` 而不自己驱动 puppeteer——它还管着浏览器生命周期、超时强制重启、每 N 次渲染主动重启、分片截图的 viewport 计算。三个坑：
 
-纯 Node 脚本，自建全局桩，无测试框架。**测试跑的是 `lib/` 编译产物，所以要先 `pnpm build`。**
+- **CSS 必须内联**，不能 `<link>`。puppeteer 用 `file://` 打开临时目录下的 HTML，相对路径的基准是那个目录，链不到插件里的文件。
+- **高清用 `zoom` 而非 `transform: scale`**。本体截的是 `#container` 的 boundingBox，`scale` 不改布局盒尺寸，图会被裁。
+- **本体按路径缓存模板且永不失效**（`lib/renderer/Renderer.js`）。取「每页固定文件名 + 渲染前清掉该键」：路径固定则 watcher 不会无限增长，清缓存则每次读到新内容。两者缺一都会静默出错——要么图永远不更新，要么 watcher 泄漏。
 
-各套件由自身位置（`import.meta.url`）推出插件目录，在哪执行都一样：
+</details>
+
+<details>
+<summary>测试</summary>
+
+> `test/` 与 `docs/` 都在 `.gitignore` 里，克隆下来的仓库没有它们。CI 因此没有测试步骤，把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
 
 ```bash
 node test/modules/client.js       # 连接端到端（含 1005 重连）
 node test/modules/notice.js       # 非消息事件
 node test/apps/admin.js           # 管理指令（yaml 注释保留）
 node test/integration/e2e.js      # 协议与消息段转换、回环防护
+pnpm test                         # 渲染层，node:test，直读 src/ 需 --import tsx
 ```
 
-当前 122 个断言全部通过。各文件末尾打印通过/失败数，失败时退出码非 0。测试会起本地 mock ws 服务端，不连真实核心；`admin.js` 通过 `GSCORE_CONFIG` 环境变量把配置指向临时文件，不会动你的 `config/config.yaml`。
+前四套跑的是 `lib/` 编译产物，先 `pnpm build`。它们起本地 mock ws 服务端，不连真实核心；`admin.js` 用 `GSCORE_CONFIG` 把配置指向临时文件，不会动你的 `config/config.yaml`。
 
-### 渲染层
+改版式不靠肉眼验，靠逐元素比对 computed style：`pnpm preview` 出静态 HTML，`test/geom.mjs` 抓每个元素的 boundingBox + computed style，`test/geomdiff.mjs` 逐项比对（忽略 `cls` 字段，类名本来就该变）。Tailwind 迁移与 ktr 迁移都是这么验的，零差异。
 
-出图那部分另有一套，用 `node:test`：
+**验证边界**：测试证明发出的包符合已核实的协议规格，但不覆盖真实核心插件对 meta 事件名的接受情况——核心用事件名匹配插件注册的触发器、自身不做校验，认不认那三个名字取决于装了哪些核心插件。这部分只能连真实核心验证。
 
-```bash
-pnpm test                         # 类名对账、主题切换、Tailwind 产物断言等 8 项
-```
+</details>
 
-> 这些脚本直接 import `src/` 下的 `.ts` / `.tsx`，不再读 `lib/` —— 打包后 `lib/` 只剩
-> 单个 `index.js`，既不导出组件，import 它还会启动插件（ws、文件监听、http 都在
-> 模块副作用里）。所以 `pnpm test` 带 `--import tsx` 现场转译；直接 `node --test`
-> 会因为 `.tsx` 报 `Unknown file extension`。
->
-> 另外传目录（`node --test test/`）在 Node 24 上会报 `MODULE_NOT_FOUND`，要用通配符。
+## 🤝 致谢
 
-改版式时的验证不靠肉眼，靠逐元素比对 computed style：
+- **[XasYer/ws-plugin](https://github.com/XasYer/ws-plugin)** —— 早柚核心对接的主要对照实现，消息段转换与客户端连接的许多细节参考自它。
+- **[KaguyaJs/Yunzai-DF-Plugin](https://github.com/KaguyaJs/Yunzai-DF-Plugin)** —— 目录结构与工程约定的参考来源：`src/` 分层、`@/*` 路径别名、`index.js` 只做 re-export 的薄壳入口、`guoba.support.js` 转调 `lib/modules/guoba/`，以及 `tsc` + `tsc-alias` 逐文件输出、产物镜像 `src/` 的构建链。一处分了道：`modules/loader/` 用静态导入表而非扫目录动态 import——忘了注册在编译期就报错，而扫目录扫空只是静默地一个功能都不注册。
+- **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**（MIT）—— 早柚核心适配的参考实现。
+- **[xiowo/yunzai-gscore-adapter](https://github.com/xiowo/yunzai-gscore-adapter)**（MIT）—— 同作者的云崽版。三处实现参照了它：`bot_id_map` 补上 `QQGuild` / `KOOK` / `Telegram` / `Discord` 四个平台标识（对照其 `ADAPTER_BOT_ID_MAP`）、`filter.report_*` 三个上报开关（对照其 `DEFAULT_CONFIG` 的 `reportPrivate` 等）、以及 QQBot 被动回复省主动推送额度的思路（对照其 `QQBOT_MESSAGE_ID_TTL` / `QQBOT_MESSAGE_ID_KEY_PREFIX`）。落盘换成了 sqlite——本插件已为中转计数开了 sqlite，不必只为几行短命数据再引一个 redis 连接。
+- **[xiaoye12123/ws-plugin](https://gitee.com/xiaoye12123/ws-plugin)**（小叶，GPL-3.0）—— 多适配器 bot 查找与发送结果判定的思路来源。`utils/send.ts` 区分「抛错派」与「返回错误对象派」适配器：只 `await` 不看返回值会把 Milky / OneBot 那种「失败也不抛错」的情况误记成一次成功中转。
+  > 该思路是从 [smoadrareun 的 fork](https://gitee.com/smoadrareun/ws-plugin) 读到的，但那个 fork 把上游作者信息全部抹除（`package.json`、`guoba.support.js`、CHANGELOG、README 均改为自己），git 历史也是压平重提交。GPL-3.0 要求保留作者署名，故此处按实际来源致谢原作者 **xiaoye12123**。
+- **[ikenxuan/karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)** —— 图片版式与设计 token 的参考来源。`modules/render/` 的画布结构（弥散光背景、概览统计条、分组卡片、页脚角标）照其 React 组件的思路重写，`#早柚版本` 也是对照它的 `#kkk版本` 做的。样式管线也对齐了：两边都用 Tailwind v4 在构建期扫 JSX 产出一份 CSS，且都是运行时 SSR。
+- **[KarinJS/template-react](https://github.com/KarinJS/template-react)** —— 出图的整页 HTML 外壳与 SSR 写盘直接用它的 `createRenderer` / `HtmlWrapper`，即 kkk 那条渲染路径本身。
+- **[Genshin-bots/gsuid_core](https://github.com/Genshin-bots/gsuid_core)** —— 协议细节以核心源码为准，包括 `Button.permisson` 的拼写、`excute_*` 的命名、`/ws/{bot_id}` 只收二进制帧等。本插件照其实际行为对齐，而非按字面直觉修正。
+- **[TRSS-Yunzai](https://github.com/TimeRainStarSky/Yunzai)** 与 **[Miao-Yunzai](https://github.com/yoimiya-kokomi/Miao-Yunzai)** —— 运行本插件的两个框架。前者的 `Bot.makeLog` / `Bot.Buffer` / `Bot.fileToUrl` 等工具方法是 `utils/compat.ts` 里能力探测的对照物；后者没有那批方法，兼容层与内置文件服务正是为它准备的。
+- **各协议适配器** —— 适配器之间的差异是能力探测与降级逻辑的全部依据：[icqq](https://github.com/icqqjs/icqq)（`e.source` 无 `message_id`；`data:` URI 在 `Image` 构造器里不被识别）、[QQBot-Plugin](https://github.com/TimeRainStarSky/Yunzai-QQBot-Plugin)（频道消息 `message_type` 标成 `group`、靠 `qg_` 前缀识别；被动回复所需的四条发送路径）、[Milky](https://milky.ntqqrev.org/)（`OutgoingSegment` 无 button / markdown，失败时返回错误对象而不抛错）。
 
-```bash
-pnpm preview                                   # 出 14 张静态 HTML 到 temp/preview（7 fixture × 深浅）
-pnpm contrast                                  # WCAG 对比度，彩色角色色卡 3.5:1
-node --import tsx test/geom.mjs temp/a.json    # 抓每个元素的 boundingBox + computed style
-node --import tsx test/geomdiff.mjs temp/a.json temp/b.json   # 逐项比对
-node --import tsx test/shot.mjs                # 出 JPEG 到 temp/shots，肉眼复核
-```
+## 📄 许可证
 
-Tailwind 迁移就是这么验的：6 页 805 元素 51520 项属性，零差异。比对时忽略 `cls` 字段（类名本来就该变），只看几何与最终样式。
+[GPL-3.0-only](LICENSE)。仅供学习交流使用，禁止用于任何违法用途；项目内资源来源于网络，如有侵权请联系删除。
 
-开发时用长驻服务器，改完存盘自动重建 + 浏览器自刷新：
+> 相关：[早柚核心 gsuid_core](https://github.com/Genshin-bots/gsuid_core) · [适配器列表文档](https://docs.sayu-bot.com/LinkBots/AdapterList.html)
 
-```bash
-pnpm dev        # 默认 5175 端口，--port 改端口，--no-open 不自动开浏览器
-```
-
-它每轮起子进程跑 `pnpm build` + `preview.mjs`，而不是在本进程 `import` 加时间戳——后者只能让被点名的模块重新求值，它内部的静态 `import` 照旧命中 ESM 缓存，改 `Layout.tsx` 这种深一层的文件会「重建成功但画面不变」。
-
-类型检查（不产出文件）：
-
-```bash
-pnpm run typecheck
-```
-
-**验证边界**：测试证明发出的包符合已核实的协议规格，但不覆盖真实核心插件对 meta 事件名的接受情况 —— 核心用事件名匹配插件注册的触发器、自身不做校验，认不认 `user_join_group` 这三个名字取决于装了哪些核心插件。这部分只能连真实核心验证。
-
----
-
-## 常见问题
-
-**连不上，日志刷「连接错误」**
-检查核心是否在跑、地址端口是否正确、`token` 是否匹配。路由要带 `/ws/{bot_id}`，只填 host:port 时插件会自动补 `/ws/Yunzai`。
-
-**连上了但核心没反应**
-核心侧看是否收到消息。若消息到了但插件没触发，多半是 `bot_id` 不对 —— 核心用它区分平台，改 `bot_id_map` 或连接的 `bot_id`。
-
-**每条消息被处理两次**
-同一条消息被两个早柚核心适配器上报了。检查是否还装着框架自带的 `plugins/adapter/GSUIDCore.js` 或其他核心适配器（如 ws-plugin 的相关功能），只留一个。也可能是同一个核心配了多条连接，用 `#早柚连接列表` 查。
-
-**图片发不出去 / 核心拿到占位图**
-先看外链是谁发的。TRSS 走 `cfg.server.url`，核心在 Docker 里而它指向 `127.0.0.1` 就拉不到，改成核心可达的地址。
-Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若核心与云崽跨网段/跨容器导致推断不对，用 `file_server.public_host` 写死云崽的可达地址，并确认 `file_server.host` 不是 `127.0.0.1`（那样核心连不进来）。
-日志里出现「内置文件服务启动失败」多半是端口被占，`port: 0` 交给系统分配即可。
-实在不想折腾就调大 `media_max_size` 让图片走 base64 内联。
-
-**撤回功能突然失效**
-核心连续 3 次拿不到 `recall_message_id` 就会永久关掉撤回。重启核心恢复。若反复出现，说明当前适配器的 `sendMsg` 返回值里取不到 message_id。
-
----
-
-## 相关
-
-- [早柚核心 gsuid_core](https://github.com/Genshin-bots/gsuid_core)
-- [适配器列表文档](https://docs.sayu-bot.com/LinkBots/AdapterList.html)
-
----
-
-## 致谢
-
-本插件借鉴了以下项目，在此致谢：
-
-- **[XasYer/ws-plugin](https://github.com/XasYer/ws-plugin)**
-  —— 早柚核心对接的主要对照实现，消息段转换与客户端连接的许多细节都参考自它。
-
-- **[KaguyaJs/Yunzai-DF-Plugin](https://github.com/KaguyaJs/Yunzai-DF-Plugin)**
-  —— 目录结构与工程约定的参考来源。`src/` 分层（`dir.ts` 路径常量、`types/`、`utils/`、
-  `constants/`、`modules/`）、`@/*` 路径别名、`index.js` 只做 re-export 的薄壳入口，
-  以及 `guoba.support.js` 转调 `lib/modules/guoba/` 的写法，均参照该项目。
-  两处后来分了道：别名改由打包器解析（不再用 `tsc-alias`），
-  `modules/loader/` 也从「扫目录动态 import」换成了静态导入表——打包成单文件后
-  没有目录可扫，理由见 `tsdown.config.ts`。
-
-- **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**（MIT）
-  —— 早柚核心适配的参考实现。
-
-- **[xiowo/yunzai-gscore-adapter](https://github.com/xiowo/yunzai-gscore-adapter)**（MIT）
-  —— 同作者的云崽版。本插件的三处实现参照了它：
-  `bot_id_map` 补上 `QQGuild` / `KOOK` / `Telegram` / `Discord` 四个平台标识
-  （对照其 `ADAPTER_BOT_ID_MAP`）、
-  `filter.report_private` / `report_group` / `report_meta` 三个上报开关
-  （对照其 `DEFAULT_CONFIG` 的 `reportPrivate` 等）、
-  以及 QQBot 被动回复省主动推送额度的思路（对照其
-  `QQBOT_MESSAGE_ID_TTL` / `QQBOT_MESSAGE_ID_KEY_PREFIX`）。
-  落盘换成了 sqlite —— 本插件已为中转计数开了 sqlite，
-  不必只为几行短命数据再引一个 redis 连接。
-
-- **[xiaoye12123/ws-plugin](https://gitee.com/xiaoye12123/ws-plugin)**（小叶，GPL-3.0）
-  —— 多适配器 bot 查找与发送结果判定的思路来源。`utils/send.ts` 区分
-  「抛错派」与「返回错误对象派」适配器，参照的是该项目某个 fork 里
-  `normalizeSendResult` 的做法：只 `await` 不看返回值会把
-  Milky / OneBot 那种「失败也不抛错」的情况误记成一次成功中转。
-  > 该思路是从 [smoadrareun 的 fork](https://gitee.com/smoadrareun/ws-plugin) 读到的，
-  > 但那个 fork 把上游作者信息全部抹除（`package.json`、`guoba.support.js`、
-  > CHANGELOG、README 均改为自己，全仓库检索不到原作者），git 历史也是压平重提交。
-  > GPL-3.0 要求保留作者署名，故此处按实际来源致谢原作者 **xiaoye12123**。
-
-- **[Genshin-bots/gsuid_core](https://github.com/Genshin-bots/gsuid_core)**
-  —— 协议细节以核心源码为准，包括 `Button.permisson` 的拼写、
-  `excute_delete_message` / `excute_ban_user` 的命名、
-  `/ws/{bot_id}` 用 `receive_bytes()` 只收二进制帧等。本插件照其实际行为对齐，
-  而非按字面直觉修正。
-
-- **[TimeRainStarSky/Yunzai](https://github.com/TimeRainStarSky/Yunzai)（TRSS-Yunzai）**
-  —— 运行本插件的框架之一。`Bot.makeLog` / `Bot.Buffer` / `Bot.fileToUrl` 等工具方法、
-  以及自带的 `plugins/adapter/GSUIDCore.js`（面向旧版核心，本插件未沿用其连接方向），
-  都是 `utils/compat.ts` 里能力探测的对照物。
-
-- **[yoimiya-kokomi/Miao-Yunzai](https://github.com/yoimiya-kokomi/Miao-Yunzai)（喵崽）**
-  —— 运行本插件的另一个框架。它没有上述那批 `Bot.*` 工具方法，
-  本插件的兼容层与内置文件服务正是为它准备的。
-
-- **各协议适配器**：适配器之间的差异是本插件能力探测与降级逻辑的全部依据 ——
-  [ICQQ-Plugin](https://github.com/TimeRainStarSky/Yunzai-ICQQ-Plugin) 与
-  [icqq](https://github.com/icqqjs/icqq)（`e.source` 无 `message_id`，
-  引用回复需由 `seq`/`time` 反算 `message_id`；`data:` URI 在 `Image`
-  构造器里不被识别）、
-  [QQBot-Plugin](https://github.com/TimeRainStarSky/Yunzai-QQBot-Plugin)
-  （频道消息 `message_type` 标成 `group`、靠 `group_id` 的 `qg_` 前缀识别；
-  被动回复所需的四条发送路径）、
-  [Milky](https://milky.ntqqrev.org/)（`OutgoingSegment`
-  无 button / markdown，失败时返回错误对象而不抛错）。
-
-- **[ikenxuan/karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)**
-  —— 图片版式与设计 token 的参考来源。`modules/render/` 的画布结构（弥散光背景、
-  概览统计条、分组卡片、页脚角标）照其 React 组件的思路重写；
-  `#早柚版本` 也是对照它的 `#kkk版本` 做的。
-  样式管线也对齐了：两边都用 Tailwind v4 在构建期扫 JSX 产出一份 CSS，
-  且都是运行时 SSR（kkk 的 `src/main.ts` 同样走 `react-dom/server`，没有 hydration）。
-  剩下的差别是缩放方式：kkk 用 `transform: scale`，本插件用 CSS `zoom`
-  —— 喵崽的 `screenshot()` 只读 `#container` 的 boundingBox，`transform` 不改这个盒子。
-
----
-
-## 免责声明
-
-本项目仅供学习交流使用，禁止用于任何违法用途。
-
-项目内资源来源于网络，如有侵权请联系项目管理员删除。
