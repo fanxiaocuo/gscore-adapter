@@ -1,5 +1,5 @@
 /**
- * 渲染入口：React SSR -> 自己拼出整页 HTML -> 本体 puppeteer 截图
+ * 渲染入口：React SSR -> 整页 HTML -> 本体 puppeteer 截图
  *
  * 与 karin-plugin-kkk 的差异
  * ---------------------------
@@ -7,22 +7,27 @@
  * SSR，同样不 hydrate、不产出 client bundle。页面是拿去截图的静态图，两边都没有
  * 交互需求。样式管线现在也对齐：都用 Tailwind v4 在构建期扫 JSX 产出一份 CSS。
  *
- * 剩下的差异只有两处：
- *   1. 语义 token 自己定义在 theme.ts，不依赖 @heroui/styles
- *      （kkk 那些 --heroui-* 变量在它仓库里只被读、没有定义）
- *   2. CSS 内联进 <style> 而不是 <link>：kkk 有 HtmlWrapper + ResourcePathManager
- *      负责算相对路径，这边没有那一层，而 puppeteer 用 file:// 打开临时目录下的
- *      HTML，相对路径的基准是那个目录，链不到插件里的 css
+ * 整页 HTML 交给 @karinjs/template-react
+ * -------------------------------------
+ * 外壳（DOCTYPE、meta、内联样式、#container）由该包的 HtmlWrapper.wrapContent
+ * 生成，SSR 与写盘由 createRenderer 一并完成，本文件不再自己拼 HTML 字符串。
+ * 这就是 kkk 那条 reactServerRender 路径本身——原先是照着它的思路自己实现一遍，
+ * 现在直接用上游的实现。
  *
- * 整页 HTML 自己拼，不再走 art-template
- * ------------------------------------
- * 对齐 kkk 的 reactServerRender：它的 HtmlWrapper.wrapContent 就是把 DOCTYPE、
- * meta、样式和 body 拼成一个自包含的 HTML 文件写盘，交给截图方打开。这边同理，
- * 见 buildHtml()，原先那份 resources/template/html/shell.html 已删。
+ * 接法上绕开了它的「目录即路由」约定
+ * --------------------------------
+ * 该包的常规用法是 createTemplateRenderer + ktr sync：模板必须写成
+ * template/<板块>/<模板>/index.tsx，由 CLI 扫出 .ktr/ 注册表。本插件的组件在
+ * src/modules/render/components/ 下，不迁目录——createRenderer 接受的就是一张
+ * 普通的「路由 -> 组件」映射表，不依赖注册表文件，所以直接在 render() 里现构一张。
+ * 代价是用不到它的开发面板与 mock 管理，那两样本插件也不需要（预览走 test/preview.mjs）。
  *
- * 好处不在性能（art-template 渲一次 0.19ms，相对一两秒的截图可以忽略），而在于
- * 少一层「模板语法」的中间态：外壳是 TS 里的一个函数，改它有类型检查、有 diff，
- * 不必再遵守「模板内容必须恒定」这条只有读过本体 Renderer 源码才知道的约束。
+ * CSS 要先落盘
+ * -----------
+ * HtmlWrapper 只接 CSS 文件路径（它要按该文件的目录解析 url() 里的相对资源），
+ * 而 buildCss() 返回的是字符串。所以每次渲染把 CSS 写到 HTML_DIR/style-{scale}.css
+ * 再把路径传进去，见 cssFileFor()。内联行为不变：wrapContent 会把整份 CSS 读进
+ * <style>，与原先自己拼的效果一致（试点逐元素比对过 computed style，零差异）。
  *
  * 但 screenshot() 仍然要用
  * ----------------------
@@ -32,7 +37,8 @@
  * 给它：art-template 对不含 {{ }} 的文本是逐字节原样返回（实测过），于是那一步
  * 退化成一次无副作用的拷贝。
  *
- * 代价是要绕开 dealTpl 的模板缓存，见 render() 里 evictTplCache() 那段。
+ * 代价是要绕开 dealTpl 的模板缓存，见 render() 里 evictTplCache() 那段——换了
+ * 渲染包也消不掉它：createRenderer 默认 htmlFileName:'fixed'，同样是固定路径。
  *
  * 关于最后一步的接法：本体那个模块的 screenshot() 已经用 segment.image 包好了
  * （puppeteer.js:9-12），返回值可直接 e.reply，所以不必自己碰 renderer/loader。
@@ -40,7 +46,7 @@
 import fs from "node:fs"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { renderToStaticMarkup } from "react-dom/server"
+import { createRenderer, HtmlWrapper } from "@karinjs/template-react"
 import type { ReactElement } from "react"
 import { PluginName, YunzaiPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
@@ -98,37 +104,63 @@ async function getPuppeteer() {
 }
 
 /**
+ * CSS 落盘，返回文件路径
+ *
+ * HtmlWrapper 只接路径不接字符串（它要按 CSS 文件所在目录解析 url() 里的相对
+ * 资源，见 loadInlineCss）。而 buildCss() 出的是字符串，所以写到 HTML_DIR 下。
+ *
+ * 文件名带 scale：同一进程里出图走 SCALE、预览走 1，两者内容不同，共用一个名字
+ * 会互相覆盖。按 scale 分文件后各自稳定，也省掉重复写盘。
+ *
+ * 内容不变就不重写：CSS 一份 200KB 上下，四个页面连着出图会写四次同样的字节。
+ * 比一次读盘 + 比字符串便宜，也少一次无意义的 mtime 变动（resolveTemplateStyle
+ * 会按 mtime 挑文件，虽然这里没走那条路，但不留坑）。
+ */
+function cssFileFor(palette: Palette, scale: number): string {
+  const css = buildCss(palette, scale)
+  fs.mkdirSync(HTML_DIR, { recursive: true })
+  const file = join(HTML_DIR, `style-${String(scale).replace(".", "_")}.css`)
+  let same = false
+  try {
+    same = fs.readFileSync(file, "utf8") === css
+  } catch {
+    // 首次渲染时文件还不存在，当作不同，照写
+  }
+  if (!same) fs.writeFileSync(file, css)
+  return file
+}
+
+/**
  * 拼出一张自包含的整页 HTML
  *
- * 对齐 kkk 的 HtmlWrapper.wrapContent：DOCTYPE、charset、title、内联样式、
- * 一个 #container 包住 body。就这么多——原先的 shell.html 除了 art-template
- * 的占位符语法，实质内容也只有这些。
+ * 骨架由 @karinjs/template-react 的 HtmlWrapper 生成：DOCTYPE、charset、
+ * 内联样式、一个 #container 包住 body。原先这里是自己拼的同一套东西。
  *
  * #container 是必需的：本体截图取 #container，取不到才回落 body
  * （renderers/puppeteer/lib/puppeteer.js:189）。回落到 body 会连页面外边距一起截。
+ * wrapContent 无条件输出这个节点，正好符合要求——它自己的注释也说明这是截图边界，
+ * 组件不该再声明一个。
  *
- * title 要转义：它来自调用方的字面量（"早柚核心适配器 帮助"），当前没有特殊字符，
- * 但这里是模板的位置，将来若有人把用户输入拼进标题，不转义就是注入。body 不转义
- * ——它是 renderToStaticMarkup 的产物，React 已经把文本节点转义过了。
+ * 不传 ctx.theme：themeVariables() 只在给了 theme 时才往 <html>/<body> 的 style
+ * 上写 --background 等变量，而那批变量名与本插件 theme.ts 定义的是同一套。传了
+ * 就会以内联样式的优先级盖掉 :root 里那份，深浅两套主题反而失效。调色板照旧由
+ * buildCss 下发到 :root，这里只借它的外壳。
+ *
+ * title 由 headExtra 补：wrapContent 不输出 <title>。它不影响画面，但预览页在
+ * 浏览器里开着时标签页全是空白，分不清哪页是哪页。转义是因为将来若有人把用户输入
+ * 拼进标题，不转义就是注入；body 不转义——它是 SSR 的产物，React 已经转义过文本节点。
  *
  * 导出是为了给 test/preview.mjs 用：预览页与真正出的图必须是同一个骨架，
  * 否则「预览里对、出图错」这类问题会没人发现。
  */
-export function buildHtml(title: string, css: string, body: string): string {
+export function buildHtml(title: string, cssPath: string, body: string): string {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>${esc(title)}</title>
-<style>
-${css}
-</style>
-</head>
-<body><div id="container">${body}</div></body>
-</html>
-`
+  const wrapper = new HtmlWrapper({
+    cssPath,
+    headExtra: `<title>${esc(title)}</title>`,
+  })
+  return wrapper.wrapContent(body, { scale: 1 })
 }
 
 /**
@@ -191,20 +223,30 @@ export async function render(opts: RenderOptions) {
   // 一套字面量，样式表的 :root 变量是另一套。取一次再传下去，两边必然一致。
   const palette = pickPalette()
 
-  let body: string
-  try {
-    body = renderToStaticMarkup(opts.view(palette))
-  } catch (err) {
-    makeLog("error", ["组件渲染失败", err], "GsCore")
+  // SSR + 拼壳 + 写盘一步到位。传的是一张现构的「路由 -> 组件」表而不是 ktr sync
+  // 生成的注册表，理由见文件头。组件签名是 ({data, ctx}) => Element，本插件的
+  // view 只要调色板，所以在这里闭包掉，不走它的 data 通道。
+  //
+  // htmlFileName 固定成页面名：默认行为（'fixed'）会把路由里的 / 换成 _，
+  // 出来是 gscore_help.html。保持与迁移前一致的 {name}.html，evictTplCache
+  // 和 test/ 里按名字找文件的地方都不用改。
+  const renderHtml = createRenderer(
+    { [opts.name]: { name: opts.title, component: () => opts.view(palette) } },
+    {
+      cssPath: cssFileFor(palette, SCALE),
+      outputDir: HTML_DIR,
+      htmlFileName: () => opts.name,
+      html: { headExtra: `<title>${opts.title.replace(/</g, "&lt;")}</title>` },
+    },
+  )
+
+  // 它把异常收进返回值而不是抛出，所以判 success 而不是 try/catch
+  const res = await renderHtml(opts.name, {})
+  if (!res.success) {
+    makeLog("error", ["组件渲染失败", res.error], "GsCore")
     return false
   }
-
-  // 整页 HTML 自己拼好写盘，再把它当"模板"喂给本体。
-  // art-template 对不含 {{ }} 的文本逐字节原样返回，所以那一步没有副作用；
-  // CSS 里的花括号、@media、以及类名里被转义的方括号（.gap-\[18px\]）都不受影响。
-  fs.mkdirSync(HTML_DIR, { recursive: true })
-  const tplFile = join(HTML_DIR, `${opts.name}.html`)
-  fs.writeFileSync(tplFile, buildHtml(opts.title, buildCss(palette, SCALE), body))
+  const tplFile = res.htmlPath
   evictTplCache(tplFile)
 
   const data = {

@@ -320,7 +320,7 @@ const FOOT = {
  * 版式照 karin-plugin-kkk 的 DefaultLayout：居中一排，左半是插件、右半是框架，
  * 中间一根竖线分隔，两侧各自「图标 + 上小字 + 下大字」。它那边左边用一个内联
  * SVG 当插件标、右边用 /image/frame-logo.png 当框架标，本插件两边都有位图
- * （logo.png 与 frame-logo.png），所以统一走 <img>。
+ * （logo.webp 与 frame-logo.webp），所以统一走 <img>。
  *
  * 为什么要自己算字号
  * ------------------
@@ -416,13 +416,16 @@ export function Footer({
             /*
              * 图标：外层 span 定框，内层 img 决定字形实际大小
              * ------
-             * 两张图构图不同：logo.png（1024²）的字形只占画幅 70.7%（实测 alpha
-             * 包围盒 724px），frame-logo.png 是满幅 JPEG。同样塞进框、同样内缩时，
+             * 两张图构图不同：logo.webp 的字形只占画幅 70.7%（实测 alpha
+             * 包围盒 724/1024，缩到 512 后比例不变），frame-logo.webp 是满幅不透明图
+             * （母版扩展名写的是 .png，内容其实是 JPEG）。
+             * 同样塞进框、同样内缩时，
              * 早柚字形只有 42px、云崽有 60px——差三分之一，就是「适配器图标偏小」
              * 的来源。所以这里让 img 溢出框 112% 把那圈留白顶出去（字形 =
              * 80 × 1.12 × 0.707 ≈ 63px），overflow-hidden 裁掉溢出部分。
              *
-             * 不给底色和描边：logo.png 是透明底 PNG，加了淡底 + 边框就变成两个方块
+             * 不给底色和描边：logo.webp 是透明底（WebP 保留了 alpha），加了淡底 +
+             * 边框就变成两个方块
              * 罩在字形外，页脚这行本来只是水印，方框比它要标记的内容更抢眼。
              * 圆角留着只为裁剪溢出，透明背景下看不出来。
              */
@@ -464,7 +467,7 @@ export function Footer({
         <div className="flex min-w-0 items-center gap-[20px]">
           {frameLogo && (
             /* 满幅图内缩 8px，字形 = 80 - 16 = 64px，与左边的 63px 相当。
-               frame-logo 是满幅 JPEG 自带白底，本身就是个方块，不需要再补边框框住它 */
+               frame-logo 是满幅不透明图自带白底，本身就是个方块，不需要再补边框框住它 */
             <span className="flex size-[80px] flex-none items-center justify-center overflow-hidden rounded-[20px]">
               <img className="block size-full p-[8px] object-contain" src={frameLogo} alt="" />
             </span>

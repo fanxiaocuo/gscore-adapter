@@ -1,10 +1,13 @@
 {
-  // 注意：这份配置已经不再驱动构建。打包交给 tsdown（见 tsdown.config.ts），
-  // tsc 只用来 `--noEmit` 做类型检查。下面的 outDir / declaration / sourceMap
-  // 因此都不产出文件，保留是为了让编辑器与 tsc 对模块解析的判断和打包器一致。
+  // 这份配置驱动构建：`tsc` 逐文件输出到 lib/，再由 `tsc-alias` 把 @/ 别名
+  // 改写成相对路径。产物因此与 src/ 的目录结构一一对应，便于线上直接对读
+  // （和 Yunzai-DF-Plugin 的产物形态一致）。
   "compilerOptions": {
     "target": "ES2024",
     "module": "ESNext",
+    // 保持 bundler：源码里 @/xx 与 ./xx 都可以不写扩展名，写起来清爽。
+    // 代价是 tsc 原样输出这些路径，而 Node ESM 既不认省略的 .js 也不认目录导入，
+    // 所以补全扩展名这步必须由下面的 tsc-alias.resolveFullPaths 兜住。
     "moduleResolution": "bundler",
     // DOM 不是运行时依赖：渲染只把 JSX 拼成 HTML 字符串，不碰浏览器 API。
     // 但 JSX 的元素属性类型（className / style 等）定义在 DOM lib 里，缺了会全量报错。
@@ -42,5 +45,12 @@
     // 全局 Bot / segment / logger / redis 声明
     "types": ["node", "trss-yunzai"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // 少了这条，产物里就是 `from "./config"` 这种光秃秃的路径——tsc 原样保留，
+  // 而 Node ESM 不做扩展名补全也不支持目录导入，一跑就是
+  // ERR_UNSUPPORTED_DIR_IMPORT / ERR_MODULE_NOT_FOUND。开了以后会补成
+  // `./config/index.js`。构建期不报错，只在运行时炸，所以别删。
+  "tsc-alias": {
+    "resolveFullPaths": true
+  }
 }

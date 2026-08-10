@@ -11,9 +11,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "tsdown && pnpm run build:css",
+    "build": "rimraf lib && tsc && tsc-alias && pnpm run build:css",
     "build:css": "tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --minify",
-    "build:watch": "concurrently \"tsdown --watch\" \"tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --watch\"",
+    "build:watch": "concurrently \"tsc -w\" \"tsc-alias -w\" \"tailwindcss -i src/modules/render/styles/tailwind.css -o resources/template/css/tailwind.css --watch\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -23,6 +23,7 @@
     "dev": "node --import tsx test/dev.mjs"
   },
   "dependencies": {
+    "@karinjs/template-react": "https://pkg.pr.new/KarinJS/template-react/@karinjs/template-react@169c6ed",
     "lucide-react": "^1.31.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
@@ -55,9 +56,10 @@
     "concurrently": "^9.2.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
+    "rimraf": "^6.1.3",
     "sqlite3": "npm:@karinjs/sqlite3@^0.4.3",
     "tailwindcss": "^4",
-    "tsdown": "^0.22.14",
+    "tsc-alias": "^1.9.1",
     "tsx": "^4.23.11",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",

@@ -1,8 +1,10 @@
 /**
  * 图标集
  *
- * 直接用 lucide-react 组件。它在 dependencies 里，但 tsdown 打包时会把用到的
- * 那十几个图标内联进产物 —— 详见 tsdown.config.ts 顶部关于 external 的说明。
+ * 直接用 lucide-react 组件。它在 dependencies 里，运行时从 node_modules 解析
+ * （产物不打包，import 语句原样保留）——所以 release / preview 分支装完要
+ * pnpm install，见 README「安装」。SSR 下组件展开即内联 svg，颜色靠
+ * currentColor 继承。
  *
  * 为什么不用字符标记
  * -----------------

@@ -73,6 +73,26 @@ jobs:
       - name: 构建
         run: pnpm run build
 
+      # 锅巴面板是独立入口，主入口不引用它。文件存在 ≠ 导出存在：
+      # 它被 tree-shaking 摇掉时产物照样生成，直到用户装上锅巴才炸
+      # （Cannot find module / does not provide an export named）。
+      # 这里真的 import 一次 guoba.support.js 并调用 supportGuoba()。
+      - name: 冒烟：锅巴入口可加载
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            globalThis.logger = { info(){}, warn(){}, error(){}, mark(){}, debug(){} }
+            const url = new URL("./guoba.support.js", `file://${process.cwd()}/`).href
+            const m = await import(url)
+            if (typeof m.supportGuoba !== "function")
+              throw new Error("guoba.support.js 未导出 supportGuoba —— 多半是转调路径错了")
+            const schemas = m.supportGuoba().configInfo.schemas
+            if (!Array.isArray(schemas) || schemas.length === 0)
+              throw new Error("supportGuoba() 没有返回配置项")
+            console.log(`  ok  supportGuoba()，${schemas.length} 个配置项`)
+            process.exit(0)
+          '
+
       - name: 准备产物
         run: |
           set -euo pipefail
@@ -90,6 +110,11 @@ jobs:
           done
 
           cp package.json dist_branch/package.json
+
+          # 位图母版不进产物：页面只引用 .webp（见 render/assets.ts），
+          # 同名 .png 是重新压缩时的源，留在仓库但白占 788KB。
+          rm -f dist_branch/resources/template/image/logo.png \
+                dist_branch/resources/template/image/frame-logo.png
 
           # 不写 .gitignore 到产物分支：无前导斜杠的 "config/" 会匹配任意层级，
           # 在全新初始化的仓库里会把 resources/config/ 一起吞掉。
@@ -122,9 +147,14 @@ jobs:
         run: |
           set -euo pipefail
           fail=0
-          for f in index.js lib/index.js package.json \
+          # lib/modules/guoba/index.js 必须单独列：guoba.support.js 只是个转调壳，
+          # 它在不在说明不了目标在不在。锅巴面板曾经就是这样坏掉的——壳还在，
+          # 而产物换了布局，转调指向一个不存在的路径。
+          for f in index.js lib/index.js lib/modules/guoba/index.js package.json \
                    resources/config/default_config.yaml \
-                   resources/template/css/tailwind.css guoba.support.js; do
+                   resources/template/css/tailwind.css guoba.support.js \
+                   resources/template/image/logo.webp \
+                   resources/template/image/frame-logo.webp; do
             if [ -e "dist_branch/$f" ]; then
               echo "  ok  $f"
             else
