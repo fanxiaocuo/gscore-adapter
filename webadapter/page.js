@@ -17,6 +17,12 @@ let editing = null
 
 const $ = id => document.getElementById(id)
 
+// 图标经接口取（宿主的静态白名单只放行 page.html/css/js），
+// 拿不到就一直藏着 —— 页面其余部分不依赖它
+const logo = $("logo")
+logo.onload = () => (logo.hidden = false)
+logo.src = `${API}/logo`
+
 /** 文本一律走 textContent / 属性赋值，不拼 innerHTML —— 连接名与地址是用户输入 */
 function el(tag, cls, text) {
   const n = document.createElement(tag)
