@@ -4,62 +4,25 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>早柚核心适配器</title>
-<!-- href 同样由 page.js 按 __webBase 拼。留空 href 会让浏览器去要
-     当前目录下的 /favicon.ico，白挨一个 404 -->
-<link rel="icon" id="favicon" />
+<!--
+  favicon 与页内图标都经 /api/gscore-adapter/logo 取，不能直连 resources/：
+  宿主的 /api/web-page/ 只放行描述符里列过的 page.html / .css / .js 三个文件。
+
+  href 由脚本按 __webBase 拼（宿主可能挂在 /qqbot-web 这类前缀下）。这里先给
+  about:blank 占位而不是留空 —— 留空 href 会让浏览器去要当前目录的 /favicon.ico，
+  白挨一个 404。
+-->
+<link rel="icon" id="favicon" href="about:blank" />
 <link rel="stylesheet" href="page.css" />
 </head>
 <body>
-<div id="app">
-  <header class="bar">
-    <div class="ident">
-      <!-- src 由 page.js 按 __webBase 拼（宿主可能挂在 /qqbot-web 这类前缀下，
-           写死 /api/... 会 404）。图标经 /api/gscore-adapter/logo 取，
-           不能直连 resources/：宿主只放行描述符里那三个文件，别的路径 403 -->
-      <img class="logo" id="logo" alt="" hidden />
-      <div>
-        <h1>早柚核心适配器</h1>
-        <p class="sub" id="meta">加载中…</p>
-      </div>
-    </div>
-    <div class="acts">
-      <button class="btn" id="refresh">刷新</button>
-      <button class="btn" id="reconnect">全部重连</button>
-    </div>
-  </header>
-
-  <div id="toast" class="toast" hidden></div>
-
-  <section class="cards" id="stats"></section>
-
-  <section class="panel">
-    <div class="phead">
-      <h2>连接</h2>
-      <button class="btn primary" id="add">添加连接</button>
-    </div>
-    <div id="conns" class="conns"></div>
-  </section>
-
-  <section class="panel">
-    <h2>全局设置</h2>
-    <div class="grid" id="settings"></div>
-    <div class="phead end"><button class="btn primary" id="save">保存设置</button></div>
-    <p class="hint" id="cfgfile"></p>
-  </section>
-</div>
-
-<!-- 连接编辑弹层 -->
-<div class="mask" id="mask" hidden>
-  <div class="modal">
-    <h2 id="mtitle">添加连接</h2>
-    <div class="grid" id="mform"></div>
-    <div class="phead end">
-      <button class="btn" id="mcancel">取消</button>
-      <button class="btn primary" id="mok">保存</button>
-    </div>
-  </div>
-</div>
-
+<!-- 整页由 React 渲染，源码在 src/webui/main.tsx，产物是同目录的 page.js -->
+<div id="app"><p class="hint">加载中…</p></div>
+<script>
+  // 只做一件事：把 favicon 指到接口上。其余交给 page.js
+  document.getElementById("favicon").href =
+    `${new URLSearchParams(location.search).get("__webBase") || ""}/api/gscore-adapter/logo`
+</script>
 <script src="page.js"></script>
 </body>
 </html>

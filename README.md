@@ -215,7 +215,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 
 </details>
 
-## <img src="resources/template/image/logo.webp" width="26" align="top" alt=""> 指令
+## <img src="resources/template/image/logo.webp" width="34" align="absmiddle" alt=""> 指令
 
 全部限主人使用，`#` 可省略。
 
