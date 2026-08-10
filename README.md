@@ -24,6 +24,8 @@ Miao-Yunzai / TRSS-Yunzai 的**早柚核心（gsuid_core）适配器**。
 - **回环防护**：三层拦截，避免 `核心 → 云崽 → 核心` 死循环
 - **双框架兼容**：TRSS-Yunzai / Miao-Yunzai 均可运行，按能力探测自动适配
 - **大文件外链**：框架没有文件服务时自带一个（零依赖、零配置），大图不再发不出去
+- **QQBot 省额度**：官方 Bot 上尽量走被动回复，不消耗主动推送配额；窗口记录落盘，重启不丢
+- **上报开关**：私聊 / 群 / 非消息事件三档粗粒度开关，不必靠黑名单逐个排除
 
 ---
 
@@ -243,6 +245,9 @@ client:
 
 ```yaml
 filter:
+  report_private: true    # 是否上报私聊消息
+  report_group: true      # 是否上报群消息（QQ 频道也算群）
+  report_meta: true       # 是否上报非消息事件（入群/退群/戳一戳）
   only_reply_at: false    # 仅在被 @ 或带前缀时才上报群消息
   prefix: ["#", "*"]      # only_reply_at 为 true 时，这些前缀也视为触发
   block_prefix: []        # 命中即不上报（避免与本地插件抢命令）
@@ -252,22 +257,36 @@ filter:
   black_user: []
 ```
 
+三个 `report_*` 是最粗的一刀，默认全开（只有显式写 `false` 才拦）：想「只让群消息过核心」时不必把所有私聊用户列进 `black_user`；核心侧没装消费 meta 事件的插件时，关掉 `report_meta` 能省下全部无用上报。
+
 黑白名单同时作用于消息和 meta 事件；`only_reply_at` / `block_prefix` / `block_include` 基于文本，只作用于消息。
 
 ### bot_id_map
 
-把云崽的适配器 id 映射成核心认识的平台标识：
+把云崽的适配器映射成核心认识的平台标识：
 
 ```yaml
 bot_id_map:
-  ICQQ: onebot
-  OneBotv11: onebot
+  # adapter.id（粗粒度，一个键覆盖多家）
+  QQ: onebot            # ICQQ / OneBotv11 / OPQBot 的 id 都是 QQ
   QQBot: qqgroup
-  Satori: onebot
-  default: onebot     # 兜底
+  Milky: onebot
+  # adapter.name（精确到具体适配器，优先级低于 id）
+  ICQQ: onebot
+  OPQBot: onebot
+  # 频道特判
+  QQGuild: qqguild
+  default: onebot       # 兜底
 ```
 
-优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > 适配器 id > `default`。
+优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > **频道特判（`QQGuild`）** > `adapter.id` > `adapter.name` > `default`。
+
+**为什么 id 和 name 都查**：框架填的 `adapter_id` 取自 `adapter.id`，而 ICQQ / OneBotv11 / OPQBot 三家的 `adapter.id` **全都是 `QQ`** —— 只查 id 就分不开它们，只查 name 则 `QQ` 这种粗粒度键写了没用。所以两者都查，粗粒度写 id、要精确到某一家就写它的 name。
+
+> 旧版本的默认配置把键写成了 `ICQQ` / `OneBotv11` / `OPQBot` / `ComWeChat`，那些是 `name` 不是 `id`，**实际从未命中**，只是恰好都该映射成 `onebot`，被 `default` 兜底掩盖了。升级后这张表才真正起作用。
+
+**频道为什么要单独判**：QQBot-Plugin 用同一个 adapter（`adapter.id` 恒为 `QQBot`）同时处理 QQ 群和 QQ 频道，按适配器查表分不开，而核心侧 `qqgroup` 与 `qqguild` 是两个平台。所以频道按事件形状识别（`group_id` 带 `qg_` 前缀）。
+
 
 ### 其它
 
@@ -301,7 +320,7 @@ bot_id_map:
 | `#早柚删除连接 <名字或序号>` | |
 | `#早柚开启连接 <名字或序号>` | |
 | `#早柚关闭连接 <名字或序号>` | |
-| `#早柚设置 <key>=<value>` | 可设 `mode` / `only_reply_at` / `notify_master` / `media_max_size` |
+| `#早柚设置 <key>=<value>` | 可设 `mode` / `only_reply_at` / `report_private` / `report_group` / `report_meta` / `notify_master` / `media_max_size` |
 | `#早柚帮助` | |
 | `#早柚版本` | 插件版本、发布类型与本机运行环境快照 |
 | `#早柚检查更新` | 拉一次远端，看有没有新提交 |
@@ -317,6 +336,7 @@ bot_id_map:
 #早柚添加连接 127.0.0.1:8765 name=主核心 token=abc
 #早柚删除连接 2
 #早柚设置 only_reply_at=true
+#早柚设置 report_private=false
 ```
 
 改配置会**保留 yaml 原有注释**。`mode` 的变更需重启生效，其余即时生效。
@@ -341,6 +361,10 @@ bot_id_map:
 核心下发的 `log_*` 段（如 `log_INFO`、`log_WARNING`）会被转成云崽日志打印，不作为消息发出；同一包里若还有真实内容，内容照常发送，只有整包纯日志时才完全跳过。
 
 > 核心的 `Button` 结构中权限字段拼写为 **`permisson`**（少一个 i），是核心源码即如此，非笔误。转换层照此对齐。
+
+**不是每个适配器都发得出这些段**。核心不知道下游是什么平台，会按 onebot 一律照发 —— Milky / OneBotv11 的 `makeMsg` 没有 button / markdown 分支，OPQBot 连 `video` / `file` / `reply` 都直接跳过，这些段会静默消失。本插件**不做降级**：适配器本来就会丢弃它们，再加一层「转成文本」只是用噪音替换静默丢弃，内容并没有真的送达；而按钮目前基本只有 QQBot 在用，QQBot 原生支持。要按钮就用支持按钮的适配器。
+
+**引用回复在 ICQQ 上曾完全失效**。icqq 的 `e.source` 只有 `user_id` / `time` / `seq` / `rand`，**没有 `message_id`**；而框架的 `e.reply_id` 派生自 `reply` **段**，偏偏 icqq 的 parser 永不产出该段。两个常规字段双双为空，引用信息传不到核心且不报错。现由 `utils/reply.ts` 用 icqq 自己的 `genGroupMessageId` / `genDmMessageId` 从 `seq`/`rand`/`time` 反算 —— 与当初上报该消息时用的 id 必然一致，核心才查得到自己缓存的图。
 
 **`@全体成员` 不上报**。云崽用 `at` 段的 `qq: "all"` 表示它，早柚核心没有这个概念：`handler.py:754-762` 只把 at 分成「等于 `bot_self_id`」和「其它」，`"all"` 会落进后者被 append 进 `at_list`。而 `at_list` 是一串用户 id —— `core_pm` 会把它直接 extend 进封禁参数，`handler.py:671` 又拿 `not at_list` 当「没 @ 具体某人」的判据，字面量混进去两边都会误判。所以这一段整体丢弃，同条消息的正文照常上报。
 
@@ -405,9 +429,14 @@ gscore-adapter/
 │   ├── constants/          状态文案、回环缓存上限、日志正则等常量
 │   ├── config/             配置读写、热重载、bot_id 解析
 │   ├── utils/              日志、媒体、消息判定等无状态工具
+│   │                       session 会话类型判定 / reply 引用 id 解析
+│   │                       send 发送结果判定
 │   ├── modules/
 │   │   ├── convert/        消息段双向转换（toGscore / toYunzai / buttons）
 │   │   ├── notice/         meta event 转换（纯函数）
+│   │   ├── stats/          中转计数（内存为准，sqlite 定时回写）
+│   │   ├── passive/        QQBot 被动回复：入站 id 记录 + sqlite 落盘
+│   │   ├── conflict/       与其它早柚适配器插件的冲突检测
 │   │   ├── client/         连接类、生命周期、钩子、回环缓存
 │   │   ├── render/         出图：React SSR -> HTML -> 本体 puppeteer 截图
 │   │   ├── update/         git 检查更新与拉取
@@ -426,6 +455,9 @@ gscore-adapter/
 │       └── image/          插件与框架图标，页脚水印用（转 data URI 内联）
 ├── config/
 │   └── config.yaml         用户配置（首次运行自动生成，整个目录已 gitignore）
+├── data/                   运行时 sqlite（已 gitignore）
+│   ├── stats.db            中转计数，长期留存
+│   └── passive.db          QQBot 被动回复窗口，行的寿命只有 4 分半
 ├── tsconfig.json
 └── eslint.config.js
 
@@ -568,8 +600,29 @@ Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若�
   `modules/loader/` 也从「扫目录动态 import」换成了静态导入表——打包成单文件后
   没有目录可扫，理由见 `tsdown.config.ts`。
 
-- **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**
+- **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**（MIT）
   —— 早柚核心适配的参考实现。
+
+- **[xiowo/yunzai-gscore-adapter](https://github.com/xiowo/yunzai-gscore-adapter)**（MIT）
+  —— 同作者的云崽版。本插件的三处实现参照了它：
+  `bot_id_map` 补上 `QQGuild` / `KOOK` / `Telegram` / `Discord` 四个平台标识
+  （对照其 `ADAPTER_BOT_ID_MAP`）、
+  `filter.report_private` / `report_group` / `report_meta` 三个上报开关
+  （对照其 `DEFAULT_CONFIG` 的 `reportPrivate` 等）、
+  以及 QQBot 被动回复省主动推送额度的思路（对照其
+  `QQBOT_MESSAGE_ID_TTL` / `QQBOT_MESSAGE_ID_KEY_PREFIX`）。
+  落盘换成了 sqlite —— 本插件已为中转计数开了 sqlite，
+  不必只为几行短命数据再引一个 redis 连接。
+
+- **[xiaoye12123/ws-plugin](https://gitee.com/xiaoye12123/ws-plugin)**（小叶，GPL-3.0）
+  —— 多适配器 bot 查找与发送结果判定的思路来源。`utils/send.ts` 区分
+  「抛错派」与「返回错误对象派」适配器，参照的是该项目某个 fork 里
+  `normalizeSendResult` 的做法：只 `await` 不看返回值会把
+  Milky / OneBot 那种「失败也不抛错」的情况误记成一次成功中转。
+  > 该思路是从 [smoadrareun 的 fork](https://gitee.com/smoadrareun/ws-plugin) 读到的，
+  > 但那个 fork 把上游作者信息全部抹除（`package.json`、`guoba.support.js`、
+  > CHANGELOG、README 均改为自己，全仓库检索不到原作者），git 历史也是压平重提交。
+  > GPL-3.0 要求保留作者署名，故此处按实际来源致谢原作者 **xiaoye12123**。
 
 - **[Genshin-bots/gsuid_core](https://github.com/Genshin-bots/gsuid_core)**
   —— 协议细节以核心源码为准，包括 `Button.permisson` 的拼写、
@@ -585,6 +638,17 @@ Miao 走内置文件服务，正常会自动取 ws 连接的出口地址；若�
 - **[yoimiya-kokomi/Miao-Yunzai](https://github.com/yoimiya-kokomi/Miao-Yunzai)（喵崽）**
   —— 运行本插件的另一个框架。它没有上述那批 `Bot.*` 工具方法，
   本插件的兼容层与内置文件服务正是为它准备的。
+
+- **各协议适配器**：适配器之间的差异是本插件能力探测与降级逻辑的全部依据 ——
+  [ICQQ-Plugin](https://github.com/TimeRainStarSky/Yunzai-ICQQ-Plugin) 与
+  [icqq](https://github.com/icqqjs/icqq)（`e.source` 无 `message_id`，
+  引用回复需由 `seq`/`time` 反算 `message_id`；`data:` URI 在 `Image`
+  构造器里不被识别）、
+  [QQBot-Plugin](https://github.com/TimeRainStarSky/Yunzai-QQBot-Plugin)
+  （频道消息 `message_type` 标成 `group`、靠 `group_id` 的 `qg_` 前缀识别；
+  被动回复所需的四条发送路径）、
+  [Milky](https://milky.ntqqrev.org/)（`OutgoingSegment`
+  无 button / markdown，失败时返回错误对象而不抛错）。
 
 - **[ikenxuan/karin-plugin-kkk](https://github.com/ikenxuan/karin-plugin-kkk)**
   —— 图片版式与设计 token 的参考来源。`modules/render/` 的画布结构（弥散光背景、
