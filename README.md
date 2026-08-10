@@ -67,7 +67,7 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 <details>
 <summary>Web 面板</summary>
 
-装了 **QQBot-Web-Adapter** 的话，它的控制台左侧会多一页「早柚核心适配器」🐱：连接的实时状态、今日/累计中转计数、连接的增删改与启停、全局设置，都能点着改。
+装了 **QQBot-Web-Adapter** 的话，它的控制台左侧会多一页「早柚核心适配器」🦊：连接的实时状态、今日/累计中转计数、连接的增删改与启停、全局设置，都能点着改。页面里用的是插件自己的图标；导航栏那颗只能是 emoji，宿主按纯文本渲染它。
 
 面板不自带服务器，是挂在那个宿主上的插件页 —— 它开机时扫 `webadapter/index.js` 并注册页面与接口，接口由宿主统一加登录鉴权（非内网直接 403）。宿主没装时这部分就是死代码，不影响插件其余功能。
 
@@ -215,7 +215,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 
 </details>
 
-## 🦊 指令
+## <img src="resources/template/image/logo.webp" width="26" align="top" alt=""> 指令
 
 全部限主人使用，`#` 可省略。
 
