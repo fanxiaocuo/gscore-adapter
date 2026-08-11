@@ -28,8 +28,10 @@ client:
       enable: true
       # 重连间隔（秒）
       reconnect_interval: 5
-      # 最大重连次数，<=0 为无限重连
-      max_reconnect_attempts: 0
+      # 最大重连次数，<=0 为无限重连。
+      # 默认 5 次：配合上面的指数退避约覆盖 2.3 分钟，核心重启够用；
+      # 而地址写错时不会整夜刷日志。停了发 #早柚重连 即可恢复
+      max_reconnect_attempts: 5
       # 只转发这些 self_id 的消息，留空表示全部
       # 例：["2463381624", "3889017463"]
       bind: []
