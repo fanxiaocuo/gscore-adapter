@@ -3,6 +3,7 @@ import { clients, startClient, stopClient } from "@/modules/client"
 import { STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { normalizeUrl } from "@/utils/url"
+import { resolveSelfId } from "@/utils/message"
 import { renderHelp, renderList } from "@/modules/render/pages"
 import { helpText } from "@/modules/render/commands"
 
@@ -17,6 +18,10 @@ const CONNECTION_KEYS = [
   "url",
   "token",
   "bot_id",
+  // 账号白名单。默认取「发指令的那个 Bot」，写 bind=all 表示不限账号，
+  // bind=<账号> 指定别的 Bot。多个账号请直接编辑配置文件（这里只收一个值，
+  // 因为 parseKV 是按空白与逗号切片的，列表进不来）
+  "bind",
   "enable",
   "reconnect_interval",
   "max_reconnect_attempts",
@@ -115,6 +120,22 @@ export default class GsCoreAdmin extends plugin {
     let name = kv.name || `core${list.length + 1}`
     if (list.some(c => c.name === name)) name = `${name}-${Date.now().toString(36).slice(-4)}`
 
+    // 默认把连接绑到「收到这条指令的那个机器人」
+    // ------
+    // bind 是 self_id 白名单（GsCoreClient.accept），空数组表示所有 Bot 都往这条
+    // 连接上报。多 Bot 共存时那个默认值意味着：管理员在 A 号上加的连接，B 号的
+    // 消息也会跟着进同一个核心，而 bind 只能事后手动补 —— 指令里根本没有这个字段。
+    // ws-plugin 同样的位置是把 e.self_id 推进 i.uin（apps/admin.js:310）。
+    //
+    // 注意别拿 bot_id 当这个用：那是发给核心的**平台**标识（onebot / qqgroup），
+    // 与账号不是一回事，见 config/resolveBotId。
+    //
+    // resolveSelfId 而不是裸 e.self_id：后者可能为 null（见 utils/message.ts），
+    // 那时 String(null) 会把 "null" 当账号写进白名单，这条连接就再也收不到消息。
+    // 解析不出账号时留空数组 —— 宁可退回「不限账号」的旧行为，也不写一个错的。
+    const selfId = resolveSelfId(e)
+    const bind = kv.bind ? (kv.bind === "all" ? [] : [kv.bind]) : selfId ? [selfId] : []
+
     const conf = {
       name,
       url,
@@ -123,7 +144,7 @@ export default class GsCoreAdmin extends plugin {
       enable: true,
       reconnect_interval: Number(kv.reconnect_interval) || 5,
       max_reconnect_attempts: Number(kv.max_reconnect_attempts) || 0,
-      bind: [],
+      bind,
       exclude: [],
     }
 
@@ -140,6 +161,9 @@ export default class GsCoreAdmin extends plugin {
     const started = clientMode() ? startClient(conf) : null
     return e.reply(
       `已添加连接 ${name}\n地址：${url}\n` +
+        // 把绑定结果说出来：这是这条指令唯一不来自用户输入的字段，
+        // 不显示的话多 Bot 环境里没人知道它到底绑到了哪个号
+        (bind.length ? `绑定账号：${bind.join("、")}（bind=all 可改为不限）\n` : "账号：不限\n") +
         (started
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
