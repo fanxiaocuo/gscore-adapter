@@ -6,12 +6,13 @@
  * 写盘走 config 模块的 saveConfig（yaml Document 增量改写），
  * 因此默认配置里的注释不会因为过一遍面板就被冲掉。
  */
-import { PluginPath, PluginName } from "@/dir"
+import { PluginPath, PluginName, ResPath } from "@/dir"
 import { config, configFile, saveConfig } from "@/config"
 import { reloadClients } from "@/modules/client"
 import { baseSchemas } from "./schemas/base.js"
 import { clientSchemas } from "./schemas/client.js"
 import { filterSchemas } from "./schemas/filter.js"
+import { join } from "node:path"
 
 /** 锅巴按点号路径读值 */
 function getValue(path: string) {
@@ -24,8 +25,17 @@ export function supportGuoba() {
       name: PluginName,
       title: "早柚核心适配器",
       author: "@fanxiaocuo",
+      authorLink: "https://github.com/fanxiaocuo",
+      link: "https://github.com/fanxiaocuo/gscore-adapter",
       description: "早柚核心（gsuid_core）适配器，云崽主动连接核心",
-      // 仅用于面板展示，取不到时锅巴自己会兜底
+      // 图标走绝对路径的本地文件（锅巴 pluginInfo 的 iconPath 约定），
+      // 而不是 iconify 名字 —— 插件有自己的 logo，没必要借一个近似的图标。
+      //
+      // 必须是 .webp 而不是同目录那张 .png：位图母版不进产物，release /
+      // preview 两条流水线都会 rm 掉 logo.png（788KB，页面只引用 webp），
+      // 指向它等于在用户实际安装的分支上指了个不存在的文件。
+      iconPath: join(ResPath, "template/image/logo.webp"),
+      // iconPath 取不到时锅巴回落到色块，仍给一个主题色
       iconColor: "#7c69ef",
       isV3: true,
       isV2: false,
