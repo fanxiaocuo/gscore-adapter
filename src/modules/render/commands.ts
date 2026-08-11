@@ -45,28 +45,28 @@ export const HELP_GROUPS: HelpGroup[] = [
     title: "连接管理",
     items: [
       {
-        cmd: "#早柚添加连接",
-        dsc: "新增一个早柚核心连接。\n只填 host:port 即可，自动补全为 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号",
-        eg: "#早柚添加连接 127.0.0.1:8765    或    …8765 n=主核心 t=abc",
+        cmd: "#早柚添加连接 <地址>",
+        dsc: "新增一个早柚核心连接（支持 ws:// 与 wss://）。\n只填 host:port 即可，自动补全为 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号",
+        eg: "#早柚添加连接 127.0.0.1:8765    或    wss://域名:8765 n=主核心 t=abc",
         icon: "plus",
         master: true,
       },
       {
-        cmd: "#早柚删除连接",
+        cmd: "#早柚删除连接 <名字|序号>",
         dsc: "按连接名或列表序号删除",
         eg: "#早柚删除连接 主核心    或    #早柚删除连接 1",
         icon: "minus",
         master: true,
       },
       {
-        cmd: "#早柚开启连接",
+        cmd: "#早柚开启连接 <名字|序号>",
         dsc: "启用某个连接并立即发起连接",
         eg: "#早柚开启连接 1",
         icon: "play",
         master: true,
       },
       {
-        cmd: "#早柚关闭连接",
+        cmd: "#早柚关闭连接 <名字|序号>",
         dsc: "停用某个连接，配置保留",
         eg: "#早柚关闭连接 1",
         icon: "stop",
@@ -83,6 +83,11 @@ export const HELP_GROUPS: HelpGroup[] = [
           {
             cmd: "bind",
             dsc: "只转发哪个机器人账号的消息。\n默认为发指令的账号，all 表示不限",
+            icon: "dot",
+          },
+          {
+            cmd: "exclude",
+            dsc: "排除哪些机器人账号（不转发这些账号的消息）。\n优先级高于 bind，留空表示不排除",
             icon: "dot",
           },
           { cmd: "reconnect_interval（interval）", dsc: "重连间隔（秒），默认 5", icon: "dot" },
