@@ -1,0 +1,24 @@
+{
+  // 这份 tsconfig 存在的唯一理由是**截断 esbuild 向上找 tsconfig**。
+  //
+  // Vite 用 esbuild 转 .vitepress/theme/*.ts，而 esbuild 会从被编译文件所在目录
+  // 一路往上找 tsconfig.json。没有这个文件时它会找到插件根那份，读到
+  // "target": "ES2024" —— esbuild 不认识这个值，于是每编译一个文件就打一条
+  // 「Unrecognized target environment」，且指到 index.ts 的注释行上，看着像代码错。
+  //
+  // 顺带一说：插件那份 tsconfig 的 include 是 src/**/*，本来就不管 docs/；
+  // 被读到纯粹是 esbuild 的向上查找与 include 无关。
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "types": ["vite/client"]
+  },
+  "include": [".vitepress/**/*.ts", ".vitepress/**/*.mts", ".vitepress/**/*.vue"]
+}

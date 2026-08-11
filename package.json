@@ -22,7 +22,10 @@
     "test": "node --import tsx --test \"test/*.test.mjs\"",
     "preview": "node --import tsx test/preview.mjs",
     "contrast": "node --import tsx test/contrast.mjs",
-    "dev": "node --import tsx test/dev.mjs"
+    "dev": "node --import tsx test/dev.mjs",
+    "docs:dev": "pnpm --dir docs dev",
+    "docs:build": "pnpm --dir docs build",
+    "docs:preview": "pnpm --dir docs preview"
   },
   "dependencies": {
     "@karinjs/template-react": "https://pkg.pr.new/KarinJS/template-react/@karinjs/template-react@169c6ed",

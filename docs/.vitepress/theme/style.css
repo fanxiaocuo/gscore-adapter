@@ -1,0 +1,717 @@
+/**
+ * 文档站主题 —— 按 ./DESIGN.md（MekaVerse style reference）实现
+ *
+ * 那份规范是给全屏 3D 艺术门户写的，本站是**文档站**。规范里为「空旷感」服务的
+ * 几条，落到一页几十个内联 code、动辄二十行 yaml 的技术文档上会直接伤可读性，
+ * 所以有四处有意偏离，其余照搬。
+ *
+ *   1. 标题字号行高。规范是 80px / line-height 0.78，为西文写的：拉丁字母靠
+ *      升部降部留白，压到 0.78 仍然读得动。中文是方块字，没有那段留白，0.78 会
+ *      让「早柚核心」上下笔画粘连。故首页大标题取 52px / 1.06，正文标题按比例缩。
+ *      左对齐、weight 400、underline mark 全部保留 —— 那才是签名。
+ *   2. 全屏艺术画布。规范假设每屏都是一张 3D 渲染图，文档站没有这种素材，
+ *      也不该有：读文档的人要的是文字。所以「art frame」这条不实现，改由
+ *      画布 + 大字标题 + underline mark 承担同样的空旷感。
+ *   3. 画布不用纯黑，chrome 不用 10–12px 等宽。
+ *      规范的 Void #000 配代码块 #0a0a0a，两者只差 4% 亮度，代码块与页面几乎
+ *      分不出边界，protocol/segments 那种一屏四五个代码块的页面会糊成一片。
+ *      等宽 10–12px 是给拉丁字母的 micro-label 写的，中文等宽小字笔画就开始糊。
+ *      改为：画布 #16161a，代码块 #1b1b1f 加一道边；正文 16px/1.8；导航侧栏
+ *      换回无衬线 13.5px。等宽只留给真正的 chrome（时间戳、页脚、表头、badge）
+ *      —— 那几处本来就是「系统仪表」的语气，且内容都是数字与拉丁字母。
+ *   4. 有一个强调色，并且补了浅色主题。
+ *      规范 Don't 第 1 条禁止任何彩色，代价是链接只能靠下划线区分。可本站正文里
+ *      内联 code 也带边框和底色，「带下划线的白字」和「带边框的白字」在余光里
+ *      是同一个东西。取插件自己的 --primary #5b7cfa，深色下提亮到 #7b93fb 保证
+ *      对比度。下划线保留 —— 颜色是补充不是替代，色觉障碍下仍然认得出。
+ *
+ * 其余严格执行：
+ *   - 无彩色泛滥：强调色只出现在链接与激活态，不进标题与正文
+ *   - 层级靠 1px hairline 与表面色，不堆阴影（但见「阴影」一节，那条通配
+ *     收窄过 —— 它原先把弹层的层级也一起抹平了）
+ *   - 半径三件套 2 / 10 / 20，不出现第四个值
+ *   - 标题下的 1px underline mark，宽度取行宽的 30–50%
+ */
+
+/* ---------- tokens ---------- */
+:root {
+  /* DESIGN.md — Tokens/Colors。这批是**原始色板**，不直接上页面，
+     由下面深浅两段映射成语义变量后才生效。 */
+  --color-void: #000000;
+  --color-bone: #ffffff;
+  --color-charcoal: #444345;
+  --color-frost: #e2e2e2;
+  --color-ash: #b8bab9;
+
+  /* 强调色取自插件的 --primary（src/webui/styles.css），
+     文档站与产品界面的「可点击」保持同一个颜色。 */
+  --color-accent: #5b7cfa;
+  --color-accent-bright: #7b93fb;
+
+  /* 字体。规范指定 Roobert / GT America Mono 都是商业字体，
+     它自己给了替代：Inter / JetBrains Mono。这里不自托管字体文件，
+     用系统里可能存在的同名字体，回落到通用栈；中文另接思源/苹方那一串。 */
+  --font-display:
+    Inter, "Roobert", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", sans-serif;
+  --font-mono:
+    "JetBrains Mono", "GT America Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    "PingFang SC", "Microsoft YaHei", monospace;
+
+  /* 半径三件套，不再有第四个值（DESIGN.md「The 2px Rule」） */
+  --radius-sm: 2px;
+  --radius-lg: 10px;
+  --radius-2xl: 20px;
+
+  /* 间距 */
+  --spacing-4: 4px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-40: 40px;
+
+  /* chrome 字号。11px 那档只给纯拉丁数字的角落，
+     凡是会出现中文的地方一律 --text-nav 起步。 */
+  --text-caption: 11px;
+  --text-chrome: 12px;
+  --text-nav: 13.5px;
+  --tracking-chrome: -0.02em;
+}
+
+/*
+ * ---------- 浅色（默认值必须写在无条件的 :root 上）----------
+ *
+ * VitePress 靠 <html class="dark"> 切主题。只在 .dark 里定义的变量，
+ * 浅色下就没有来源了，所以默认那套要落在 :root，.dark 只做覆盖。
+ */
+:root {
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #fafafa;
+  --vp-c-bg-soft: #f5f5f7;
+  --vp-c-bg-elv: #ffffff;
+
+  --vp-c-text-1: #1f1f24;
+  --vp-c-text-2: #47474d;
+  --vp-c-text-3: #6e6e76;
+
+  --vp-c-divider: rgb(60 60 67 / 12%);
+  --vp-c-border: rgb(60 60 67 / 20%);
+  --vp-c-gutter: rgb(60 60 67 / 12%);
+
+  --vp-c-brand-1: var(--color-accent);
+  --vp-c-brand-2: #4a6bf0;
+  --vp-c-brand-3: #3d5ce0;
+  --vp-c-brand-soft: rgb(91 124 250 / 12%);
+
+  --vp-button-brand-bg: var(--color-accent);
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-bg: #4a6bf0;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: #1f1f24;
+  --vp-button-alt-border: rgb(60 60 67 / 28%);
+  --vp-button-alt-hover-bg: rgb(60 60 67 / 6%);
+  --vp-button-alt-hover-border: rgb(60 60 67 / 45%);
+
+  --vp-c-default-soft: rgb(60 60 67 / 8%);
+  --vp-code-block-bg: #f5f5f7;
+  --vp-code-copy-code-bg: rgb(60 60 67 / 8%);
+
+  /* 提示块底色跟着语义偏一点，但不到「彩色块」的程度 */
+  --vp-custom-block-info-bg: rgb(60 60 67 / 5%);
+  --vp-custom-block-tip-bg: rgb(91 124 250 / 7%);
+  --vp-custom-block-warning-bg: rgb(217 119 6 / 8%);
+  --vp-custom-block-danger-bg: rgb(220 38 38 / 7%);
+
+  --vp-font-family-base: var(--font-display);
+  --vp-font-family-mono: var(--font-mono);
+
+  /* 首页 hero 不用 VitePress 的渐变光晕：那是彩色 + 模糊，两条 Don't 都犯 */
+  --vp-home-hero-name-color: #1f1f24;
+  --vp-home-hero-image-filter: none;
+
+  --vp-nav-height: 56px;
+  --vp-layout-max-width: 1440px;
+  --vp-sidebar-width: 260px;
+
+  /* 本文件自用：正文色、代码块边、underline mark 色，深浅各一份 */
+  --doc-text: #35353b;
+  --doc-code-border: rgb(60 60 67 / 12%);
+  --doc-mark: #1f1f24;
+}
+
+/*
+ * ---------- 深色 ----------
+ *
+ * 画布 #16161a 而非规范的纯黑，理由见文件头第 3 条。
+ */
+.dark {
+  --vp-c-bg: #16161a;
+  --vp-c-bg-alt: #101013;
+  --vp-c-bg-soft: #1b1b1f;
+  --vp-c-bg-elv: #1b1b1f;
+
+  --vp-c-text-1: var(--color-bone);
+  --vp-c-text-2: #c4c4cc;
+  --vp-c-text-3: #a1a1aa;
+
+  /* hairline：规范说 1px Frost，但纯 #e2e2e2 满亮度在深底上是一道刺眼的白线，
+     规范自己也写了「~10% 不透明度」（Top Navigation Bar 一节）。取 18% ——
+     底色从纯黑抬到 #16161a 之后，原来的 14% 已经压不出边界了。 */
+  --vp-c-divider: rgb(226 226 226 / 18%);
+  --vp-c-border: rgb(226 226 226 / 26%);
+  --vp-c-gutter: rgb(226 226 226 / 18%);
+
+  --vp-c-brand-1: var(--color-accent-bright);
+  --vp-c-brand-2: #9aabfc;
+  --vp-c-brand-3: #b3bffd;
+  --vp-c-brand-soft: rgb(123 147 251 / 16%);
+
+  /* 按钮保留规范的 charcoal 填充 + frost 边 —— 深色下这套是对的 */
+  --vp-button-brand-bg: var(--color-charcoal);
+  --vp-button-brand-text: var(--color-bone);
+  --vp-button-brand-border: var(--color-frost);
+  --vp-button-brand-hover-bg: #565557;
+  --vp-button-brand-hover-text: var(--color-bone);
+  --vp-button-brand-hover-border: var(--color-frost);
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: var(--color-bone);
+  --vp-button-alt-border: rgb(226 226 226 / 40%);
+  --vp-button-alt-hover-bg: rgb(226 226 226 / 8%);
+  --vp-button-alt-hover-border: var(--color-frost);
+
+  --vp-c-default-soft: rgb(226 226 226 / 10%);
+  --vp-code-block-bg: #1b1b1f;
+  --vp-code-copy-code-bg: rgb(226 226 226 / 12%);
+
+  --vp-custom-block-info-bg: rgb(226 226 226 / 6%);
+  --vp-custom-block-tip-bg: rgb(123 147 251 / 10%);
+  --vp-custom-block-warning-bg: rgb(245 158 11 / 10%);
+  --vp-custom-block-danger-bg: rgb(239 68 68 / 10%);
+
+  --vp-home-hero-name-color: var(--color-bone);
+
+  --doc-text: #d4d4d8;
+  --doc-code-border: rgb(226 226 226 / 14%);
+  --doc-mark: var(--color-frost);
+}
+
+body {
+  background: var(--vp-c-bg);
+}
+
+/*
+ * ---------- 阴影 ----------
+ *
+ * 规范 Don't 第 2 条要求零阴影，但原先那条 `*,*::before,*::after{…!important}`
+ * 是通配 —— 它把搜索弹窗和 nav 的 flyout 菜单也一起抹平了，而那两个是**浮在
+ * 内容之上**的层，没有阴影就只剩一个方块飘在文字上，边界全靠猜。
+ *
+ * 所以收窄到「文档流内的元素」：这些本来就该靠 hairline 分层，加阴影是错的。
+ * 弹层不在此列，改由下面单独给一道 1px 边交代层级（仍然不用阴影）。
+ */
+.vp-doc *,
+.VPFeature,
+.VPButton,
+.VPBadge,
+.VPSidebar,
+.VPNavBar {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* 弹层：不用阴影，用 1px 边 + 实心底色交代「浮在上面」 */
+.VPFlyout .menu,
+.VPMenu,
+.VPLocalSearchBox .shell,
+.DocSearch-Modal {
+  border: 1px solid var(--vp-c-border);
+  background: var(--vp-c-bg-elv);
+}
+
+/* ---------- chrome：nav / sidebar / 各种小字 ---------- */
+
+/*
+ * 等宽只给「系统仪表」语气的角落，内容都是数字与拉丁字母。
+ * 导航与侧栏**不在此列** —— 那里全是中文，等宽 12px 中文在高分屏上就糊了。
+ */
+.VPLastUpdated,
+.VPFooter .message,
+.VPFooter .copyright,
+.VPBadge,
+.VPButton,
+.VPDocOutlineTitle {
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-chrome);
+}
+
+.VPLastUpdated,
+.VPFooter .message,
+.VPFooter .copyright {
+  font-size: var(--text-caption);
+}
+
+/* 导航、侧栏、右侧 outline：无衬线 13.5px，中文读得清 */
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .VPFlyout .text,
+.VPSidebarItem .text,
+.VPDocAsideOutline .outline-link,
+.VPDocFooter .title {
+  font-family: var(--font-display);
+  font-size: var(--text-nav);
+  letter-spacing: normal;
+}
+
+/* 站点标题：mono 大写，与规范的 logo lockup 一致 */
+.VPNavBarTitle .title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.VPNavBarTitle .logo {
+  height: 22px;
+  margin-right: 8px;
+}
+
+/* nav 半透明 + 1px 底边（Top Navigation Bar 一节）。
+   底色用 color-mix 跟着主题走，免得写死 rgb(0 0 0 / 72%) 在浅色下变成灰纱。 */
+.VPNavBar {
+  background: color-mix(in srgb, var(--vp-c-bg) 80%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.VPNavBar.has-sidebar .curtain,
+.VPNavBar .divider {
+  display: none;
+}
+
+/*
+ * nav 链接的 hover：规范说「1px Frost 下边框出现，且不推动布局」
+ * 所以用常驻的透明边框换色，而不是新增边框
+ */
+.VPNavBarMenuLink {
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuLink.active {
+  color: var(--vp-c-brand-1);
+  border-bottom-color: var(--vp-c-brand-1);
+}
+
+/* 侧栏：无填充、无圆角，靠一条竖线分隔 */
+.VPSidebar {
+  background: var(--vp-c-bg);
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+/* 分组标题（「开始」「排障」）：这一档仍是等宽大写小字 —— 它是标签不是导航项，
+   只有两三个字，且字距从 0.16em 收到了 0.12em。 */
+.VPSidebarItem.level-0 > .item > .text {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--vp-c-text-3);
+}
+
+.VPSidebarItem.is-active > .item .link .text {
+  color: var(--vp-c-brand-1);
+}
+
+/* 激活项用左侧 1px 竖线标记，不用背景块（规范：hairline，不用填充） */
+.VPSidebarItem.level-1 .item,
+.VPSidebarItem.level-2 .item {
+  border-left: 1px solid transparent;
+  padding-left: 12px;
+  transition: border-color 0.15s;
+}
+
+.VPSidebarItem.level-1.is-active > .item,
+.VPSidebarItem.level-2.is-active > .item {
+  border-left-color: var(--vp-c-brand-1);
+}
+
+/* 右侧 outline 的激活项也跟着强调色 */
+.VPDocAsideOutline .outline-link.active {
+  color: var(--vp-c-brand-1);
+}
+
+/* ---------- 正文排版 ---------- */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.vp-doc h4 {
+  font-family: var(--font-display);
+  /* 规范的签名：display 一律 weight 400，不用粗体 */
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-1);
+}
+
+/*
+ * 页面主标题 + underline mark
+ *
+ * 规范「Underline Mark System」：1px 线贴在标题下方 0–4px，从首字左缘起，
+ * 长度约行宽的 30–50%，绝不超过 60%。这是品牌记号，每个 display 标题都要有，
+ * 副标题与正文一律没有。
+ *
+ * 用固定 clamp 宽度而不是百分比：百分比在超长中文标题上会拉到整行，
+ * 在两字标题上又短得看不见。
+ */
+.vp-doc h1 {
+  font-size: clamp(34px, 5vw, 46px);
+  /* 中文适配：规范的 0.78 会让方块字上下粘连，取 1.08 */
+  line-height: 1.08;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  position: relative;
+}
+
+.vp-doc h1::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: clamp(90px, 38%, 260px);
+  height: 1px;
+  background: var(--doc-mark);
+}
+
+.vp-doc h2 {
+  font-size: 26px;
+  line-height: 1.15;
+  margin-top: 56px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.vp-doc h3 {
+  font-size: 19px;
+  line-height: 1.3;
+  margin-top: 34px;
+}
+
+/* 正文 16px/1.8：原先的 15px/1.75 在中文长段落上偏挤，这是本次可读性改动的主项 */
+.vp-doc p,
+.vp-doc li {
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--doc-text);
+}
+
+/* 链接：颜色 + 下划线双保险，理由见文件头第 4 条 */
+.vp-doc a {
+  color: var(--vp-c-brand-1);
+  font-weight: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--vp-c-brand-1) 40%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+
+.vp-doc a:hover {
+  text-decoration-color: var(--vp-c-brand-1);
+}
+
+/* ---------- 代码 / 表格 / 提示块：hairline + 10px 半径 ---------- */
+.vp-doc div[class*="language-"] {
+  border: 1px solid var(--doc-code-border);
+  border-radius: var(--radius-lg);
+  background: var(--vp-code-block-bg);
+}
+
+/* 代码块行高：默认 1.4 在二十行的 yaml 上太密 */
+.vp-doc div[class*="language-"] code {
+  font-size: 13.5px;
+  line-height: 1.7;
+}
+
+/* 行号列跟代码之间给一道竖线，长块里不然容易串行 */
+.vp-doc .line-numbers-wrapper {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--vp-c-text-3);
+  border-right: 1px solid var(--doc-code-border);
+}
+
+/* 内联 code：底色 + 1px 边 */
+.vp-doc :not(pre) > code {
+  font-size: 0.875em;
+  border: 1px solid var(--doc-code-border);
+  border-radius: var(--radius-sm);
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  padding: 2px 5px;
+}
+
+/* 链接里的 code 跟着链接色走，否则一句「见 `xx.ts`」看不出是可点的 */
+.vp-doc a > code {
+  color: var(--vp-c-brand-1);
+  border-color: color-mix(in srgb, var(--vp-c-brand-1) 30%, transparent);
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  font-size: 15px;
+}
+
+.vp-doc tr {
+  background: transparent;
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+/* 表头：等宽大写小字这一档保留（拉丁短词），字距从 0.14em 收到 0.08em */
+.vp-doc th {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+  background: var(--vp-c-bg-soft);
+  border: 0;
+  border-bottom: 1px solid var(--vp-c-divider);
+  text-align: left;
+  padding: 10px 14px;
+}
+
+.vp-doc td {
+  border: 0;
+  padding: 11px 14px;
+  line-height: 1.7;
+}
+
+/* 行分隔：config 那种十几行的参数表，没有横线读起来会串行 */
+.vp-doc tbody tr + tr {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.vp-doc .custom-block {
+  border: 1px solid var(--vp-c-divider);
+  border-left: 2px solid var(--vp-c-brand-1);
+  border-radius: var(--radius-sm);
+}
+
+.vp-doc .custom-block-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-chrome);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* 提示块里的正文别继承外面的 16px，缩一档就够 */
+.vp-doc .custom-block p {
+  font-size: 15px;
+}
+
+.vp-doc blockquote {
+  border-left: 2px solid var(--vp-c-divider);
+  padding-left: 16px;
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc blockquote p {
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc hr {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+/* details 折叠块 */
+.vp-doc details {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  background: transparent;
+}
+
+.vp-doc summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-nav);
+  letter-spacing: var(--tracking-chrome);
+  cursor: pointer;
+}
+
+/* ---------- 按钮：2px 半径（规范三处都这么写）---------- */
+.VPButton {
+  border-radius: var(--radius-sm) !important;
+  font-size: var(--text-chrome);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 20px;
+}
+
+.VPButton.medium {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* ---------- 首页 ---------- */
+.VPHome {
+  padding-bottom: 96px;
+}
+
+/*
+ * hero 左对齐（规范 Don't：display 标题绝不居中），
+ * 名称与说明各自带 underline mark 的兄弟元素在 index.md 里用 HTML 写
+ */
+.VPHero .container {
+  flex-direction: row;
+  align-items: center;
+}
+
+.VPHero .main {
+  order: 1;
+  text-align: left;
+}
+
+/*
+ * 去掉品牌渐变
+ *
+ * VitePress 把 hero 的 .name 渲染成 <span class="clip">，并给它
+ * background:var(--vp-home-hero-name-background) + background-clip:text —— 默认是
+ * 一条彩色渐变。这套版式不要渐变，三个属性都得复位：只清 background 不够，
+ * -webkit-text-fill-color 仍是 transparent，字会整体消失。
+ */
+.VPHero .name,
+.VPHero .name .clip,
+.VPHero .text {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  text-align: left;
+  max-width: none;
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+/* 中文适配：规范是 80px/0.78，这里 52px/1.06，理由见文件头 */
+.VPHero .name,
+.VPHero .name .clip {
+  font-size: clamp(40px, 7vw, 52px);
+  line-height: 1.06;
+  color: var(--vp-home-hero-name-color);
+}
+
+.VPHero .text {
+  font-size: clamp(22px, 3.4vw, 30px);
+  line-height: 1.1;
+  color: var(--vp-c-text-2);
+  padding-bottom: 14px;
+  position: relative;
+}
+
+/* hero 的 underline mark */
+.VPHero .text::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: clamp(120px, 40%, 300px);
+  height: 1px;
+  background: var(--doc-mark);
+}
+
+/* tagline 从 mono 12px 换成无衬线 15px：这是首页唯一一段完整中文说明，
+   之前那档等宽小字是全站最难读的地方 */
+.VPHero .tagline {
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.7;
+  letter-spacing: normal;
+  color: var(--vp-c-text-3);
+  text-align: left;
+  max-width: 520px;
+  padding-top: 10px;
+}
+
+.VPHero .actions {
+  justify-content: flex-start;
+}
+
+.VPHero .image-container {
+  /* 规范的 art frame：无边框、无阴影、不加卡片 */
+  transform: none;
+}
+
+.VPHero .image-bg {
+  display: none;
+}
+
+.VPHero .VPImage {
+  border-radius: var(--radius-2xl);
+}
+
+/* 首页特性卡：10px 半径、hairline、无填充 */
+.VPFeature {
+  /* 三处都要 !important：默认主题那条是 .VPFeature[data-v-xxxxxxx]（scoped 属性
+     选择器），比裸类名高一档特异性，不加就全被压回去 —— 填充回到
+     --vp-c-bg-soft，半径回到 12px（三档半径之外的第四个值）。 */
+  border: 1px solid var(--vp-c-divider) !important;
+  border-radius: var(--radius-lg) !important;
+  background: transparent !important;
+  padding: var(--spacing-20);
+  transition: border-color 0.15s;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+}
+
+.VPFeature .title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 17px;
+}
+
+.VPFeature .details {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--vp-c-text-2);
+}
+
+/* ---------- 搜索框与其余控件：2px 半径 ---------- */
+.DocSearch-Button,
+.VPNavBarSearch button {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--vp-c-divider);
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--text-chrome);
+}
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 768px) {
+  .VPHero .container {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .vp-doc h2 {
+    margin-top: 40px;
+  }
+
+  /* 窄屏回到 15px：16px 在 375px 宽下一行放不下几个字 */
+  .vp-doc p,
+  .vp-doc li {
+    font-size: 15px;
+  }
+}

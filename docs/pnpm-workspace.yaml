@@ -1,0 +1,9 @@
+# 空的 workspace 根 —— 唯一作用是**截断 pnpm 向上找根**的过程。
+#
+# 插件通常装在 Yunzai 的 plugins/ 下，而 Yunzai 根有自己的 pnpm-workspace.yaml。
+# 没有这个文件时，在 docs/ 里跑 pnpm install 会一路向上找到 Yunzai 那个根，
+# 把这次安装并进宿主的 workspace：要么 vitepress + vue 被装进宿主的
+# node_modules（污染机器人的依赖树），要么宿主排除了 docs、这里一个包都装不上。
+#
+# 有了它，docs/ 就是自己的根，依赖只落在 docs/node_modules，与插件和宿主都无关。
+packages: []

@@ -11,6 +11,15 @@ on:
   push:
     branches:
       - main
+    # 文档站（docs/）并进 main 之后必须排除，否则改一句文档就会开一个版本 PR：
+    # release-please 的默认规则里，feat 与 breaking 之外的类型一律落 patch，而
+    # docs 在 release-please-config.json 的 changelog-sections 里没标 hidden，
+    # changelog 非空、版本 PR 就会开。v2.0.1 正是三个 docs: 提交攒出来的。
+    # 合并后还会重新编译并推 release 分支，产物内容却一个字节都没变。
+    #
+    # 站点自己的发布走 docs.yml（paths: docs/**），两边正好互补。
+    paths-ignore:
+      - "docs/**"
   workflow_dispatch:
 
 concurrency:
@@ -140,7 +149,8 @@ jobs:
           cd dist_branch
           pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:panel scripts.build:panel:css scripts.build:watch \
             scripts.typecheck scripts.lint scripts.lint:fix scripts.dev \
-            scripts.test scripts.preview scripts.contrast
+            scripts.test scripts.preview scripts.contrast \
+            scripts.docs:dev scripts.docs:build scripts.docs:preview
 
       # 发版产物更不能缺文件，同 preview 做一次断言
       - name: 自检产物完整性
@@ -166,7 +176,7 @@ jobs:
               fail=1
             fi
           done
-          for f in src tsconfig.json test .github; do
+          for f in src tsconfig.json test .github docs; do
             if [ -e "dist_branch/$f" ]; then
               echo "  !!  不该出现 $f"
               fail=1

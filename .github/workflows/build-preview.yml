@@ -136,7 +136,8 @@ jobs:
           # 用户装插件不需要 tsc/eslint 那一套
           pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:panel scripts.build:panel:css scripts.build:watch \
             scripts.typecheck scripts.lint scripts.lint:fix scripts.dev \
-            scripts.test scripts.preview scripts.contrast
+            scripts.test scripts.preview scripts.contrast \
+            scripts.docs:dev scripts.docs:build scripts.docs:preview
 
       # 产物分支是用户直接 clone 就跑的东西，缺一个文件就是坏的。
       # 这里断言关键文件都在——上一版正是因为 .gitignore 的 config/
@@ -165,7 +166,7 @@ jobs:
             fi
           done
           # 源码与开发配置不该出现在产物里
-          for f in src tsconfig.json test .github; do
+          for f in src tsconfig.json test .github docs; do
             if [ -e "dist_branch/$f" ]; then
               echo "  !!  不该出现 $f"
               fail=1

@@ -7,6 +7,12 @@
 
 node_modules/
 
+# 文档站构建产物（源码在 docs/，用 pnpm docs:build 生成）
+# 两条都带斜杠锚定到仓库根。VitePress 的 tempDir 是 docs/.vitepress/.temp，
+# 已被下面的 .temp/ 覆盖，不用单列。
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # TypeScript 编译产物（源码在 src/，用 pnpm build 生成）
 # 本地开发直接跑编译好的 js，但产物只由 CI 推到 js 分支，不进主分支
 lib/
@@ -28,7 +34,10 @@ lib/
 /webadapter/page.css
 
 # 开发笔记与设计稿：留在本地，不入库
-docs/
+#
+# 注意别写成 docs/ —— 文档站（VitePress 源码）从 2.2.0 起就在 docs/，
+# 那个目录是要入库的，由 .github/workflows/docs.yml 发到 gh-pages。
+notes/
 
 # 测试：留在本地，不入库
 #
