@@ -3,6 +3,15 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [3.1.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.0.0...v3.1.0) (2026-08-11)
+
+
+### ✨ 新功能
+
+* #早柚设置 回复改为渲染图片，面板增加 bind/exclude 账号字段 ([8cb580d](https://github.com/fanxiaocuo/gscore-adapter/commit/8cb580d2c45c96321771ecd9554ec02f5287074d))
+* 修复 #早柚设置 空参数、简化添加连接、默认重连 5 次 ([2ab7fac](https://github.com/fanxiaocuo/gscore-adapter/commit/2ab7fac3cf181a1b6f23184674ceaa669fb54daf))
+* 平台自动识别、中文设置指令、YAML 块状化、设置图重设计 ([bd8d593](https://github.com/fanxiaocuo/gscore-adapter/commit/bd8d59367059034a44ebdebb6f80a7c8ce90a932))
+
 ## [3.0.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.3.0...v3.0.0) (2026-08-11)
 
 
