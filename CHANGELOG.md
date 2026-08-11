@@ -3,6 +3,19 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [2.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.2.1...v2.3.0) (2026-08-11)
+
+
+### ✨ 新功能
+
+* **guoba:** 补全面板的图标、仓库与作者链接 ([c84ff01](https://github.com/fanxiaocuo/gscore-adapter/commit/c84ff01e68e897033da1eaf1437abd0594dfdf52))
+
+
+### 🐛 问题修复
+
+* #早柚添加连接 默认绑定发指令的那个机器人账号 ([832655d](https://github.com/fanxiaocuo/gscore-adapter/commit/832655dbb0f4c758e05a14a8842362d8c9f7f4dd))
+* 面板产物改名 panel.js，不再撞宿主的页面描述符扫描 ([9ffd3a5](https://github.com/fanxiaocuo/gscore-adapter/commit/9ffd3a50c7dc245ef94efdc8f23e3d0803624152))
+
 ## [2.2.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.2.0...v2.2.1) (2026-08-11)
 
 
