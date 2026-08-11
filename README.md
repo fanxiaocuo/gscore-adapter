@@ -215,7 +215,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 
 </details>
 
-## <img src="resources/template/image/logo.webp" width="34" align="absmiddle" alt=""> 指令
+## ☄️ 指令
 
 全部限主人使用，`#` 可省略。
 
@@ -377,6 +377,32 @@ pnpm build       # src/*.ts -> lib/*.js，再出 Tailwind CSS
 
 运行时加载的是 `lib/`（不入库），**改完 `src/` 必须重新 build**，或用 `pnpm build:watch` 增量编译。`pnpm dev` 起长驻服务器，改完存盘自动重建并刷新浏览器。
 
+| 分支 | 内容 |
+| :--- | :--- |
+| `main` | TypeScript 源码，外加 `docs/` 里的文档站源码 |
+| `release` | 插件产物，稳定版，跟发版 |
+| `preview` | 插件产物，预览版，跟 main 每次提交 |
+| `gh-pages` | 文档站产物，由 Actions 自动发布，勿手改 |
+
+<details>
+<summary>文档站</summary>
+
+源码在 `docs/`（VitePress），产物由 `.github/workflows/docs.yml` 发到 `gh-pages`，站点是 <https://fanxiaocuo.github.io/gscore-adapter/>。
+
+```bash
+pnpm docs:dev       # http://localhost:5173/gscore-adapter/
+pnpm docs:build     # 产物在 docs/.vitepress/dist
+pnpm docs:preview   # 预览构建产物
+```
+
+依赖是**独立**的一份（`docs/package.json`），第一次跑先 `pnpm --dir docs install`。插件本身的 `pnpm install` 不会把 vitepress 拖下来。
+
+死链会让构建失败（`ignoreDeadLinks: false`），站内链接写错在 CI 就会拦下。版式规范见 `docs/.vitepress/DESIGN.md`。
+
+只改 `docs/` 不会触发发版（`release.yml` 排除了该路径），也不会重新出插件产物。
+
+</details>
+
 <details>
 <summary>目录结构与构建链</summary>
 
@@ -427,7 +453,7 @@ React 组件 → @karinjs/template-react 的 createRenderer / HtmlWrapper
 <details>
 <summary>测试</summary>
 
-> `test/` 与 `docs/` 都在 `.gitignore` 里，克隆下来的仓库没有它们。CI 因此没有测试步骤，把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
+> `test/` 在 `.gitignore` 里，克隆下来的仓库没有它。CI 因此没有测试步骤，把关的是 `typecheck` / `lint` / `build` 三道加产物完整性自检。
 
 ```bash
 node test/modules/client.js       # 连接端到端（含 1005 重连）
