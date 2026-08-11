@@ -3,6 +3,18 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [2.2.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.2.0...v2.2.1) (2026-08-11)
+
+
+### 🐛 问题修复
+
+* self_id 缺失时按 bot.uin / 单 Bot 回退，不再整条丢弃 ([1946a1d](https://github.com/fanxiaocuo/gscore-adapter/commit/1946a1d2cafd8f4bfb4d4ae9281df9ad57978fa3))
+
+
+### 📝 文档
+
+* 文档站并入 main/docs/，修可读性 ([b3d75a2](https://github.com/fanxiaocuo/gscore-adapter/commit/b3d75a2de800d83c8a9f075a61da053816622fa1))
+
 ## [2.2.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.1.0...v2.2.0) (2026-08-10)
 
 
