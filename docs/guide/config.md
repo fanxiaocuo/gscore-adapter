@@ -56,12 +56,18 @@ client:
       bot_id: ""                              # 上报的平台标识，留空按 bot_id_map 推断
       enable: true
       reconnect_interval: 5                   # 重连间隔（秒）
-      max_reconnect_attempts: 0               # <=0 无限重连
+      max_reconnect_attempts: 5               # 默认 5 次，<=0 无限重连
       bind: []                                # 只转发这些 self_id，留空为全部
       exclude: []                             # 排除这些 self_id（优先级高于 bind）
 ```
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+
+重连采用指数退避（`reconnect_interval` 起步，封顶其 12 倍），默认 5 次约覆盖 2.3 分钟——核心重启够用，而地址写错时不会整夜刷日志。次数用尽后发 `#早柚重连` 即可恢复；想要一直重连把 `max_reconnect_attempts` 写 `0`。
+
+::: tip 老配置不会被改写
+升级只会补进配置文件里缺失的项，已经存在的值一律不动。所以此前装过的实例仍是自己文件里的那个数（早期默认为 `0` 即无限重连），要用新默认值请手动改成 `5`。
+:::
 
 ## filter 的其余字段
 

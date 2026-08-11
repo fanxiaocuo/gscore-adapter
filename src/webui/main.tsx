@@ -78,7 +78,12 @@ const CFIELDS = [
   { k: "token", label: "token", ph: "留空则不修改", type: "password" },
   { k: "bot_id", label: "bot_id", ph: "留空按 bot_id_map 推断", hint: "平台标签，非机器人账号" },
   { k: "reconnect_interval", label: "重连间隔（秒）", type: "number" },
-  { k: "max_reconnect_attempts", label: "最大重连次数", type: "number", hint: "0 为无限" },
+  {
+    k: "max_reconnect_attempts",
+    label: "最大重连次数",
+    type: "number",
+    hint: "默认 5，填 0 为无限重连",
+  },
   {
     k: "bind",
     label: "绑定账号",
@@ -206,7 +211,7 @@ function Modal({ conn, onClose, onSubmit }) {
     }
     if (!conn) {
       f.reconnect_interval = "5"
-      f.max_reconnect_attempts = "0"
+      f.max_reconnect_attempts = "5"
     }
     return f
   })

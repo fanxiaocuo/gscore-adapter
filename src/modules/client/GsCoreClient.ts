@@ -1,6 +1,6 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
-import { STATUS_TEXT, GS_LOG_RE } from "@/constants"
+import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT } from "@/constants"
 import { logStr, sendError, sendMessageId } from "@/utils"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
@@ -181,7 +181,9 @@ export class GsCoreClient {
       return
     }
 
-    const max = Number(this.conf.max_reconnect_attempts ?? 0)
+    // ?? 而不是 ||：配了 0 是「显式要无限重连」，不能被兜成默认值。
+    // 字段缺失（老配置、手写的连接项）按默认次数算，与新装用户一致
+    const max = Number(this.conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT)
     if (max > 0 && this.retry >= max) {
       this.status = 0
       return this.log("error", `达到最大重连次数 ${max}，停止重连（可用 #早柚重连 恢复）`)
@@ -194,8 +196,8 @@ export class GsCoreClient {
 
     this.retry++
     // 指数退避：base * 2^(retry-1)，封顶 base 的 12 倍（默认 5s → 最长 60s）。
-    // 无上限重试（max_reconnect_attempts: 0）是默认值，核心长期不可达时
-    // 固定间隔会一直以同频打日志、占连接，退避后收敛到低频探活。
+    // 默认次数（5）下最多累计约 2.3 分钟；配成无限重试时退避让它收敛到低频探活，
+    // 而不是以固定间隔一直打日志、占连接。
     const base = Number(this.conf.reconnect_interval) || 5
     const wait = Math.min(base * 2 ** (this.retry - 1), base * 12) * 1000
     this.log("info", `${wait / 1000}s 后进行第 ${this.retry} 次重连`)

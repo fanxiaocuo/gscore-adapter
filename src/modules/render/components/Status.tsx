@@ -44,7 +44,14 @@ export interface StatusData {
   heading: string
   ghost: string
   summary: { key: string; value: string; sub?: string }[]
-  rows: ConnRow[]
+  /**
+   * 连接卡片；不给则整块不渲染
+   *
+   * 空数组与不给是两回事：空数组是「该有连接但一条都没有」，出空态卡；
+   * 不给是「这页不谈连接」（配置页、设置结果页），那块整个不出现——
+   * 否则那两页会顶着一张「暂无连接」的大卡，而它们本来就不该有连接列表。
+   */
+  rows?: ConnRow[]
   palette: Palette
   time: string
   /** 无连接时的空态文案 */
@@ -81,7 +88,7 @@ export function Status(data: StatusData) {
 
         <Stats items={data.summary} palette={p} />
 
-        {data.rows.length === 0 ? (
+        {data.rows === undefined ? null : data.rows.length === 0 ? (
           <Empty title="暂无连接" tip={data.emptyTip || "用 #早柚添加连接 <地址> 添加"} />
         ) : (
           <div className="flex flex-col gap-[22px]">

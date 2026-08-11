@@ -120,12 +120,14 @@ client:
       bot_id: ""                              # 上报的平台标识，留空按 bot_id_map 推断
       enable: true
       reconnect_interval: 5                   # 重连间隔（秒）
-      max_reconnect_attempts: 0               # <=0 无限重连
+      max_reconnect_attempts: 5               # 默认 5 次，<=0 无限重连
       bind: []                                # 只转发这些 self_id，留空为全部
       exclude: []                             # 排除这些 self_id（优先级高于 bind）
 ```
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+
+重连采用指数退避（`reconnect_interval` 起步，封顶其 12 倍），默认 5 次约覆盖 2.3 分钟；用尽后发 `#早柚重连` 恢复，想一直重连把 `max_reconnect_attempts` 写 `0`。升级只补缺失项、不动已有值，所以老实例仍用自己文件里的那个数（早期默认 `0` 即无限重连）。
 
 </details>
 
@@ -225,8 +227,9 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 | `#早柚版本` | 插件版本、发布类型与本机运行环境快照（出图） |
 | `#早柚更新日志` | 本地已有的提交记录（出图） |
 | `#早柚重连` | 重连全部客户端连接 |
-| `#早柚添加连接 <地址> [name=x] [token=x] [bot_id=x]` | 添加并立即启动 |
+| `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` |
 | `#早柚删除连接 <名字或序号>` | 也可 `开启` / `关闭` 连接 |
+| `#早柚设置` | 不带参数出图列出当前所有配置及各自的改法（`#早柚配置` 同义） |
 | `#早柚设置 <key>=<value>` | 可设 `enable` / `only_reply_at` / `report_*` / `notify_master` / `media_max_size` |
 | `#早柚检查更新` | 拉一次远端，看有没有新提交 |
 | `#早柚更新` | 拉取更新（`#早柚强制更新` 覆盖本地改动） |
@@ -234,7 +237,8 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。改配置会**保留 yaml 原有注释**，且全部即时生效，不用重启云崽。
 
 ```
-#早柚添加连接 127.0.0.1:8765 name=主核心 token=abc
+#早柚添加连接 127.0.0.1:8765
+#早柚添加连接 127.0.0.1:8765 n=主核心 t=abc
 #早柚设置 report_private=false
 ```
 

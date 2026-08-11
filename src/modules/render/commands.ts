@@ -46,8 +46,8 @@ export const HELP_GROUPS: HelpGroup[] = [
     items: [
       {
         cmd: "#早柚添加连接",
-        dsc: "新增一个早柚核心连接。\n地址只填 host:port 时自动补全为 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号",
-        eg: "#早柚添加连接 127.0.0.1:8765 name=主核心 token=abc",
+        dsc: "新增一个早柚核心连接。\n只填 host:port 即可，自动补全为 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号",
+        eg: "#早柚添加连接 127.0.0.1:8765    或    …8765 n=主核心 t=abc",
         icon: "plus",
         master: true,
       },
@@ -75,18 +75,22 @@ export const HELP_GROUPS: HelpGroup[] = [
     ],
     subGroups: [
       {
-        title: "可选参数，以 key=value 追加，中英文冒号等号均可",
+        title: "可选参数，以 key=value 追加，中英文冒号等号均可（括号内为简写）",
         items: [
-          { cmd: "name", dsc: "连接名，用于日志与各处指令定位", icon: "dot" },
-          { cmd: "token", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
-          { cmd: "bot_id", dsc: "上报时填入 MessageReceive.bot_id 的平台标识", icon: "dot" },
+          { cmd: "name（n）", dsc: "连接名，用于日志与各处指令定位", icon: "dot" },
+          { cmd: "token（t）", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
+          { cmd: "bot_id（id）", dsc: "上报时填入 MessageReceive.bot_id 的平台标识", icon: "dot" },
           {
             cmd: "bind",
             dsc: "只转发哪个机器人账号的消息。\n默认为发指令的账号，all 表示不限",
             icon: "dot",
           },
-          { cmd: "reconnect_interval", dsc: "重连间隔（秒），默认 5", icon: "dot" },
-          { cmd: "max_reconnect_attempts", dsc: "最大重连次数，0 为无限重连", icon: "dot" },
+          { cmd: "reconnect_interval（interval）", dsc: "重连间隔（秒），默认 5", icon: "dot" },
+          {
+            cmd: "max_reconnect_attempts（retry）",
+            dsc: "最大重连次数，默认 5，填 0 为无限重连",
+            icon: "dot",
+          },
         ],
       },
     ],
@@ -94,6 +98,13 @@ export const HELP_GROUPS: HelpGroup[] = [
   {
     title: "全局设置",
     items: [
+      {
+        cmd: "#早柚设置",
+        dsc: "不带参数时出图列出当前所有配置及各自的改法",
+        eg: "#早柚设置    或    #早柚配置",
+        icon: "settings",
+        master: true,
+      },
       {
         cmd: "#早柚设置 enable=true|false",
         dsc: "总开关，关掉则完全不连核心，改完即时生效",

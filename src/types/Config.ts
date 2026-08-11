@@ -19,7 +19,7 @@ export interface ClientConnection {
   enable?: boolean
   /** 重连间隔（秒） */
   reconnect_interval?: number
-  /** 最大重连次数，<=0 为无限重连 */
+  /** 最大重连次数，<=0 为无限重连。缺省按 DEFAULT_MAX_RECONNECT（5）算 */
   max_reconnect_attempts?: number
   /** 只转发这些 self_id 的消息，留空表示全部 */
   bind?: (string | number)[]

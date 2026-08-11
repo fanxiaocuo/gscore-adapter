@@ -71,7 +71,7 @@ export const clientSchemas = [
         {
           field: "max_reconnect_attempts",
           label: "最大重连次数",
-          bottomHelpMessage: "小于等于 0 为无限重连",
+          bottomHelpMessage: "默认 5 次，小于等于 0 为无限重连",
           component: "InputNumber",
         },
         {

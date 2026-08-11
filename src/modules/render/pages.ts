@@ -6,7 +6,7 @@
  */
 import { config, getConnections, enabled } from "@/config"
 import { clients } from "@/modules/client"
-import { STATUS_TEXT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
 import { fileServerEnabled, pendingFiles } from "@/utils/fileServer.js"
@@ -278,10 +278,148 @@ function statusPanels(): StatusPanel[] {
   ]
 }
 
+/**
+ * 配置总览的分组明细
+ *
+ * 四块的顺序按「改的频率」排：总开关与连接最常动，过滤次之，媒体与更新是配一次
+ * 就不管的。每块末尾带一句改法（可设的字段名 / 该发哪条指令），因为这页最可能
+ * 的下一步动作就是改其中一项——不写的话还要再发一次 #早柚帮助。
+ *
+ * 逐项报值而不是只报「开/关」的地方：数字上限要给具体值（用户想知道 10 MiB 是
+ * 多少），名单只给条数（群号用户号不该出现在群图里）。
+ */
+function configPanels(): StatusPanel[] {
+  const f = config.filter || {}
+  const u = config.update_check || {}
+  const srv = config.file_server || {}
+  const conns = getConnections()
+  const hb = Number(config.client?.heartbeat) || 0
+  const to = Number(config.client?.heartbeat_timeout) || 0
+
+  return [
+    {
+      title: "总开关与连接",
+      key: "CORE",
+      items: [
+        { k: "适配器", v: enabled() ? "已启用" : "已禁用（enable=false）" },
+        { k: "连接数", v: `${conns.length} 条 · ${conns.filter(c => c.enable !== false).length} 条启用` },
+        { k: "心跳 / 超时", v: hb ? `${hb}s / ${to ? `${to}s` : "关"}` : "关" },
+        // 默认重连次数不再是无限，这页要说清楚——否则「连接自己停了」会被当成 bug
+        { k: "重连", v: reconnectLabel(conns) },
+        { k: "断线通知主人", v: onOff(config.notify_master) },
+        { k: "改法", v: "#早柚设置 enable=true / notify_master=true" },
+      ],
+    },
+    {
+      title: "消息过滤",
+      key: "FILTER",
+      items: [
+        {
+          k: "上报 私聊/群/事件",
+          v: `${onOff(f.report_private !== false)} / ${onOff(f.report_group !== false)} / ${onOff(f.report_meta !== false)}`,
+        },
+        { k: "仅响应 @", v: onOff(f.only_reply_at) },
+        { k: "触发前缀", v: countOf(f.prefix, "无") },
+        { k: "屏蔽前缀 / 关键词", v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0} 项` },
+        { k: "群白名单 / 黑名单", v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项` },
+        { k: "改法", v: "#早柚设置 report_private=false / only_reply_at=true" },
+      ],
+    },
+    {
+      title: "媒体与文件",
+      key: "MEDIA",
+      items: [
+        { k: "媒体内联上限", v: formatBytes(Number(config.media_max_size) || 0) },
+        { k: "文件大小上限", v: formatBytes(Number(config.file_max_size) || 0) },
+        { k: "外链有效期", v: formatDuration(Number(config.link_expire) / 1000 || 0) },
+        {
+          k: "内置文件服务",
+          v: srv.enable === false ? "关" : `开 · 端口 ${srv.port || "自动"}`,
+        },
+        { k: "自定义图床", v: config.upload_hook ? "已配置" : "未配置" },
+        { k: "改法", v: "#早柚设置 media_max_size=20971520" },
+      ],
+    },
+    {
+      title: "更新与日志",
+      key: "UPDATE",
+      items: [
+        { k: "定时检查更新", v: onOff(u.enable) },
+        { k: "检查间隔", v: `${Math.max(Number(u.interval) || 180, 30)} 分钟` },
+        { k: "启动后首检", v: `${Number(u.delay) || 5} 分钟` },
+        { k: "发现新版通知", v: onOff(u.notify !== false) },
+        { k: "日志截断 base64", v: onOff(config.log_truncate !== false) },
+        { k: "改法", v: "#早柚设置 update_check=true · 手动查 #早柚检查更新" },
+      ],
+    },
+  ]
+}
+
+/**
+ * 重连策略摘要
+ *
+ * 各连接可以各配一个次数，值不一致时不必逐条列出——那是 #早柚连接列表 的事。
+ * 这里只回答「会不会停」：全都无限、全都有上限、还是混着。
+ */
+function reconnectLabel(conns: { max_reconnect_attempts?: number }[]): string {
+  const base = Number(config.client?.connections?.[0]?.reconnect_interval) || 5
+  if (!conns.length) return `间隔 ${base}s 起 · 默认最多 ${DEFAULT_MAX_RECONNECT} 次`
+  const caps = conns.map(c => Number(c.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT))
+  const unlimited = caps.filter(n => !(n > 0)).length
+  if (unlimited === caps.length) return `间隔 ${base}s 起 · 无限重连`
+  const max = Math.max(...caps.filter(n => n > 0))
+  return unlimited
+    ? `间隔 ${base}s 起 · 最多 ${max} 次（${unlimited} 条无限）`
+    : `间隔 ${base}s 起 · 最多 ${max} 次`
+}
+
 /** 合并转发走哪条路径，与 #早柚版本 同一套判定 */
 function fwdLabel(): string {
   const fwd = forwardMode()
   return fwd === "native" ? "框架原生" : fwd === "target" ? "群/好友接口" : "不可用"
+}
+
+/**
+ * 渲染当前配置图（不带参数的 #早柚设置）
+ *
+ * 与 #早柚状态 的分工：那页答「现在跑得怎么样」（连接状态、收发计数、心跳年龄），
+ * 这页答「现在配成什么样」（每一项的取值，以及各自的改法）。所以这里不放任何
+ * 运行时数字——重复的部分只会让两页都变长而信息没增加。
+ *
+ * 隐私边界与 statusPanels 一致：这张图会发到群里。所以 token 只说「已设置」、
+ * 过滤名单只报条数、连接地址不带查询参数（那里可能拼着 token）。
+ *
+ * 复用 Status 而不是新写组件：panels 的两列 kv 正好是配置项的形状，而新组件要
+ * 同时补 fixtures 与重新出 Tailwind CSS（test/classes.test.mjs 两个方向都查）。
+ */
+export async function renderConfig() {
+  const f = config.filter || {}
+  const conns = getConnections()
+
+  return render({
+    name: "config",
+    title: "早柚核心 当前配置",
+    view: palette =>
+      Status({
+        title: PluginName,
+        version,
+        enabled: enabled(),
+        heading: "CONFIG",
+        ghost: "CONFIG",
+        palette,
+        time: stamp(),
+        // 不给 rows：连接卡片留给 #早柚连接列表（那页每条带实时状态），这页只在
+        // 上面报「配了几条」，否则一屏里同一批连接出现两次。
+        // 给空数组会出一张「暂无连接」的空态卡——这页没有连接列表可空
+        summary: [
+          { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
+          { key: "LINKS", value: String(conns.length), sub: "已配置连接" },
+          { key: "REPLY AT", value: f.only_reply_at ? "ON" : "OFF", sub: "仅响应 @" },
+          { key: "HEARTBEAT", value: `${config.client?.heartbeat ?? 0}s`, sub: "ping 间隔" },
+        ],
+        panels: configPanels(),
+      }),
+  })
 }
 
 /**
@@ -304,9 +442,7 @@ export async function renderSettings(done: string[], errs: string[]) {
         ghost: "SETTINGS",
         palette,
         time: stamp(),
-        // 这页没有连接卡，rows 留空，但要给空数组不给 undefined，不然 Status 组件
-        // 会渲染空态提示"用 #早柚添加连接 <地址> 添加"
-        rows: [],
+        // 不给 rows：这页只报「改了什么」，连接一条都不提
         summary: [
           { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
           { key: "TOTAL", value: String(total), sub: "设置项" },
