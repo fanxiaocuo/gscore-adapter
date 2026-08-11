@@ -284,6 +284,58 @@ function fwdLabel(): string {
   return fwd === "native" ? "框架原生" : fwd === "target" ? "群/好友接口" : "不可用"
 }
 
+/**
+ * 渲染设置结果图（#早柚设置）
+ *
+ * 把文本回复的多行改动清单换成可视化的四格卡 + 逐行明细，跟其他页保持一致的
+ * 质感。done 收成功的、errs 收失败的（与 admin.ts set() 的同名数组一致）。
+ */
+export async function renderSettings(done: string[], errs: string[]) {
+  return render({
+    name: "settings",
+    title: "早柚核心 设置已保存",
+    view: palette => {
+      const total = done.length + errs.length
+      return Status({
+        title: PluginName,
+        version,
+        enabled: enabled(),
+        heading: "SETTINGS",
+        ghost: "SETTINGS",
+        palette,
+        time: stamp(),
+        // 这页没有连接卡，rows 留空，但要给空数组不给 undefined，不然 Status 组件
+        // 会渲染空态提示"用 #早柚添加连接 <地址> 添加"
+        rows: [],
+        summary: [
+          { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
+          { key: "TOTAL", value: String(total), sub: "设置项" },
+          { key: "SUCCESS", value: String(done.length), sub: "成功" },
+          { key: "FAILED", value: String(errs.length), sub: "失败" },
+        ],
+        // 把改动清单放进 panels，而不是继续堆在 summary 的四格里：
+        // 配置项名字长（report_private / media_max_size），挤在四格里读不清；
+        // 分成两块（成功 / 失败）语义更明确，而 summary 是平铺的。
+        panels: [
+          done.length > 0 && {
+            title: "成功",
+            key: "SUCCESS",
+            items: done.map(line => {
+              const [k, v] = line.split("=").map(s => s.trim())
+              return { k: k || line, v: v || "" }
+            }),
+          },
+          errs.length > 0 && {
+            title: "失败",
+            key: "FAILED",
+            items: errs.map(msg => ({ k: "错误", v: msg })),
+          },
+        ].filter(Boolean) as any,
+      })
+    },
+  })
+}
+
 /** 渲染状态图 */
 export async function renderStatus() {
   const { rows, total, online } = collect(true)

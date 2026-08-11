@@ -4,7 +4,7 @@ import { STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { normalizeUrl } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
-import { renderHelp, renderList } from "@/modules/render/pages"
+import { renderHelp, renderList, renderSettings } from "@/modules/render/pages"
 import { helpText } from "@/modules/render/commands"
 
 /** 关闭状态下不热启动连接 */
@@ -311,10 +311,8 @@ export default class GsCoreAdmin extends plugin {
       return e.reply(`保存失败：${err.message}`)
     }
 
-    return e.reply(
-      [done.length ? `已设置：\n${done.join("\n")}` : "", errs.length ? `\n失败：\n${errs.join("\n")}` : ""]
-        .join("")
-        .trim() || "没有任何改动",
-    )
+    // 无论成功、失败、还是没有改动，都渲染图片——跟其他页一样的质感
+    const img = await renderSettings(done, errs)
+    return e.reply(img)
   }
 }

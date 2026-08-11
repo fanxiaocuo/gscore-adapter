@@ -65,15 +65,42 @@ const FIELDS = [
   { k: "filter.only_reply_at", label: "仅被 @ 或带前缀才上报", type: "switch" },
 ]
 
-/** 连接弹层的字段表 */
+/**
+ * 连接弹层的字段表
+ *
+ * type: "list" 的两项在后端是数组（GsCoreClient.accept 按 self_id 比对），
+ * 这里用逗号分隔的单行文本收，提交时切成数组 —— 面板上给每个账号一个输入框
+ * 收益不大，而多账号本身是少数场景。
+ */
 const CFIELDS = [
   { k: "name", label: "连接名", ph: "gsuid_core" },
   { k: "url", label: "地址", ph: "127.0.0.1:8765（自动补 /ws/Yunzai）" },
   { k: "token", label: "token", ph: "留空则不修改", type: "password" },
-  { k: "bot_id", label: "bot_id", ph: "留空按 bot_id_map 推断" },
+  { k: "bot_id", label: "bot_id", ph: "留空按 bot_id_map 推断", hint: "平台标签，非机器人账号" },
   { k: "reconnect_interval", label: "重连间隔（秒）", type: "number" },
   { k: "max_reconnect_attempts", label: "最大重连次数", type: "number", hint: "0 为无限" },
+  {
+    k: "bind",
+    label: "绑定账号",
+    ph: "留空为不限，多个用逗号分隔",
+    type: "list",
+    hint: "只有这些机器人账号的消息进核心",
+  },
+  {
+    k: "exclude",
+    label: "排除账号",
+    ph: "留空为不排除，多个用逗号分隔",
+    type: "list",
+    hint: "优先级高于绑定账号",
+  },
 ]
+
+/** 逗号分隔的文本 <-> 数组。中英文逗号都收，顺手去空项 */
+const toList = (s: string) =>
+  s
+    .split(/[,，]/)
+    .map(v => v.trim())
+    .filter(Boolean)
 
 const dig = (o, path) => path.split(".").reduce((a, k) => a?.[k], o)
 
@@ -137,6 +164,8 @@ function Conn({ c, onAct, onEdit }) {
           {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
           {c.bot_id && <span className={TAG}>bot_id {c.bot_id}</span>}
           {c.has_token && <span className={TAG}>已配 token</span>}
+          {c.bind?.length > 0 && <span className={TAG}>绑定 {c.bind.join("、")}</span>}
+          {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
           <span className={TAG}>
             ↑{c.up} ↓{c.down}
           </span>
@@ -168,7 +197,12 @@ function Modal({ conn, onClose, onSubmit }) {
     const f: Record<string, string> = {}
     for (const x of CFIELDS) {
       // token 不回填：GET 只回 has_token，拿不到原值。留空提交表示不改
-      f[x.k] = conn && x.k !== "token" ? String(conn[x.k] ?? "") : ""
+      if (!conn || x.k === "token") {
+        f[x.k] = ""
+        continue
+      }
+      const v = conn[x.k]
+      f[x.k] = x.type === "list" ? (Array.isArray(v) ? v.join(", ") : "") : String(v ?? "")
     }
     if (!conn) {
       f.reconnect_interval = "5"
@@ -183,7 +217,8 @@ function Modal({ conn, onClose, onSubmit }) {
     for (const x of CFIELDS) {
       const v = String(form[x.k] ?? "").trim()
       if (!v && x.k === "token") continue
-      body[x.k] = x.type === "number" ? Number(v) : v
+      // list 留空要提交空数组（表示清掉白名单），不能跳过
+      body[x.k] = x.type === "list" ? toList(v) : x.type === "number" ? Number(v) : v
     }
     onSubmit(body)
   }
@@ -203,7 +238,8 @@ function Modal({ conn, onClose, onSubmit }) {
               <span className="text-[12px] text-muted">{x.label}</span>
               <input
                 className={INPUT}
-                type={x.type || "text"}
+                // list 不是合法的 input type，落回 text
+                type={x.type === "list" ? "text" : x.type || "text"}
                 placeholder={x.ph || ""}
                 value={form[x.k] ?? ""}
                 onChange={e => setForm({ ...form, [x.k]: e.target.value })}
