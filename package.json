@@ -1,6 +1,6 @@
 {
   "name": "gscore-adapter",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "早柚核心（gsuid_core）适配器，兼容 TRSS-Yunzai 与 Miao-Yunzai",
   "keywords": [
     "Yunzai",
