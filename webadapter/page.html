@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>早柚核心适配器</title>
+<!--
+  favicon 与页内图标都经 /api/gscore-adapter/logo 取，不能直连 resources/：
+  宿主的 /api/web-page/ 只放行描述符里列过的 page.html / .css / .js 三个文件。
+
+  href 由脚本按 __webBase 拼（宿主可能挂在 /qqbot-web 这类前缀下）。这里先给
+  about:blank 占位而不是留空 —— 留空 href 会让浏览器去要当前目录的 /favicon.ico，
+  白挨一个 404。
+-->
+<link rel="icon" id="favicon" href="about:blank" />
+<link rel="stylesheet" href="page.css" />
+</head>
+<body>
+<!-- 整页由 React 渲染，源码在 src/webui/main.tsx，产物是同目录的 page.js -->
+<div id="app"><p class="hint">加载中…</p></div>
+<script>
+  // 只做一件事：把 favicon 指到接口上。其余交给 page.js
+  document.getElementById("favicon").href =
+    `${new URLSearchParams(location.search).get("__webBase") || ""}/api/gscore-adapter/logo`
+</script>
+<script src="page.js"></script>
+</body>
+</html>

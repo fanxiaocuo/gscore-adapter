@@ -3,13 +3,13 @@
 # 首次运行会复制为 config/config.yaml，那份不入库，改它即可（保存后自动热重载）。
 # 只需写想改的项，其余会自动继承默认值。
 
-# 运行模式
-#   client : 云崽主动连接早柚核心（核心为服务端）
-#   off    : 关闭
+# 是否启用适配器。false 则完全不连早柚核心。
+# 改这项需重启云崽生效（连接在 bot 上线时拉起）。
 #
-# 只有这一个方向：早柚核心 core.py 仅有入站路由 @app.websocket("/ws/{bot_id}")，
-# 不会主动来连云崽，所以没有「服务端」模式。
-mode: client
+# 取代了旧版的 mode: client/off —— 早柚核心 core.py 仅有入站路由
+# @app.websocket("/ws/{bot_id}")，不会主动来连云崽，没有「服务端」方向，
+# 所以那个字段实际只有开/关两个值。老配置会在启动时自动迁移成 enable。
+enable: true
 
 # ---------- 客户端（云崽 -> 早柚核心）----------
 client:
@@ -42,6 +42,17 @@ client:
 
 # ---------- 消息过滤 ----------
 filter:
+  # 上报方向开关，比下面的黑白名单粗一档：
+  # 想「只让群消息过核心」时不必把所有私聊用户都列进 black_user。
+  # 三项默认全开，只有显式写 false 才会拦。
+  #
+  # 是否上报私聊消息
+  report_private: true
+  # 是否上报群消息（QQ 频道也算群）
+  report_group: true
+  # 是否上报非消息事件（入群 / 退群 / 戳一戳）。
+  # 核心侧没装消费这些事件的插件时可以关掉，省下全部无用上报
+  report_meta: true
   # 仅在被 @ 或带前缀时才上报群消息
   only_reply_at: false
   # only_reply_at 为 true 时，这些前缀也视为触发
@@ -60,16 +71,37 @@ filter:
   black_user: []
 
 # ---------- 平台标识映射 ----------
-# 把云崽适配器 id 映射为早柚核心认识的 bot_id
-# 键可以是 Bot[self_id].adapter.id，也可以直接写 self_id 精确覆盖
+# 把云崽适配器映射为早柚核心认识的 bot_id。
+#
+# 查找顺序：连接自身的 bot_id > self_id 精确匹配 > 频道特判(QQGuild) >
+#           adapter.id > adapter.name > default
+#
+# 键既可以写 adapter.id，也可以写 adapter.name，还可以直接写 self_id 精确覆盖。
+# 两者都查是因为本机实测 id 会撞车：ICQQ / OneBotv11 / OPQBot 的 adapter.id
+# 全都是 "QQ"，只有 name 才能区分它们（框架填的 e.adapter_id 取的是 id，
+# 见 lib/bot.js:346）。所以粗粒度写 QQ、要精确到某一家就写它的 name。
 bot_id_map:
-  ICQQ: onebot
-  OneBotv11: onebot
+  # --- adapter.id（粗粒度，一个键覆盖多家） ---
+  # ICQQ / OneBotv11 / OPQBot 共用这个 id
+  QQ: onebot
+  WeChat: onebot
   QQBot: qqgroup
   Satori: onebot
-  ComWeChat: onebot
-  OPQBot: onebot
+  Milky: onebot
   stdin: onebot
+  # --- adapter.name（精确到具体适配器，优先级低于 id） ---
+  ICQQ: onebot
+  OneBotv11: onebot
+  OPQBot: onebot
+  ComWeChat: onebot
+  # --- 频道特判 ---
+  # QQBot-Plugin 用同一个 adapter（id 恒为 QQBot）同时处理 QQ 群与 QQ 频道，
+  # 按适配器查表分不开，所以频道按事件形状单独判（group_id 带 qg_ 前缀）
+  QQGuild: qqguild
+  # --- 其它平台（TRSS 生态的适配器，装了才会命中） ---
+  KOOK: kook
+  Telegram: telegram
+  Discord: discord
   # 找不到时的兜底
   default: onebot
 
@@ -83,7 +115,54 @@ file_max_size: 52428800
 # link:// 外链的有效期（毫秒），默认 5 分钟
 # 云崽默认只保留 1 分钟，核心拉取慢会拿到超时占位图
 link_expire: 300000
+# ---------- 内置文件服务 ----------
+# 仅在框架没有 Bot.fileToUrl 时启用（Miao-Yunzai）。
+# TRSS-Yunzai 自带文件服务，这一节完全无效，不用管。
+#
+# 作用：超过 media_max_size 的大文件需要外链，没有它就只能发不出去。
+# 开箱即用，不需要自己搭图床。文件只存在内存里，link_expire 到期自动清。
+file_server:
+  # 是否启用。关掉则回落到下面的 upload_hook
+  enable: true
+  # 监听端口，0 = 每次随机取可用端口（推荐，不会撞端口）
+  port: 0
+  # 监听地址。默认 0.0.0.0：早柚核心常跑在 Docker 或另一台机器上，
+  # 只听 127.0.0.1 它连不进来。若核心与云崽同机且介意暴露面，可改 127.0.0.1
+  host: 0.0.0.0
+  # 外链里用的 host。留空则按 ws 连接的本机地址自动推断（能路由到核心的那张网卡）
+  # 核心在 Docker 里而自动推断不对时，在这里写死云崽的可达地址
+  public_host: ""
+  # 取走即删。核心拿到内容后立刻释放，缩小外链被重放的窗口
+  # 若核心侧会重复拉取同一链接，改为 false
+  once: true
+
+# 自定义图床（可选），内置文件服务的后备：
+#   关掉 file_server、或端口起不来时才会用到；
+#   内网穿透场景下图床给的是公网地址，比内置服务更可靠。
+# 值为模块路径（相对云崽根目录或绝对路径），默认导出一个函数：
+#   export default async (buf, name) => "https://图床地址/xxx.png"
+# 返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。
+upload_hook: ""
 # 日志中截断 base64
 log_truncate: true
 # 断线/重连是否通知主人
 notify_master: false
+
+# ---------- 更新检查 ----------
+# 定时检查插件仓库有没有新提交，有就把更新日志渲染成图片私聊推送给主人。
+# 只做检查与通知，不会自动更新——要更新仍需手动 #早柚更新。
+#
+# 走云崽自带的定时任务（node-schedule），每 5 分钟触发一次判断，
+# 下面的 interval / delay 决定真正跑不跑，改了立刻生效、不用重启。
+update_check:
+  # 是否启用定时检查。关掉后 #早柚检查更新 仍可手动用
+  enable: false
+  # 检查间隔（分钟）。低于 30 会按 30 处理：
+  # 每次都要 git fetch 一次远端，太频繁对仓库托管方不友好，也没有意义
+  interval: 180
+  # 启动后多久做第一次检查（分钟）。
+  # 不设 0 是为了错开启动高峰——刚起来时连接还在建、渲染要拉浏览器，
+  # 再插一次 fetch + 截图容易拖慢启动
+  delay: 5
+  # 检查到新版本时是否私聊通知主人
+  notify: true

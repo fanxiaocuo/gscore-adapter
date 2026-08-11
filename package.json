@@ -1,6 +1,6 @@
 {
   "name": "gscore-adapter",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "早柚核心（gsuid_core）适配器，兼容 TRSS-Yunzai 与 Miao-Yunzai",
   "keywords": [
     "Yunzai",
@@ -11,6 +11,12 @@
   "type": "module",
   "main": "index.js",
   "scripts": {},
+  "dependencies": {
+    "@karinjs/template-react": "https://pkg.pr.new/KarinJS/template-react/@karinjs/template-react@169c6ed",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
   "peerDependencies": {
     "chokidar": ">=4",
     "ws": ">=8",
@@ -30,6 +36,7 @@
   "files": [
     "./lib",
     "./resources",
+    "./webadapter",
     "./index.js",
     "./guoba.support.js",
     "./README.md",
