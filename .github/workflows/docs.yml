@@ -1,0 +1,79 @@
+name: 构建文档站并发布到 gh-pages
+
+# doc 分支放 VitePress 源码（Markdown + 主题），产物发到 gh-pages。
+#
+# 与 release / preview 两个分支的关系：那两个是**插件产物**，用户 clone 下来直接跑；
+# 这个是**文档站产物**，只给 GitHub Pages 用，没人会去 clone 它。
+on:
+  push:
+    branches:
+      - doc
+  workflow_dispatch:
+
+# 连续推送时取消旧任务，避免两个 job 抢着发 Pages
+concurrency:
+  group: docs
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # lastUpdated 读的是 git 提交时间，浅克隆会让每页都显示同一个时间
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile=false
+
+      - name: 构建
+        run: pnpm run build
+
+      # 死链会让 vitepress build 直接失败（config 里 ignoreDeadLinks: false），
+      # 所以走到这里就说明站内链接都通。这里再断言产物本身没缺东西：
+      # base 配错时 index.html 里的资源路径会指向站点根而不是 /gscore-adapter/，
+      # 本地看不出来、一发布就整站掉样式。
+      - name: 自检产物
+        run: |
+          set -euo pipefail
+          out=docs/.vitepress/dist
+          fail=0
+          for f in index.html guide/install.html guide/config.html; do
+            if [ -e "$out/$f" ]; then echo "  ok  $f"; else echo "  !!  缺失 $f"; fail=1; fi
+          done
+          if grep -q 'href="/gscore-adapter/assets/' "$out/index.html"; then
+            echo "  ok  资源路径带 base 前缀"
+          else
+            echo "  !!  index.html 里的资源路径没有 /gscore-adapter/ 前缀 —— 检查 config 的 base"
+            fail=1
+          fi
+          exit $fail
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,16 @@
+{
+  "name": "gscore-adapter-docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "gscore-adapter 文档站（VitePress）。源码在 doc 分支，构建产物由 Actions 发到 gh-pages。",
+  "scripts": {
+    "dev": "vitepress dev docs",
+    "build": "vitepress build docs",
+    "preview": "vitepress preview docs"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3",
+    "vue": "^3.5.13"
+  }
+}
