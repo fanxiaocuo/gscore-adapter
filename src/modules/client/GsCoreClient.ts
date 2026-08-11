@@ -236,11 +236,12 @@ export class GsCoreClient {
   }
 
   /* ---------- 上行：云崽 -> 早柚核心 ---------- */
-  async sendReceive(e, isMaster) {
+  /** @param selfId 已由 hooks 的 resolveSelfId 解析过，非空；e.self_id 可能是 null */
+  async sendReceive(e, isMaster, selfId = String(e.self_id ?? "")) {
     if (this.status !== 1 || this.ws?.readyState !== WebSocket.OPEN) return false
 
-    const botId = resolveBotId(e, this.conf)
-    const data = await yunzaiToGscore(e, botId, { isMaster })
+    const botId = resolveBotId(e, this.conf, selfId)
+    const data = await yunzaiToGscore(e, botId, { isMaster, selfId })
     if (!data) return false
 
     // 早柚核心 core.py 用 websocket.receive_bytes() 读取，必须发二进制帧
@@ -248,12 +249,7 @@ export class GsCoreClient {
     // 那种情况下这条消息并没有中转成功，计进去会让「连着但不通」的故障看不出来
     if (!this.send(data)) return false
     count("up", this.name)
-    makeLog(
-      "debug",
-      `上报早柚核心：${logStr(data.content)}`,
-      `${e.self_id} => ${this.name}`,
-      true,
-    )
+    makeLog("debug", `上报早柚核心：${logStr(data.content)}`, `${selfId} => ${this.name}`, true)
     return true
   }
 
@@ -261,15 +257,15 @@ export class GsCoreClient {
    * 上行：非消息事件（入群/退群/戳一戳）
    * 单向通知，核心不回执，发出即完成。
    */
-  sendMeta(e, meta, isMaster) {
+  sendMeta(e, meta, isMaster, selfId = String(e.self_id ?? "")) {
     if (this.status !== 1 || this.ws?.readyState !== WebSocket.OPEN) return false
 
-    const data = metaToGscore(e, meta, resolveBotId(e, this.conf), { isMaster })
+    const data = metaToGscore(e, meta, resolveBotId(e, this.conf, selfId), { isMaster, selfId })
     if (!data) return false
 
     if (!this.send(data)) return false
     count("event", this.name)
-    makeLog("debug", `上报早柚核心事件：${metaLogStr(meta)}`, `${e.self_id} => ${this.name}`, true)
+    makeLog("debug", `上报早柚核心事件：${metaLogStr(meta)}`, `${selfId} => ${this.name}`, true)
     return true
   }
 

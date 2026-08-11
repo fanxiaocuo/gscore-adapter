@@ -105,9 +105,13 @@ export async function msgToGscore(msg) {
  * 完整 MessageReceive
  * @param e     云崽消息事件
  * @param botId 平台标识（resolveBotId 的结果）
- * @param opts  { isMaster }
+ * @param opts  { isMaster, selfId }
  */
-export async function yunzaiToGscore(e, botId, opts: { isMaster?: boolean } = {}) {
+export async function yunzaiToGscore(
+  e,
+  botId,
+  opts: { isMaster?: boolean; selfId?: string } = {},
+) {
   const content = []
 
   // 引用消息放最前。
@@ -150,7 +154,9 @@ export async function yunzaiToGscore(e, botId, opts: { isMaster?: boolean } = {}
 
   const data: MessageReceive = {
     bot_id: botId,
-    bot_self_id: String(e.self_id),
+    // 用调用方解析过的 selfId：e.self_id 可能为 null，
+    // String(null) 会把字符串 "null" 发到核心，核心侧再拿它当账号去查就全错了
+    bot_self_id: opts.selfId ?? (e.self_id != null ? String(e.self_id) : ""),
     msg_id: String(e.message_id ?? Date.now().toString(36)),
     user_id: String(e.user_id),
     user_pm,

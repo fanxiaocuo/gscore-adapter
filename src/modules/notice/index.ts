@@ -16,9 +16,10 @@ export { passFilter }
 
 /**
  * 云崽 notice 事件 -> meta event
+ * @param selfId 调用方解析过的账号，用于 poke 的被戳者兜底；不传则退回 e.self_id
  * @returns 无法映射返回 null
  */
-export function noticeToMeta(e) {
+export function noticeToMeta(e, selfId?: string) {
   if (!e || e.post_type !== "notice") return null
 
   // poke 判断必须在 group/friend 之前：它在两种 notice_type 下都出现
@@ -29,7 +30,7 @@ export function noticeToMeta(e) {
 
     const data: Record<string, string> = { user_id }
     // 被戳者缺失时兜底为 bot 自己（照参考实现 buildMetaEvent）
-    data.target_id = str(e.target_id) || str(e.self_id)
+    data.target_id = str(e.target_id) || selfId || str(e.self_id)
     const group_id = str(e.group_id)
     if (group_id) data.group_id = group_id
     return { eventName: "poke", data }
@@ -59,16 +60,21 @@ export function noticeToMeta(e) {
  * @param e     云崽 notice 事件
  * @param meta  noticeToMeta 的产物
  * @param botId 平台标识（resolveBotId 的结果）
- * @param opts  { isMaster }
+ * @param opts  { isMaster, selfId }
  */
-export function metaToGscore(e, meta, botId, opts: { isMaster?: boolean } = {}) {
+export function metaToGscore(
+  e,
+  meta,
+  botId,
+  opts: { isMaster?: boolean; selfId?: string } = {},
+) {
   if (!meta) return null
 
   const group_id = meta.data.group_id || str(e.group_id)
 
   return {
     bot_id: botId,
-    bot_self_id: str(e.self_id),
+    bot_self_id: opts.selfId || str(e.self_id),
     msg_id: "",
     // 频道要判在前：QQBot-Plugin 的频道事件 group_id 带 qg_ 前缀但 message_type
     // 是 group，只看 group_id 有无会把频道事件标成 group（同 toGscore 的处理）
