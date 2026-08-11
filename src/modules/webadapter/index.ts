@@ -282,7 +282,7 @@ export function init(ctx) {
     // 171 移动端横幅），给图片路径会把路径本身当文字显示出来。
     // 插件 logo 放在页面内部 —— 标题区一张、favicon 一张，都走
     // /gscore-adapter/logo 接口。
-    icon: "🦊",
+    icon: "☄️",
     src: "page.html",
     // iframe 模式下宿主不会把 style/script 注入外层 DOM（页面自己 <link>/<script>
     // 引），但这两项同时是**文件访问白名单** —— /api/web-page/ 只放行描述符里
