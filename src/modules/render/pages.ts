@@ -14,6 +14,11 @@ import { forName, snapshot } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { Help } from "./components/Help.js"
 import { Status, type ConnRow, type StatusPanel } from "./components/Status.js"
+import {
+  Settings,
+  type SettingFacts,
+  type SettingGroup,
+} from "./components/Settings.js"
 import { Changelog } from "./components/Changelog.js"
 import { About } from "./components/About.js"
 import type { Commit, UpdateInfo } from "@/modules/update/git.js"
@@ -279,16 +284,104 @@ function statusPanels(): StatusPanel[] {
 }
 
 /**
- * 配置总览的分组明细
+ * 设置菜单的分组
  *
- * 四块的顺序按「改的频率」排：总开关与连接最常动，过滤次之，媒体与更新是配一次
- * 就不管的。每块末尾带一句改法（可设的字段名 / 该发哪条指令），因为这页最可能
- * 的下一步动作就是改其中一项——不写的话还要再发一次 #早柚帮助。
+ * 分组依据从「配置文件里挨着谁」换成了「指令能不能改它」
+ * ------------------------------------------------
+ * 原来这里出的是状态页那套两列 kv，四块按配置树分（总开关与连接 / 过滤 / 媒体 /
+ * 更新），每块末尾挂一行「改法」。问题是那行改法与它修饰的那五六项并列，读起来
+ * 像第七个配置项；而块里既有指令能改的开关，也有只能在配置文件里改的调参
+ * （心跳、外链有效期、检查间隔），两者长得完全一样。
  *
- * 逐项报值而不是只报「开/关」的地方：数字上限要给具体值（用户想知道 10 MiB 是
- * 多少），名单只给条数（群号用户号不该出现在群图里）。
+ * 现在前三组只放**指令能改的项**，一行一项、右侧一个开关胶囊或取值，说明那行
+ * 直接给出改它的指令；改不了但仍该看见的项挪进 settingFacts() 的只读块。
+ *
+ * 隐私边界与 statusPanels 一致：这张图会发到群里，所以名单只报条数，
+ * 不出现群号、用户号、前缀内容与 token。
  */
-function configPanels(): StatusPanel[] {
+function settingGroups(): SettingGroup[] {
+  const f = config.filter || {}
+  const u = config.update_check || {}
+
+  return [
+    {
+      title: "总开关",
+      key: "CORE",
+      rows: [
+        {
+          name: "适配器",
+          dsc: "关掉则完全不连核心 · #早柚设置适配器开启 / 关闭",
+          icon: "settings",
+          on: enabled(),
+        },
+        {
+          name: "断线通知",
+          dsc: "连接断开与重连成功时私聊通知主人 · #早柚设置断线通知开启",
+          icon: "refresh",
+          on: !!config.notify_master,
+        },
+      ],
+    },
+    {
+      title: "消息上报",
+      key: "REPORT",
+      rows: [
+        // 三个方向各占一行，不再合成 `开 / 开 / 关` 一格：那种写法要数到第几个
+        // 斜杠才知道是哪个方向关着，而这页最常问的就是「为什么核心收不到消息」
+        {
+          name: "私聊上报",
+          dsc: "把私聊消息转给核心 · #早柚设置私聊上报关闭",
+          icon: "list",
+          on: f.report_private !== false,
+        },
+        {
+          name: "群聊上报",
+          dsc: "含频道消息 · #早柚设置群聊上报关闭",
+          icon: "list",
+          on: f.report_group !== false,
+        },
+        {
+          name: "事件上报",
+          dsc: "入群、退群、戳一戳 · #早柚设置事件上报关闭",
+          icon: "status",
+          on: f.report_meta !== false,
+        },
+        {
+          name: "仅响应 @",
+          dsc: "群里只在被 @ 或带前缀时才上报 · #早柚设置仅响应at开启",
+          icon: "search",
+          on: !!f.only_reply_at,
+        },
+      ],
+    },
+    {
+      title: "媒体与更新",
+      key: "MEDIA",
+      rows: [
+        {
+          name: "最大媒体大小",
+          dsc: "超过这个体积改用外链 · #早柚设置最大媒体大小 2（单位 MB）",
+          icon: "plus",
+          value: formatBytes(Number(config.media_max_size) || 0),
+        },
+        {
+          name: "更新检查",
+          dsc: "定时查新提交并推送更新日志 · #早柚设置更新检查开启",
+          icon: "arrowUp",
+          on: !!u.enable,
+        },
+      ],
+    },
+  ]
+}
+
+/**
+ * 只读信息
+ *
+ * 这些项指令改不了（要么是调参、要么是运行时事实），但排障时正是要看的。
+ * 与上面的开关列表分开，是为了让「右侧有胶囊」这件事只代表「这项可以改」。
+ */
+function settingFacts(): SettingFacts[] {
   const f = config.filter || {}
   const u = config.update_check || {}
   const srv = config.file_server || {}
@@ -298,38 +391,22 @@ function configPanels(): StatusPanel[] {
 
   return [
     {
-      title: "总开关与连接",
-      key: "CORE",
+      title: "连接与过滤",
+      key: "LINKS",
       items: [
-        { k: "适配器", v: enabled() ? "已启用" : "已禁用（enable=false）" },
         { k: "连接数", v: `${conns.length} 条 · ${conns.filter(c => c.enable !== false).length} 条启用` },
         { k: "心跳 / 超时", v: hb ? `${hb}s / ${to ? `${to}s` : "关"}` : "关" },
         // 默认重连次数不再是无限，这页要说清楚——否则「连接自己停了」会被当成 bug
         { k: "重连", v: reconnectLabel(conns) },
-        { k: "断线通知主人", v: onOff(config.notify_master) },
-        { k: "改法", v: "#早柚设置 enable=true / notify_master=true" },
-      ],
-    },
-    {
-      title: "消息过滤",
-      key: "FILTER",
-      items: [
-        {
-          k: "上报 私聊/群/事件",
-          v: `${onOff(f.report_private !== false)} / ${onOff(f.report_group !== false)} / ${onOff(f.report_meta !== false)}`,
-        },
-        { k: "仅响应 @", v: onOff(f.only_reply_at) },
         { k: "触发前缀", v: countOf(f.prefix, "无") },
         { k: "屏蔽前缀 / 关键词", v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0} 项` },
         { k: "群白名单 / 黑名单", v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项` },
-        { k: "改法", v: "#早柚设置 report_private=false / only_reply_at=true" },
       ],
     },
     {
-      title: "媒体与文件",
-      key: "MEDIA",
+      title: "文件与日志",
+      key: "FILES",
       items: [
-        { k: "媒体内联上限", v: formatBytes(Number(config.media_max_size) || 0) },
         { k: "文件大小上限", v: formatBytes(Number(config.file_max_size) || 0) },
         { k: "外链有效期", v: formatDuration(Number(config.link_expire) / 1000 || 0) },
         {
@@ -337,19 +414,8 @@ function configPanels(): StatusPanel[] {
           v: srv.enable === false ? "关" : `开 · 端口 ${srv.port || "自动"}`,
         },
         { k: "自定义图床", v: config.upload_hook ? "已配置" : "未配置" },
-        { k: "改法", v: "#早柚设置 media_max_size=20971520" },
-      ],
-    },
-    {
-      title: "更新与日志",
-      key: "UPDATE",
-      items: [
-        { k: "定时检查更新", v: onOff(u.enable) },
-        { k: "检查间隔", v: `${Math.max(Number(u.interval) || 180, 30)} 分钟` },
-        { k: "启动后首检", v: `${Number(u.delay) || 5} 分钟` },
-        { k: "发现新版通知", v: onOff(u.notify !== false) },
+        { k: "检查间隔 / 首检", v: `${Math.max(Number(u.interval) || 180, 30)} 分 / ${Number(u.delay) || 5} 分` },
         { k: "日志截断 base64", v: onOff(config.log_truncate !== false) },
-        { k: "改法", v: "#早柚设置 update_check=true · 手动查 #早柚检查更新" },
       ],
     },
   ]
@@ -389,52 +455,45 @@ function fwdLabel(): string {
  * 隐私边界与 statusPanels 一致：这张图会发到群里。所以 token 只说「已设置」、
  * 过滤名单只报条数、连接地址不带查询参数（那里可能拼着 token）。
  *
- * 复用 Status 而不是新写组件：panels 的两列 kv 正好是配置项的形状，而新组件要
- * 同时补 fixtures 与重新出 Tailwind CSS（test/classes.test.mjs 两个方向都查）。
+ * 换成 Settings 而不是继续借 Status：理由见 components/Settings.tsx 的文件头。
+ * 也不再出上面那排四格大数字卡——ADAPTER / REPLY AT 两格与下面的开关行重复，
+ * LINKS / HEARTBEAT 属于只读事实，都各归其位了。
  */
 export async function renderConfig() {
-  const f = config.filter || {}
-  const conns = getConnections()
-
   return render({
     name: "config",
     title: "早柚核心 当前配置",
     view: palette =>
-      Status({
+      Settings({
         title: PluginName,
         version,
         enabled: enabled(),
-        heading: "CONFIG",
+        heading: "SETTINGS",
         ghost: "CONFIG",
         palette,
         time: stamp(),
-        // 不给 rows：连接卡片留给 #早柚连接列表（那页每条带实时状态），这页只在
-        // 上面报「配了几条」，否则一屏里同一批连接出现两次。
-        // 给空数组会出一张「暂无连接」的空态卡——这页没有连接列表可空
-        summary: [
-          { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
-          { key: "LINKS", value: String(conns.length), sub: "已配置连接" },
-          { key: "REPLY AT", value: f.only_reply_at ? "ON" : "OFF", sub: "仅响应 @" },
-          { key: "HEARTBEAT", value: `${config.client?.heartbeat ?? 0}s`, sub: "ping 间隔" },
-        ],
-        panels: configPanels(),
+        groups: settingGroups(),
+        facts: settingFacts(),
       }),
   })
 }
 
 /**
- * 渲染设置结果图（#早柚设置）
+ * 渲染设置结果图（#早柚设置 带参数）
  *
- * 把文本回复的多行改动清单换成可视化的四格卡 + 逐行明细，跟其他页保持一致的
- * 质感。done 收成功的、errs 收失败的（与 admin.ts set() 的同名数组一致）。
+ * 与菜单页同一个组件，多一条顶部结果条：改完那次要先回答「刚才那条生效了吗」，
+ * 再顺带把当前全貌摆出来（省掉一次 #早柚设置）。原来是把 done/errs 塞进
+ * panels 当两块 kv 明细，与配置项混成一片，还得靠 ` = ` 把每行切回 key/value；
+ * 现在结果整行原样显示，admin.ts 那边的文案怎么写就怎么出。
+ *
+ * done 收成功的、errs 收失败的（与 admin.ts set() 的同名数组一致）。
  */
 export async function renderSettings(done: string[], errs: string[]) {
   return render({
     name: "settings",
     title: "早柚核心 设置已保存",
-    view: palette => {
-      const total = done.length + errs.length
-      return Status({
+    view: palette =>
+      Settings({
         title: PluginName,
         version,
         enabled: enabled(),
@@ -442,33 +501,11 @@ export async function renderSettings(done: string[], errs: string[]) {
         ghost: "SETTINGS",
         palette,
         time: stamp(),
-        // 不给 rows：这页只报「改了什么」，连接一条都不提
-        summary: [
-          { key: "ADAPTER", value: enabled() ? "ON" : "OFF", sub: "适配器开关" },
-          { key: "TOTAL", value: String(total), sub: "设置项" },
-          { key: "SUCCESS", value: String(done.length), sub: "成功" },
-          { key: "FAILED", value: String(errs.length), sub: "失败" },
-        ],
-        // 把改动清单放进 panels，而不是继续堆在 summary 的四格里：
-        // 配置项名字长（report_private / media_max_size），挤在四格里读不清；
-        // 分成两块（成功 / 失败）语义更明确，而 summary 是平铺的。
-        panels: [
-          done.length > 0 && {
-            title: "成功",
-            key: "SUCCESS",
-            items: done.map(line => {
-              const [k, v] = line.split("=").map(s => s.trim())
-              return { k: k || line, v: v || "" }
-            }),
-          },
-          errs.length > 0 && {
-            title: "失败",
-            key: "FAILED",
-            items: errs.map(msg => ({ k: "错误", v: msg })),
-          },
-        ].filter(Boolean) as any,
-      })
-    },
+        result: { done, errs },
+        groups: settingGroups(),
+        facts: settingFacts(),
+        tip: errs.length ? "#早柚帮助 查看正确写法" : "#早柚设置 再看一次当前配置",
+      }),
   })
 }
 
@@ -496,7 +533,7 @@ export async function renderStatus() {
         rows,
         emptyTip: enabled()
           ? "用 #早柚添加连接 <地址> 添加"
-          : "适配器已禁用\n用 #早柚设置 enable=true 开启",
+          : "适配器已禁用\n用 #早柚设置适配器开启 启用",
         // 四格换成「开关 / 在线 / 上行 / 下行」：已停用的连接在卡片上自带
         // 「已停用」胶囊，不必再占一格，而收发量是这页最该先看到的数字。
         summary: [
@@ -601,7 +638,7 @@ export async function renderAbout() {
             mono: true,
             sub: enabled()
               ? "云崽作为 ws 客户端主动连接核心"
-              : "用 #早柚设置 enable=true 开启",
+              : "用 #早柚设置适配器开启 启用",
           },
           {
             key: "处理器",

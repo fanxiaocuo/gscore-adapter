@@ -96,9 +96,13 @@ bot_id_map:
   default: onebot       # 兜底
 ```
 
-优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > 频道特判 > `adapter.id` > `adapter.name` > `default`。
+优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > 频道特判 > `adapter.id` > `adapter.name` > **按账号形状推断** > `default`。
 
 框架填的 `adapter_id` 取自 `adapter.id`，而 ICQQ / OneBotv11 / OPQBot 三家的 `adapter.id` **全是 `QQ`**——只查 id 分不开它们，只查 name 则 `QQ` 这种粗粒度键写了没用。所以两者都查。
+
+**查表全落空之后还有一层**：按账号前缀（`qg_` / `wx_` / `tg_` / `dc_` / `mv_` / `ko_`）与 QQBot appid 的形状再推一次。非 QQ 平台的账号在默认 `bot_id_map` 里根本没有键，QQBot 的 appid 也不在表里，只靠 `default` 会全部兜成 `onebot`，核心侧收到的平台标识就是错的。
+
+`#早柚添加连接` 也用同一套判据：不写 `id=` 时按发指令那个账号推一个平台标识写进连接配置，并在回复里说明推断结果。推不出就留空，交给上面这条链在上报时决定。
 
 ::: warning 旧版默认配置的一处失效
 把键写成了 `ICQQ` / `OneBotv11` / `OPQBot` / `ComWeChat`，那些是 `name` 不是 `id`，**实际从未命中**，只是恰好都该映射成 `onebot`、被 `default` 掩盖了。

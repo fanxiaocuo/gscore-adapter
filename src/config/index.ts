@@ -5,6 +5,8 @@ import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
 import type { Config } from "@/types"
 import { isChannel } from "@/utils/session.js"
+import { guessPlatform } from "@/utils/platform.js"
+import { unflow } from "./yaml.js"
 import { upgradeUserConfig } from "./upgrade.js"
 
 /**
@@ -61,8 +63,10 @@ function load() {
       const changes = upgradeUserConfig(userFile)
       if (changes.length)
         globalThis.Bot?.makeLog?.(
+          // 不再说「原文件备份为 .bak」——那份备份只在首次升级时生成（见 upgrade.ts
+          // 里的理由），每次都这么说会让人以为手上那份是刚才这次的
           "mark",
-          `配置已升级（原文件备份为 config.yaml.bak）：${changes.join("、")}`,
+          `配置已升级：${changes.join("、")}`,
           "GsCore",
         )
     } catch (err) {
@@ -148,7 +152,7 @@ export function saveConfig(fn) {
   fn(doc)
 
   selfWrite = true
-  fs.writeFileSync(userFile, doc.toString({ lineWidth: 0 }))
+  fs.writeFileSync(userFile, unflow(doc).toString({ lineWidth: 0 }))
   reload()
   return config
 }
@@ -197,6 +201,14 @@ export function enabled(): boolean {
  * 所以两者都查、id 优先 name 兜底：既保持「精确到具体适配器」的能力
  * （写 name 命中唯一一家），又让 "QQ" 这种粗粒度键可用。
  *
+ * 查表全落空之后还有一层
+ * -------------------
+ * 原来落空就直接 `map.default || "onebot"`。那对非 QQ 平台的账号是错的：
+ * wx_ / tg_ / dc_ 这些前缀在默认 bot_id_map 里根本没有键，QQBot 的 appid
+ * 也不在表里，全都被 default 兜成 onebot，核心侧收到的平台标识就是错的。
+ * 所以在 default 之前插一次 `guessPlatform` —— 它按账号前缀与 appid 形状判断，
+ * 不依赖用户有没有配对那张表。见 utils/platform.ts。
+ *
  * 频道单独判
  * ---------
  * QQBot-Plugin 用**同一个** adapter（id 恒为 QQBot）同时处理 QQ 群与 QQ 频道，
@@ -226,6 +238,8 @@ export function resolveBotId(e, conf?, selfId?: string) {
     map[e.adapter_id] ||
     map[e.bot?.adapter?.name] ||
     map[e.adapter_name] ||
+    // 用户配的表全落空时按账号形状再推一次，别一律兜成 onebot
+    guessPlatform(sid, e.bot) ||
     map.default ||
     "onebot"
   )

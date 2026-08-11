@@ -82,6 +82,13 @@ export class GsCoreClient {
       // 防火墙黑洞掉 SYN 时可以卡在 CONNECTING 好几分钟，期间 status 一直是 2，
       // close 事件不来，scheduleReconnect 也就永远不触发，表现为「连接中」假死。
       // 参照 GenshinUID 的 Python 客户端（client.py: open_timeout=60）取 60s。
+      //
+      // 刻意不给任何 TLS 选项。wss:// 本身是通的（utils/url.ts 两个入口都放行，
+      // ws 库自己做 TLS，token 照旧走查询参数），带正经证书的核心直接就能连；
+      // 缺的只有**自签 / 私有 CA** —— 那种证书会在握手阶段挂在
+      // DEPTH_ZERO_SELF_SIGNED_CERT 上，日志里只有一句「连接错误」然后进重连循环。
+      // 需要时用 NODE_EXTRA_CA_CERTS 启动云崽，别在这里塞 rejectUnauthorized: false：
+      // 那是把中间人防护整个关掉，而这个选项一旦加进配置就会被人复制到公网连接上。
       this.ws = new WebSocket(this.url, {
         maxPayload: 64 * 1024 * 1024,
         handshakeTimeout: 60000,

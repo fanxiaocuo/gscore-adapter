@@ -4,6 +4,9 @@ import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { normalizeUrl } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
+import { guessPlatform } from "@/utils/platform"
+// 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
+import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
 import { helpText } from "@/modules/render/commands"
 
@@ -129,7 +132,9 @@ export default class GsCoreAdmin extends plugin {
     return e.reply(
       `早柚核心适配器  ${enabled() ? "已启用" : "已禁用"}\n` +
         `连接 ${getConnections().length} 个\n\n` +
-        `改配置：#早柚设置 <key>=<value>\n可设：${GLOBAL_KEYS.join(" / ")}`,
+        `改配置：#早柚设置<项目><开启/关闭>\n` +
+        `可设：${CN_NAMES}\n` +
+        `例：#早柚设置适配器开启 · #早柚设置最大媒体大小 2`,
     )
   }
 
@@ -181,11 +186,22 @@ export default class GsCoreAdmin extends plugin {
     const selfId = resolveSelfId(e)
     const bind = kv.bind ? (kv.bind === "all" ? [] : [kv.bind]) : selfId ? [selfId] : []
 
+    // 平台标识：用户没写 id= 就按账号形状推一次
+    // ------
+    // 原来一律留空，靠上报时 resolveBotId 查 bot_id_map。那张表只认适配器 id/name，
+    // QQBot 的 appid 与非 QQ 平台的账号（wx_ / tg_ / dc_）在表里根本没有键，
+    // 全部被 default: onebot 兜掉 —— 核心侧收到的平台就是错的。
+    // guessPlatform 按账号前缀与 appid 形状判断，见 utils/platform.ts。
+    //
+    // 推不出仍写 null（与改动前一致）：那时候留给运行时按 bot_id_map 走，
+    // 比在这里写死一个可能错的值好。
+    const botId = kv.bot_id || (selfId ? guessPlatform(selfId, globalThis.Bot?.[selfId]) : "")
+
     const conf = {
       name,
       url,
       token: kv.token || null,
-      bot_id: kv.bot_id || null,
+      bot_id: botId || null,
       enable: true,
       reconnect_interval: Number(kv.reconnect_interval) || 5,
       // retry=0 要能写进去（那是「无限重连」的显式选择），所以不能用 `|| 默认值` ——
@@ -213,11 +229,17 @@ export default class GsCoreAdmin extends plugin {
         // 把绑定结果说出来：这是这条指令唯一不来自用户输入的字段，
         // 不显示的话多 Bot 环境里没人知道它到底绑到了哪个号
         (bind.length ? `绑定账号：${bind.join("、")}（bind=all 可改为不限）\n` : "账号：不限\n") +
+        // 平台标识同理 —— 它现在也可能不来自用户输入
+        (kv.bot_id
+          ? `平台标识：${botId}\n`
+          : botId
+            ? `平台标识：${botId}（自动识别，可用 id= 覆盖）\n`
+            : "平台标识：未识别，上报时按 bot_id_map 推断\n") +
         (started
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
             ? "配置已保存，可用 #早柚重连 启动"
-            : "适配器当前已禁用（enable: false）。发 #早柚设置 enable=true 即可启用"),
+            : "适配器当前已禁用（enable: false）。发 #早柚设置适配器开启 即可启用"),
     )
   }
 
@@ -292,14 +314,19 @@ export default class GsCoreAdmin extends plugin {
 
   async set(e) {
     const raw = e.msg.replace(/^#?早柚(核心)?设置\s*/, "").trim()
+    // 英文 key=value 优先，一个都没中再试中文写法。反过来（先试中文）会让
+    // `#早柚设置 media_max_size=2097152` 这种含「设置项中文名之外的字」的串
+    // 白跑一遍解析，而且两种写法的优先级要稳定：老写法必须继续按字节收
     const kv = parseKV(raw)
-    // 写了参数但一个都没解析出来（拼错字段名、忘了等号）。空参数走 show()，
+    if (!Object.keys(kv).length) Object.assign(kv, parseCN(raw))
+    // 写了参数但两种写法都没解析出来（拼错字段名、忘了开关词）。空参数走 show()，
     // 到不了这里
     if (!Object.keys(kv).length)
       return e.reply(
         `没解析出可设置的项：${raw}\n` +
-          `用法：#早柚设置 enable=true\n` +
-          `可设：${GLOBAL_KEYS.join(" / ")}\n` +
+          `用法：#早柚设置适配器开启\n` +
+          `可设：${CN_NAMES}\n` +
+          `英文写法仍可用（${GLOBAL_KEYS.join(" / ")}）\n` +
           `不带参数发 #早柚设置 可查看当前配置`,
       )
 
@@ -312,42 +339,45 @@ export default class GsCoreAdmin extends plugin {
           switch (k) {
             case "enable":
               if (!["true", "false"].includes(v)) {
-                errs.push(`enable 只能是 true/false，收到 ${v}`)
+                errs.push(`适配器开关只能是 开启/关闭，收到 ${v}`)
                 break
               }
               doc.setIn(["enable"], v === "true")
-              done.push(`enable = ${v}`)
+              done.push(doneLine(k, v === "true"))
               break
             case "only_reply_at":
               doc.setIn(["filter", "only_reply_at"], v === "true")
-              done.push(`only_reply_at = ${v === "true"}`)
+              done.push(doneLine(k, v === "true"))
               break
             // 三个上报方向开关：都在 filter 下，改完即时生效（每条消息都读一遍配置）
             case "report_private":
             case "report_group":
             case "report_meta":
               doc.setIn(["filter", k], v === "true")
-              done.push(`${k} = ${v === "true"}`)
+              done.push(doneLine(k, v === "true"))
               break
             case "notify_master":
               doc.setIn(["notify_master"], v === "true")
-              done.push(`notify_master = ${v === "true"}`)
+              done.push(doneLine(k, v === "true"))
               break
             case "update_check":
               // 只开关定时检查，间隔/延迟属于调参，留给配置文件与锅巴面板。
               // 定时任务的 cron 一直在跑，开关只影响 tick() 里那一句判断，
               // 所以改完立刻生效，不需要重启
               doc.setIn(["update_check", "enable"], v === "true")
-              done.push(`update_check = ${v === "true"}`)
+              done.push(doneLine(k, v === "true"))
               break
             case "media_max_size": {
               const n = Number(v)
               if (!n || n < 1024) {
-                errs.push(`media_max_size 需为大于 1024 的数字，收到 ${v}`)
+                // 两种写法的下限是同一个字节数，但提示要贴着用户刚才敲的那种单位：
+                // 中文写法收 MB，说「大于 1024」他会以为要填 1024 MB
+                errs.push(`最大媒体大小至少 1 KB（中文写法单位为 MB），收到 ${v}`)
                 break
               }
               doc.setIn(["media_max_size"], n)
-              done.push(`media_max_size = ${n}`)
+              // 报换算后的值，用户才知道 `最大媒体大小 2` 到底写进去多少
+              done.push(`${CN_LABEL[k] || k} = ${(n / 1024 / 1024).toFixed(2)} MB`)
               break
             }
             default:
@@ -358,7 +388,7 @@ export default class GsCoreAdmin extends plugin {
               if (CONNECTION_KEYS.includes(k)) {
                 errs.push(`${k} 是连接级配置，请用 #早柚添加连接 或 #早柚修改连接`)
               } else {
-                errs.push(`未知项 ${k}，可设置：${GLOBAL_KEYS.join(" / ")}`)
+                errs.push(`未知项 ${k}，可设置：${CN_NAMES}`)
               }
           }
         }

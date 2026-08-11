@@ -130,9 +130,9 @@ function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boole
         >
           {/*
            * cmd 与 MASTER 标签是并排的两个块，不是「标签内联在标题文字里」：标题会折行
-           * （全局设置那组四条命令，一条不折、两条折两行、media_max_size 折三行），内联
-           * 标签便分别落在「自己单独一行」「第二行右边」「第三行右边」，同一个组件排出
-           * 四种样子。做成 flex 兄弟后标签恒在首行右侧。
+           * （`#早柚添加连接 <地址>` 与连接管理那组的 `max_reconnect_attempts（retry）`
+           * 都比栏宽长），内联标签就会分别落在「自己单独一行」与「第二行右边」，同一个
+           * 组件排出好几种样子。做成 flex 兄弟后标签恒在首行右侧。
            */}
           <div
             className={
@@ -142,10 +142,14 @@ function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boole
             }
           >
             {/*
-             * break-words 而不是 break-all / anywhere：#早柚设置 media_max_size=10485760
-             * 比栏宽长，必须折。后两者会在放不下的那一位上硬断，把数值劈成「104 / 85760」；
-             * break-words 只在整个词放不下时才硬断，而空格已提供合法断点，于是它在
-             * media_max_size 前换行，数值保持完整。
+             * break-words 而不是 break-all / anywhere：子分组里的
+             * `max_reconnect_attempts（retry）` 是最长的一条，比栏宽长，必须折。
+             * 后两者会在放不下的那一位上硬断，把字段名劈成「max_reconnect_att /
+             * empts」；break-words 只在整个词放不下时才硬断，括号已提供合法断点，
+             * 于是它在括号前换行，字段名保持完整。
+             *
+             * 全局设置那组曾经是最长的（`#早柚设置 media_max_size=10485760`），
+             * 改成中文写法后只剩 13 字符，不再是折行阈值的来源。
              *
              * 再加 break-keep（word-break:keep-all）：CJK 每个字之间都是合法断点，
              * 而 `#早柚添加连接 <地址>` 这种标题一旦在「址」「>」之间断开，就会让一个

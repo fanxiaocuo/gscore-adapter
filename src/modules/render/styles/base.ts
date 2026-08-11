@@ -41,7 +41,8 @@ export const base = (p: Palette, scale: number): string => `
   .lucide-activity,.lucide-list,.lucide-refresh-cw,
   .lucide-circle-plus,.lucide-circle-minus,.lucide-circle-play,.lucide-circle-stop,
   .lucide-settings,.lucide-arrow-up,.lucide-chevrons-up,
-  .lucide-scroll-text,.lucide-search,.lucide-info,.lucide-circle-dot{}
+  .lucide-scroll-text,.lucide-search,.lucide-info,.lucide-circle-dot,
+  .lucide-circle-check,.lucide-circle-x{}
 }
 html,body{background:${V.bg}}
 #container{

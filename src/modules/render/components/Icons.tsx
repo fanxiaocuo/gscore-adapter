@@ -26,11 +26,13 @@ import {
   Activity,
   ArrowUp,
   ChevronsUp,
+  CircleCheck,
   CircleDot,
   CircleMinus,
   CirclePlay,
   CirclePlus,
   CircleStop,
+  CircleX,
   Info,
   List,
   RefreshCw,
@@ -56,6 +58,8 @@ export type IconName =
   | "search"
   | "info"
   | "dot"
+  | "check"
+  | "cross"
 
 /**
  * 语义名 -> lucide 组件
@@ -63,6 +67,10 @@ export type IconName =
  * plus/minus/play/stop 用的是 Circle* 变体而不是裸的加减号：帮助页里这四个图标
  * 各自待在一个 48/60px 的圆角色块中央，裸符号（一横一竖）在那么大的底上显得空，
  * 有外轮廓的变体视觉重量才与同排的 Activity / Settings / ScrollText 配得上。
+ *
+ * check/cross 只给设置结果条用（Settings.tsx 的 <Result>）。曾经那里借的是
+ * play/stop —— 播放三角与「这项改成功了」没有语义关系，读者要先把它当装饰忽略掉
+ * 才能看文字。同样是 Circle* 一族，与旁边的图标同一套视觉重量。
  */
 const ICONS: Record<IconName, LucideIcon> = {
   status: Activity,
@@ -79,6 +87,8 @@ const ICONS: Record<IconName, LucideIcon> = {
   search: Search,
   info: Info,
   dot: CircleDot,
+  check: CircleCheck,
+  cross: CircleX,
 }
 
 /**
