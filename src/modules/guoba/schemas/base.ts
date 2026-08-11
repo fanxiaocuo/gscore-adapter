@@ -9,7 +9,7 @@ export const baseSchemas = [
   {
     field: "enable",
     label: "启用适配器",
-    bottomHelpMessage: "关掉则完全不连早柚核心。改这项需重启云崽生效",
+    bottomHelpMessage: "关掉则完全不连早柚核心。改完即时生效，不用重启云崽",
     component: "Switch",
   },
   {

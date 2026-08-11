@@ -125,13 +125,10 @@ function bool(v, dflt: boolean): boolean {
  */
 function saveGlobal(body) {
   const changed: string[] = []
-  let needRestart = false
 
   saveConfig(doc => {
     if (body.enable !== undefined) {
-      const v = bool(body.enable, true)
-      if (v !== enabled()) needRestart = true
-      doc.setIn(["enable"], v)
+      doc.setIn(["enable"], bool(body.enable, true))
       changed.push("enable")
     }
     if (body.notify_master !== undefined) {
@@ -164,7 +161,7 @@ function saveGlobal(body) {
   const touchedClient = changed.some(k => k.startsWith("client."))
   if (touchedClient && enabled()) reloadClients()
 
-  return { changed, needRestart, touchedClient }
+  return { changed, touchedClient }
 }
 
 /** 新增连接 */
@@ -341,9 +338,7 @@ export function init(ctx) {
       const r = saveGlobal(safeBody(req.body))
       return {
         ...payload(),
-        message: r.changed.length
-          ? `已保存 ${r.changed.length} 项${r.needRestart ? "，enable 需重启云崽生效" : ""}`
-          : "没有需要保存的改动",
+        message: r.changed.length ? `已保存 ${r.changed.length} 项` : "没有需要保存的改动",
       }
     }),
   )

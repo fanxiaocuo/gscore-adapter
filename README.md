@@ -4,7 +4,7 @@ Miao-Yunzai / TRSS-Yunzai 的 **早柚核心（[gsuid_core](https://github.com/G
 
 把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。云崽作为 ws 客户端主动连接核心，即 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
 
-> **只有 client 一个方向。** 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。所以配置里只有一个总开关 `enable`（旧版的 `mode: client/off` 会在启动时自动迁移）。
+> **只有 client 一个方向。** 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。所以配置里只有一个总开关 `enable`。
 
 ## ✨ 特性
 
@@ -61,8 +61,6 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 首次运行自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。**改后者**，前者是出厂默认值、升级会被覆盖。只需写想改的项，其余自动继承默认。装了[锅巴](https://github.com/guoba-yunzai/guoba-plugin)或 QQBot-Web-Adapter 也可以在面板里改，见下。
 
 > **升级会自动补新增的配置项。** 插件更新后多出来的顶层配置，启动时会连同注释一起追加到你的 `config/config.yaml` 末尾，已有的项一律不动。补写前会先备份成 `config.yaml.bak`。
->
-> 老配置里的 `mode: client/off` 也在这时一次性迁成 `enable: true/false`（`mode: off` 迁成 `enable: false`，不会被悄悄启用），迁完文件里就没有 `mode` 了。
 
 <details>
 <summary>Web 面板</summary>
@@ -71,7 +69,7 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 
 面板不自带服务器，是挂在那个宿主上的插件页 —— 它开机时扫 `webadapter/index.js` 并注册页面与接口，接口由宿主统一加登录鉴权（非内网直接 403）。宿主没装时这部分就是死代码，不影响插件其余功能。
 
-改配置走的是和指令同一条路径，**yaml 里的注释会保留**。两处例外要知道：`enable` 改了要重启云崽；心跳参数改了会自动重连一次。token 在面板上只显示「已配 token」，不回原值，留空保存表示不改动。
+改配置走的是和指令同一条路径，**yaml 里的注释会保留**。一处例外要知道：心跳参数改了会自动重连一次。token 在面板上只显示「已配 token」，不回原值，留空保存表示不改动。
 
 </details>
 
@@ -92,7 +90,7 @@ client:
 
 | 配置项 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `enable` | 总开关，`false` 则完全不连核心（需重启） | `true` |
+| `enable` | 总开关，`false` 则完全不连核心（改完即时生效） | `true` |
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
 | `client.connections[]` | 连接列表，见下 | — |
@@ -233,7 +231,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 | `#早柚检查更新` | 拉一次远端，看有没有新提交 |
 | `#早柚更新` | 拉取更新（`#早柚强制更新` 覆盖本地改动） |
 
-出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。改配置会**保留 yaml 原有注释**；`enable` 的变更需重启生效，其余即时生效。
+出图需要框架的 puppeteer 可用，拉不起浏览器时自动降级成文本。改配置会**保留 yaml 原有注释**，且全部即时生效，不用重启云崽。
 
 ```
 #早柚添加连接 127.0.0.1:8765 name=主核心 token=abc

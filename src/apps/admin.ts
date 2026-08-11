@@ -168,7 +168,7 @@ export default class GsCoreAdmin extends plugin {
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
             ? "配置已保存，可用 #早柚重连 启动"
-            : "适配器当前已禁用（enable: false）。发 #早柚设置 enable=true 并重启云崽后生效"),
+            : "适配器当前已禁用（enable: false）。发 #早柚设置 enable=true 即可启用"),
     )
   }
 
@@ -260,7 +260,7 @@ export default class GsCoreAdmin extends plugin {
                 break
               }
               doc.setIn(["enable"], v === "true")
-              done.push(`enable = ${v}（需重启生效）`)
+              done.push(`enable = ${v}`)
               break
             case "only_reply_at":
               doc.setIn(["filter", "only_reply_at"], v === "true")

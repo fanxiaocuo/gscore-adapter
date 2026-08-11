@@ -4,8 +4,6 @@
 
 ::: tip 升级会自动补新增的配置项
 插件更新后多出来的顶层配置，启动时会连同注释一起追加到你的 `config/config.yaml`，已有的项一律不动。补写前会先备份成 `config.yaml.bak`。
-
-老配置里的 `mode: client/off` 也在这时一次性迁成 `enable: true/false`（`mode: off` 迁成 `enable: false`，不会被悄悄启用），迁完文件里就没有 `mode` 了。
 :::
 
 ## 最小配置
@@ -29,7 +27,7 @@ client:
 
 | 配置项 | 说明 | 默认值 |
 | :--- | :--- | :--- |
-| `enable` | 总开关，`false` 则完全不连核心（需重启） | `true` |
+| `enable` | 总开关，`false` 则完全不连核心（改完即时生效） | `true` |
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
 | `client.connections[]` | 连接列表，见下 | — |

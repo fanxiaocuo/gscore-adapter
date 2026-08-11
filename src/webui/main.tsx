@@ -54,7 +54,7 @@ function bytes(n) {
 
 /** 全局设置的字段表，渲染与收集共用 */
 const FIELDS = [
-  { k: "enable", label: "启用适配器", type: "switch", hint: "关掉则完全不连核心，需重启云崽" },
+  { k: "enable", label: "启用适配器", type: "switch", hint: "关掉则完全不连核心，改完即时生效" },
   { k: "heartbeat", label: "心跳间隔（秒）", type: "number", hint: "0 关闭；改后自动重连" },
   { k: "heartbeat_timeout", label: "心跳超时（秒）", type: "number", hint: "0 关闭" },
   { k: "media_max_size", label: "媒体内联上限", type: "bytes", hint: "超过改用外链" },
