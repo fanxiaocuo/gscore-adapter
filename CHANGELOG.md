@@ -3,6 +3,17 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [3.0.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.3.0...v3.0.0) (2026-08-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* 移除 mode → enable 的迁移逻辑。v2.2.0（2026-08-08）之前的用户若从未启动过 v2.2.x，需手动将 `mode: off` 改为 `enable: false`。
+
+### ✨ 新功能
+
+* enable 改为热生效，删除 mode 迁移 ([c1ff95b](https://github.com/fanxiaocuo/gscore-adapter/commit/c1ff95ba6bad5df4c0728c5092e41814b5279955))
+
 ## [2.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v2.2.1...v2.3.0) (2026-08-11)
 
 
