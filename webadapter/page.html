@@ -16,13 +16,13 @@
 <link rel="stylesheet" href="page.css" />
 </head>
 <body>
-<!-- 整页由 React 渲染，源码在 src/webui/main.tsx，产物是同目录的 page.js -->
+<!-- 整页由 React 渲染，源码在 src/webui/main.tsx，产物是同目录的 panel.js -->
 <div id="app"><p class="hint">加载中…</p></div>
 <script>
-  // 只做一件事：把 favicon 指到接口上。其余交给 page.js
+  // 只做一件事：把 favicon 指到接口上。其余交给 panel.js
   document.getElementById("favicon").href =
     `${new URLSearchParams(location.search).get("__webBase") || ""}/api/gscore-adapter/logo`
 </script>
-<script src="page.js"></script>
+<script src="panel.js"></script>
 </body>
 </html>

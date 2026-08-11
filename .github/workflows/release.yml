@@ -166,7 +166,7 @@ jobs:
                    resources/config/default_config.yaml \
                    resources/template/css/tailwind.css guoba.support.js \
                    webadapter/index.js lib/modules/webadapter/index.js \
-                   webadapter/page.html webadapter/page.css webadapter/page.js \
+                   webadapter/page.html webadapter/page.css webadapter/panel.js \
                    resources/template/image/logo.webp \
                    resources/template/image/frame-logo.webp; do
             if [ -e "dist_branch/$f" ]; then

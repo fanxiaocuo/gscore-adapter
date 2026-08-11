@@ -2,7 +2,7 @@
  * Web 面板前端（React）
  *
  * 这份是**浏览器**代码，与 modules/webadapter/（Node 侧接口）分属两端：
- * 它由 esbuild 打包成 webadapter/page.js，宿主用 iframe 加载 page.html 时引入。
+ * 它由 esbuild 打包成 webadapter/panel.js，宿主用 iframe 加载 page.html 时引入。
  * 打包而不是直接 import react —— 宿主的静态白名单只放行描述符里列过的文件名
  * （src/style/script 三个），放不进 node_modules，也没有 import map。
  *

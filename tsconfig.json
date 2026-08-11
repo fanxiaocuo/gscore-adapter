@@ -47,7 +47,7 @@
   },
   "include": ["src/**/*"],
   // src/webui/ 是 web 面板的**浏览器**代码，由 build:panel 用 esbuild 单独打包成
-  // webadapter/page.js，不该经 tsc 进 lib/：那份产物永远不会被 Node 侧 import，
+  // webadapter/panel.js，不该经 tsc 进 lib/：那份产物永远不会被 Node 侧 import，
   // 只会白占体积；而且它 import 的是 react-dom/client（浏览器入口），
   // 跟着 lib/ 发出去反而容易被误当成服务端模块。
   // 排除后它就不受 tsc --noEmit 管了，而 esbuild 只剥类型不校验（实测塞一个
