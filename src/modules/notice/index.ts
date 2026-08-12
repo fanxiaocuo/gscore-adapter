@@ -10,6 +10,7 @@
  */
 import { SUB_TYPE_MAP } from "@/constants"
 import { str, passFilter, isChannel } from "@/utils"
+import type { AdapterEvent, MessageReceive } from "@/types"
 import { toStr } from "@/utils/compat"
 
 export { passFilter }
@@ -19,7 +20,13 @@ export { passFilter }
  * @param selfId 调用方解析过的账号，用于 poke 的被戳者兜底；不传则退回 e.self_id
  * @returns 无法映射返回 null
  */
-export function noticeToMeta(e, selfId?: string) {
+/** noticeToMeta 的产物：事件名 + 核心要的 data 字典 */
+export interface MetaEvent {
+  eventName: string
+  data: Record<string, string>
+}
+
+export function noticeToMeta(e: AdapterEvent, selfId?: string): MetaEvent | null {
   if (!e || e.post_type !== "notice") return null
 
   // poke 判断必须在 group/friend 之前：它在两种 notice_type 下都出现
@@ -63,11 +70,11 @@ export function noticeToMeta(e, selfId?: string) {
  * @param opts  { isMaster, selfId }
  */
 export function metaToGscore(
-  e,
-  meta,
-  botId,
+  e: AdapterEvent,
+  meta: MetaEvent | null,
+  botId: string,
   opts: { isMaster?: boolean; selfId?: string } = {},
-) {
+): MessageReceive | null {
   if (!meta) return null
 
   const group_id = meta.data.group_id || str(e.group_id)
@@ -88,6 +95,6 @@ export function metaToGscore(
 }
 
 /** 日志用的简短描述 */
-export function metaLogStr(meta) {
+export function metaLogStr(meta: MetaEvent) {
   return `${meta.eventName} ${toStr(meta.data)}`
 }

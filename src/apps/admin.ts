@@ -1,18 +1,23 @@
-import { saveConfig, getConnections, enabled } from "@/config"
+import { config, saveConfig, getWsConnections, enabled } from "@/config"
 import { clients, startClient, stopClient } from "@/modules/client"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
-import { normalizeUrl } from "@/utils/url"
+import { findDuplicate, requireWsUrl } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
 import { guessPlatform } from "@/utils/platform"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
 import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
 import { helpText } from "@/modules/render/commands"
+import type { WsConnection, YunzaiEvent } from "@/types"
 
 /** 关闭状态下不热启动连接 */
 function clientMode() {
   return enabled()
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 /** 单条连接的字段，由 #早柚添加连接 / #早柚修改连接 消费 */
@@ -66,7 +71,7 @@ const KV_KEYS = [...CONNECTION_KEYS, ...GLOBAL_KEYS, ...Object.keys(KV_ALIAS)]
 const KV_RE = new RegExp(`^(${KV_KEYS.join("|")})[=:：](.*)$`, "i")
 
 /** 从命令里解析 key=value，支持中英文冒号/等号；简写归一成正式字段名 */
-function parseKV(text): Record<string, string> {
+function parseKV(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   for (const seg of text.split(/[\s,，]+/)) {
     if (!seg) continue
@@ -79,11 +84,11 @@ function parseKV(text): Record<string, string> {
 }
 
 /** 是否为 key=value 片段（用于把剩下的那个片段认作地址） */
-function isKV(seg) {
+function isKV(seg: string) {
   return KV_RE.test(seg)
 }
 
-export default class GsCoreAdmin extends plugin {
+export default class GsCoreAdmin extends plugin<"message"> {
   constructor() {
     super({
       name: "早柚核心连接管理",
@@ -113,7 +118,7 @@ export default class GsCoreAdmin extends plugin {
    * 优先出图；渲染失败（没装 Chromium、截图超时等）回落纯文本。
    * 两者同源于 render/commands.ts 的 HELP_GROUPS，不会出现图文不一致。
    */
-  async help(e) {
+  async help(e: YunzaiEvent) {
     const img = await renderHelp()
     return e.reply(img || helpText())
   }
@@ -126,21 +131,21 @@ export default class GsCoreAdmin extends plugin {
    *
    * 渲染失败时回落成一行行文本，与 set() 的失败路径一致。
    */
-  async show(e) {
+  async show(e: YunzaiEvent) {
     const img = await renderConfig()
     if (img) return e.reply(img)
     return e.reply(
       `早柚核心适配器  ${enabled() ? "已启用" : "已禁用"}\n` +
-        `连接 ${getConnections().length} 个\n\n` +
+        `连接 ${getWsConnections().length} 个\n\n` +
         `改配置：#早柚设置<项目><开启/关闭>\n` +
         `可设：${CN_NAMES}\n` +
         `例：#早柚设置适配器开启 · #早柚设置最大媒体大小 2`,
     )
   }
 
-  /** 按名字或 1 起的序号定位连接 */
-  find(key) {
-    const list = getConnections()
+  /** 按名字或 1 起的序号定位连接。序号即 ws_connections 的下标 +1 */
+  find(key: string | number) {
+    const list = getWsConnections()
     key = String(key).trim()
     const idx = Number(key)
     if (Number.isInteger(idx) && idx >= 1 && idx <= list.length)
@@ -149,7 +154,7 @@ export default class GsCoreAdmin extends plugin {
     return i > -1 ? { index: i, conf: list[i] } : null
   }
 
-  async add(e) {
+  async add(e: YunzaiEvent) {
     const raw = e.msg.replace(/^#?早柚(核心)?(添加|新增)连接\s*/, "").trim()
     if (!raw)
       return e.reply(
@@ -161,14 +166,8 @@ export default class GsCoreAdmin extends plugin {
     const kv = parseKV(raw)
     // 第一个不含 = 的片段视为地址
     const urlPart = raw.split(/[\s,，]+/).find(s => s && !isKV(s))
-    const url = normalizeUrl(kv.url || urlPart)
-    if (!url) return e.reply("没解析出地址，用法：#早柚添加连接 ws://127.0.0.1:8765/ws/Yunzai")
 
-    const list = getConnections()
-    if (list.some(c => c.url === url)) return e.reply(`该地址已存在：${url}`)
-
-    let name = kv.name || `core${list.length + 1}`
-    if (list.some(c => c.name === name)) name = `${name}-${Date.now().toString(36).slice(-4)}`
+    const list = getWsConnections()
 
     // 默认把连接绑到「收到这条指令的那个机器人」
     // ------
@@ -186,18 +185,63 @@ export default class GsCoreAdmin extends plugin {
     const selfId = resolveSelfId(e)
     const bind = kv.bind ? (kv.bind === "all" ? [] : [kv.bind]) : selfId ? [selfId] : []
 
-    // 平台标识：用户没写 id= 就按账号形状推一次
-    // ------
-    // 原来一律留空，靠上报时 resolveBotId 查 bot_id_map。那张表只认适配器 id/name，
-    // QQBot 的 appid 与非 QQ 平台的账号（wx_ / tg_ / dc_）在表里根本没有键，
-    // 全部被 default: onebot 兜掉 —— 核心侧收到的平台就是错的。
-    // guessPlatform 按账号前缀与 appid 形状判断，见 utils/platform.ts。
+    // 只填 host:port 时补出的路径段带上账号，两个 Bot 才能同时连一个核心，
+    // 理由见 normalizeUrl。bind=all（不限账号）时不带 —— 那条连接不属于某个账号。
+    // 必须排在 bind 之后：段里用的就是它绑的那个账号
     //
-    // 推不出仍写 null（与改动前一致）：那时候留给运行时按 bot_id_map 走，
-    // 比在这里写死一个可能错的值好。
-    const botId = kv.bot_id || (selfId ? guessPlatform(selfId, globalThis.Bot?.[selfId]) : "")
+    // 走 requireWsUrl 而不是裸 normalizeUrl：协议校验只有那一处（见该函数），
+    // http:// 会带着换算好的 ws 地址抛出来，直接把话回给用户就是可用的建议
+    let url: string
+    try {
+      url = requireWsUrl(kv.url || urlPart, bind.length === 1 ? bind[0] : null)
+    } catch (err) {
+      return e.reply(
+        `${errorMessage(err)}\n用法：#早柚添加连接 127.0.0.1:8765（只填 host:port 即可）`,
+      )
+    }
 
-    const conf = {
+    // 平台标识分两处落：显式 id= 写进连接，自动识别的写进 bot_id_map
+    // ------
+    // 为什么不都写进连接的 bot_id
+    // -------------------------
+    // resolveBotId 的第一行是 `if (conf?.bot_id) return conf.bot_id` —— 连接级的值
+    // 短路掉后面所有按账号的解析。而这里的自动识别只看得到「发这条指令的那个号」，
+    // 一条连接却可以 bind 多个账号，且它们的平台可能不同（ICQQ 号是 onebot、
+    // QQBot 号是 qqgroup）。把猜出来的值写进连接，等于替所有 bind 的账号都断言了
+    // 同一个平台：日后往 bind 里加一个别的平台的号，它的消息就会被按错的平台上报，
+    // 而且是静默的。
+    //
+    // 所以自动识别的结果按账号记到 bot_id_map 里（那张表本来就是 self_id 精确匹配
+    // 优先，见 resolveBotId），连接的 bot_id 只留给用户显式 id= —— 那是他自己的
+    // 断言「这条连接一律按这个平台上报」，短路是对的。
+    //
+    // 多个账号平台相同的情形不会让这张表膨胀得难看：同平台的键各写一行，值一样，
+    // 而适配器级的粗粒度键（QQ: onebot）仍在表里覆盖没被单独记过的号。
+    const guessed = selfId ? guessPlatform(selfId, globalThis.Bot?.[selfId]) : ""
+    const botId = kv.bot_id || ""
+
+    // 判重按 (核心, 账号) 而不是只看地址，理由见 findDuplicate。
+    // 必须排在 bind 算出来之后 —— 判重要用它
+    const dup = findDuplicate(list, url, bind)
+    if (dup) {
+      const had = dup.bind?.length ? dup.bind.join("、") : "不限账号"
+      return e.reply(
+        `这个核心已经加过了：${dup.name}\n` +
+          `已绑定：${had}\n` +
+          (bind.length
+            ? `本次要绑 ${bind.join("、")}，与它重复。\n` +
+              `想让别的机器人也连这个核心，就在那个号上发这条指令。`
+            : `本次是「不限账号」，会与它重复上报。\n` +
+              `想按账号分开，用 bind=<账号> 指定。`),
+      )
+    }
+
+    let name = kv.name || `core${list.length + 1}`
+    if (list.some(c => c.name === name)) name = `${name}-${Date.now().toString(36).slice(-4)}`
+
+    // 标 WsConnection 而不是让它自己推：空的 exclude 会被推成 never[]（TS7018），
+    // 而这个对象要同时写进 yaml 与传给 startClient，写错字段名不该等到运行时才发现
+    const conf: WsConnection = {
       name,
       url,
       token: kv.token || null,
@@ -213,14 +257,24 @@ export default class GsCoreAdmin extends plugin {
       exclude: [],
     }
 
+    // 自动识别出的平台按账号记一笔，与连接写在同一次保存里
+    // ------
+    // 只在「这个账号还没有记录」时写：那张表是用户可以手改的，他改过的值不该被
+    // 一条添加连接指令悄悄改回去。也不写进连接的 bot_id，理由见上面 guessed 那段。
+    const mapped = selfId && guessed && !config.bot_id_map?.[selfId] ? guessed : ""
+
+    const targetPath = ["client", "ws_connections"]
+
     try {
       saveConfig(doc => {
-        if (!doc.hasIn(["client", "connections"])) doc.setIn(["client", "connections"], [])
-        doc.getIn(["client", "connections"]).add(doc.createNode(conf))
+        if (!doc.hasIn(targetPath)) doc.setIn(targetPath, [])
+        doc.getIn(targetPath).add(doc.createNode(conf))
+        // setIn 会把缺失的中间层补出来，bot_id_map 整个不存在时也不用先建
+        if (mapped) doc.setIn(["bot_id_map", String(selfId)], mapped)
       })
-    } catch (err: any) {
+    } catch (err) {
       makeLog("error", ["写入配置失败", err], "GsCore")
-      return e.reply(`保存失败：${err.message}`)
+      return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
     const started = clientMode() ? startClient(conf) : null
@@ -229,12 +283,20 @@ export default class GsCoreAdmin extends plugin {
         // 把绑定结果说出来：这是这条指令唯一不来自用户输入的字段，
         // 不显示的话多 Bot 环境里没人知道它到底绑到了哪个号
         (bind.length ? `绑定账号：${bind.join("、")}（bind=all 可改为不限）\n` : "账号：不限\n") +
-        // 平台标识同理 —— 它现在也可能不来自用户输入
+        // 路径段带账号是「多个 Bot 能同时连一个核心」的关键（核心按这一段区分连接），
+        // 但用户只填了 host:port，不说他不会知道地址被改过
+        (bind.length === 1 && url.includes(`/ws/Yunzai-${bind[0]}`)
+          ? `路径已按账号区分，其他机器人可连同一个核心\n`
+          : "") +
+        // 平台标识落在哪儿要说清楚：连接级会盖掉所有账号，表里的只管这一个号。
+        // 用户看不到这个区别的话，多账号时排查不动
         (kv.bot_id
-          ? `平台标识：${botId}\n`
-          : botId
-            ? `平台标识：${botId}（自动识别，可用 id= 覆盖）\n`
-            : "平台标识：未识别，上报时按 bot_id_map 推断\n") +
+          ? `平台标识：${botId}（本连接一律按它上报，含日后加进 bind 的账号）\n`
+          : mapped
+            ? `平台标识：${mapped}（自动识别，已按账号 ${selfId} 记入 bot_id_map）\n`
+            : selfId && config.bot_id_map?.[selfId]
+              ? `平台标识：${config.bot_id_map[selfId]}（bot_id_map 里已有 ${selfId} 的记录）\n`
+              : "平台标识：未识别，上报时按 bot_id_map 推断\n") +
         (started
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
@@ -243,27 +305,29 @@ export default class GsCoreAdmin extends plugin {
     )
   }
 
-  async del(e) {
+  async del(e: YunzaiEvent) {
     const key = e.msg.replace(/^#?早柚(核心)?(删除|移除)连接\s*/, "").trim()
     const hit = this.find(key)
     if (!hit) return e.reply(`找不到连接「${key}」，用 #早柚连接列表 查看`)
 
     try {
-      saveConfig(doc => doc.deleteIn(["client", "connections", hit.index]))
-    } catch (err: any) {
-      return e.reply(`保存失败：${err.message}`)
+      saveConfig(doc => {
+        doc.deleteIn(["client", "ws_connections", hit.index])
+      })
+    } catch (err) {
+      return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
     stopClient(hit.conf.name)
     return e.reply(`已删除连接 ${hit.conf.name}（${hit.conf.url}）`)
   }
 
-  async list(e) {
+  async list(e: YunzaiEvent) {
     const img = await renderList()
     if (img) return e.reply(img)
 
     // 文本回退
-    const list = getConnections()
+    const list = getWsConnections()
     if (!list.length) return e.reply("还没有配置任何连接\n用 #早柚添加连接 <地址> 添加")
 
     const msg = [`早柚核心连接（共 ${list.length} 个）  ${enabled() ? "已启用" : "已禁用"}`]
@@ -281,23 +345,25 @@ export default class GsCoreAdmin extends plugin {
     return e.reply(msg.join(""))
   }
 
-  async enable(e) {
+  async enable(e: YunzaiEvent) {
     return this.toggle(e, true)
   }
 
-  async disable(e) {
+  async disable(e: YunzaiEvent) {
     return this.toggle(e, false)
   }
 
-  async toggle(e, on) {
+  async toggle(e: YunzaiEvent, on: boolean) {
     const key = e.msg.replace(/^#?早柚(核心)?(开启|启用|关闭|停用)连接\s*/, "").trim()
     const hit = this.find(key)
     if (!hit) return e.reply(`找不到连接「${key}」，用 #早柚连接列表 查看`)
 
     try {
-      saveConfig(doc => doc.setIn(["client", "connections", hit.index, "enable"], on))
-    } catch (err: any) {
-      return e.reply(`保存失败：${err.message}`)
+      saveConfig(doc => {
+        doc.setIn(["client", "ws_connections", hit.index, "enable"], on)
+      })
+    } catch (err) {
+      return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
     if (on) {
@@ -312,7 +378,7 @@ export default class GsCoreAdmin extends plugin {
     return e.reply(`已停用连接 ${hit.conf.name}`)
   }
 
-  async set(e) {
+  async set(e: YunzaiEvent) {
     const raw = e.msg.replace(/^#?早柚(核心)?设置\s*/, "").trim()
     // 英文 key=value 优先，一个都没中再试中文写法。反过来（先试中文）会让
     // `#早柚设置 media_max_size=2097152` 这种含「设置项中文名之外的字」的串
@@ -393,12 +459,13 @@ export default class GsCoreAdmin extends plugin {
           }
         }
       })
-    } catch (err: any) {
-      return e.reply(`保存失败：${err.message}`)
+    } catch (err) {
+      return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
     // 无论成功、失败、还是没有改动，都渲染图片——跟其他页一样的质感
     const img = await renderSettings(done, errs)
-    return e.reply(img)
+    if (img) return e.reply(img)
+    return e.reply([...done, ...errs].join("\n") || "没有可保存的设置")
   }
 }

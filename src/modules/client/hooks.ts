@@ -5,6 +5,7 @@
  */
 import { config } from "@/config"
 import { isFromGsCore, eventText, passFilter, passDirection, resolveSelfId } from "@/utils"
+import type { AdapterEvent } from "@/types"
 import { noticeToMeta } from "@/modules/notice"
 import { remember } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
@@ -16,7 +17,7 @@ import { isMasterUser } from "./framework.js"
  * @param selfId 由 resolveSelfId 解析过的账号，已保证非空 —— 下面几处回环判断
  *               全靠它，绝不能退回读 e.self_id（那正是可能为 null 的那个）
  */
-function shouldForward(e, selfId: string) {
+function shouldForward(e: AdapterEvent, selfId: string) {
   if (e.post_type !== "message") return false
   if (!e.user_id) return false
 
@@ -44,7 +45,9 @@ function shouldForward(e, selfId: string) {
 
   // 仅回复 @ / 前缀，只作用于群聊
   if (f.only_reply_at && (e.message_type === "group" || e.isGroup)) {
-    const atBot = (e.message || []).some(i => i?.type === "at" && String(i.qq) === selfId)
+    const atBot = (Array.isArray(e.message) ? e.message : []).some(
+      i => typeof i === "object" && i?.type === "at" && String(i.qq) === selfId,
+    )
     const hasPrefix = (f.prefix || []).some(i => text.startsWith(i))
     if (!atBot && !hasPrefix) return false
   }
@@ -60,14 +63,14 @@ function shouldForward(e, selfId: string) {
  */
 const warned = new Set<string>()
 
-function warnNoSelfId(e) {
+function warnNoSelfId(e: AdapterEvent) {
   const adapter = e?.bot?.adapter?.id || e?.adapter_id || e?.adapter_name || "unknown"
   // 按「适配器 + 事件类型」去重：同一个源反复发同样的残缺事件只值一条日志
   const sig = `${adapter}:${e?.post_type}.${e?.message_type ?? e?.notice_type ?? ""}`
   if (warned.has(sig)) return
   warned.add(sig)
 
-  const uin = (globalThis.Bot as any)?.uin
+  const uin = globalThis.Bot?.uin
   makeLog(
     "warn",
     `事件缺少 self_id 且无法回退，已跳过：adapter=${adapter} ` +
@@ -79,7 +82,7 @@ function warnNoSelfId(e) {
   )
 }
 
-export async function onYunzaiMessage(e) {
+export async function onYunzaiMessage(e: AdapterEvent) {
   try {
     if (!clients.length) return
     // 类型判定提前到 resolveSelfId 之前：非消息事件不该触发缺 self_id 的告警。
@@ -119,7 +122,7 @@ export async function onYunzaiMessage(e) {
  * 不复用 shouldForward：其中的回显检测、文本前缀、only_reply_at
  * 都建立在 e.message 上，notice 没有 message 数组。
  */
-function shouldForwardNotice(e) {
+function shouldForwardNotice(e: AdapterEvent) {
   if (e.post_type !== "notice") return false
 
   // 事件总开关：核心侧没装消费 meta 事件的插件时，关掉能省掉全部无用上报
@@ -134,7 +137,7 @@ function shouldForwardNotice(e) {
   return passFilter(e)
 }
 
-export async function onYunzaiNotice(e) {
+export async function onYunzaiNotice(e: AdapterEvent) {
   try {
     if (!clients.length) return
     if (e.post_type !== "notice") return

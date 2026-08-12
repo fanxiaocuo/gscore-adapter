@@ -6,10 +6,49 @@
 import { join, isAbsolute } from "node:path"
 import { pathToFileURL } from "node:url"
 import { config, onConfigReload } from "@/config"
+import type { FileLike, MediaInput } from "@/types"
 import { YunzaiPath } from "@/dir"
 import { logStr } from "./logger.js"
 import { makeLog, toStr, toBuffer, fileToUrl } from "./compat.js"
 import { serveFile, fileServerEnabled } from "./fileServer.js"
+
+/**
+ * 消息段里的流先读成 Buffer
+ *
+ * `Bot.Buffer` 不认流：非 Buffer 入参一律 `String(data)`（lib/util.js:274），
+ * 流会变成 `[object Object]` 再当文件路径去 stat，产出的是一张坏图而不是报错。
+ * 所以在媒体转换的入口就把流读掉，下游只见 `FileLike`。
+ *
+ * 按能力探测而不是 `instanceof Readable`：跨 realm（不同 node_modules 副本里的
+ * stream 模块）时 instanceof 会失手，而「有 pipe 且可迭代」是流的稳定特征。
+ */
+async function readStream(
+  file: MediaInput | null | undefined,
+): Promise<FileLike | null | undefined> {
+  // 返回字面量而不是 file：strictNullChecks 关着，`== null` 不会把
+  // null/undefined 从类型里收窄掉，直接 return file 仍是 MediaInput
+  if (file == null) return null
+  if (typeof file === "string") return file
+  if (Buffer.isBuffer(file)) return file
+
+  const s = file
+  if (typeof s?.pipe !== "function" && typeof s?.[Symbol.asyncIterator] !== "function") {
+    // 既不是 FileLike 也不是流。到这里说明段里塞了个我们读不了的东西，
+    // 与其交给 toBuffer 去 String 成 "[object Object]" 当路径 stat（坏图），
+    // 不如在这里就判失败 —— 报出来才查得到是哪个适配器给的什么。
+    makeLog("warn", ["媒体段既不是路径/Buffer 也不是流，已跳过", logStr(s)], "GsCore")
+    return null
+  }
+
+  try {
+    const chunks: Buffer[] = []
+    for await (const c of s) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c))
+    return Buffer.concat(chunks)
+  } catch (err) {
+    makeLog("warn", ["读取流失败，已跳过该段", err], "GsCore")
+    return null
+  }
+}
 
 export function mediaMaxSize() {
   return Number(config.media_max_size) || 10485760
@@ -72,7 +111,12 @@ onConfigReload(resetUploadHook)
  * 云崽文件字段 -> 早柚核心媒体串
  * 小文件走 base64://，http 外链或超限文件走 link://
  */
-export async function toGscoreMedia(file, name?) {
+export async function toGscoreMedia(
+  input: MediaInput | null | undefined,
+  name?: string,
+): Promise<string> {
+  // 段里可能带流，先读成 Buffer —— 理由见 readStream
+  const file = await readStream(input)
   if (file == null || file === "") return ""
 
   const data = await toBuffer(file, { http: true, size: mediaMaxSize() })
@@ -158,7 +202,11 @@ async function viaUploadHook(pathOrUrl: string, name?: string): Promise<string> 
  * file 段协议规定必须是 `{文件名}|{裸base64}`，没有 URL 形式，
  * 所以只能读全量。加硬上限防止 OOM。
  */
-export async function toGscoreFile(file, name?) {
+export async function toGscoreFile(
+  input: MediaInput | null | undefined,
+  name?: string,
+): Promise<string> {
+  const file = await readStream(input)
   if (file == null || file === "") return ""
   const buf = await toBuffer(file)
   if (!Buffer.isBuffer(buf)) {
@@ -180,8 +228,13 @@ export async function toGscoreFile(file, name?) {
  * 早柚核心媒体串 -> 云崽可用的 file 值
  * 注意：不要照抄 ws-plugin 的 /^(http|base64|link)/ ——
  * 该正则未锚定协议分隔符，恰好以 link 开头的裸 base64 会被误判
+ *
+ * 返回 `string | Buffer` 而不是 `string`：Buffer 入参原样返回是有意的
+ * （下游 segment.image/record/video 都收 Buffer，转成 base64 只是白绕一圈），
+ * 声明成 string 属于签名与实现不符。协议里 data 恒为字符串，Buffer 那路
+ * 只服务于把本函数当工具用的外部调用方。
  */
-export function fromGscoreMedia(data) {
+export function fromGscoreMedia(data: FileLike | null | undefined): string | Buffer {
   if (Buffer.isBuffer(data)) return data
   let s = toStr(data ?? "")
   if (s.startsWith("link://")) {

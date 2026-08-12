@@ -5,11 +5,11 @@
  */
 
 
-/** 单条客户端连接配置 */
-export interface ClientConnection {
+/** WebSocket 连接配置 */
+export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */
   name?: string
-  /** 早柚核心地址，路由为 /ws/{bot_id}，bot_id 为本机器人平台名 */
+  /** 早柚核心 WebSocket 地址，路由为 /ws/{bot_id}，bot_id 为本机器人平台名 */
   url: string
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
@@ -100,12 +100,18 @@ export interface Config {
    * 改完即时生效：index.ts 在 onConfigReload 里按这个值热起停连接。
    */
   enable?: boolean
+  /** 早柚核心连接。只有 WebSocket 一种 */
   client?: {
     /** ws ping 间隔（秒），0 关闭 */
     heartbeat?: number
     /** 超过多少秒没收到 pong 判定掉线，0 关闭 */
     heartbeat_timeout?: number
-    connections?: ClientConnection[]
+    /** 是否启用 WebSocket 连接 */
+    enable_ws?: boolean
+    /** WebSocket 连接列表 */
+    ws_connections?: WsConnection[]
+    /** 3.1 及更早版本使用的废弃字段，仅用于启动时给出迁移提示 */
+    connections?: unknown
   }
   filter?: FilterConfig
   /**

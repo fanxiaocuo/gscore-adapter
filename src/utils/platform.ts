@@ -10,6 +10,9 @@
  * （`utils/session.ts` 的文件头注释记着同一个坑）。
  *
  * 所以本文件**不 import 任何本项目模块**，只接收调用方递进来的 selfId 与 bot 对象。
+ * 连 `import type` 也不写（虽然它编译后会被擦掉、不会真成环）—— 这条约束的价值
+ * 在于「看一眼 import 区就知道这里不会成环」，破一次例就得每次都验证一遍。
+ * 所以 bot 参数用行内结构类型标，只列这里实际读的两个字段。
  *
  * 判据来源
  * -------
@@ -61,8 +64,7 @@ const ADAPTER_PLATFORM: Record<string, string> = {
   ComWeChat: "onebot",
   WeChat: "onebot",
   Satori: "onebot",
-  Milky: "onebot",
-  stdin: "onebot",
+  stdin: "console",
   QQ: "onebot",
 }
 
@@ -99,7 +101,10 @@ export function isQQBotAppId(id: string | number | null | undefined): boolean {
  * 意味着不写 bot_id、留给运行时按 bot_id_map 走；上报兜底时才需要一个具体值，
  * 那一步的兜底本来就在 `resolveBotId` 里。在这里兜掉会让前者失去「不确定」这个状态。
  */
-export function guessPlatform(selfId: string | number | null | undefined, bot?: any): string {
+export function guessPlatform(
+  selfId: string | number | null | undefined,
+  bot?: { adapter?: { id?: string; name?: string; [k: string]: any }; [k: string]: any } | null,
+): string {
   const sid = selfId == null ? "" : String(selfId)
 
   const byPrefix = sid.length >= 3 ? PREFIX_PLATFORM[sid.slice(0, 3).toLowerCase()] : undefined

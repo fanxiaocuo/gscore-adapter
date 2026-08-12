@@ -27,9 +27,21 @@
     "outDir": "./lib",
 
     "strict": true,
-    // 插件大量 JSON 透传、平台差异字段、动态 Bot 对象访问，
-    // 逐个标注成本高且阻碍快速迭代，先关闭最严格的三项。
-    "noImplicitAny": false,
+    // strictNullChecks 与 strictPropertyInitialization 仍关着，原因不同，别一起打开：
+    //
+    // strictNullChecks —— 云崽的事件与 Bot 对象上大量字段「可能没有」，而框架自身
+    //   （@types/trss-yunzai）就是在关着这个开关的前提下写的：Client.uin 之类的字段
+    //   都不带 | undefined。打开后报的多半是**声明**没标可选，不是我们的代码有 bug，
+    //   逐个 ! 断言只是把噪音搬到代码里。
+    //   注意：关着它意味着 `if (x == null) return x` **不会**把 null 从类型里收窄掉，
+    //   写这种守卫时要 return 字面量（utils/media.ts 的 readStream 有过这个坑）。
+    //
+    // strictPropertyInitialization —— 只在 strictNullChecks 打开时才有意义，
+    //   跟着它一起留着。
+    //
+    // noImplicitAny 已打开：全项目参数与绑定都标了类型，事件用 AdapterEvent，
+    //   开放集（消息段、发送返回值）用「已知字段 + 索引签名」而不是裸 any。
+    //   新代码请照这个路子标，不要为了过编译写 `: any`。
     "strictNullChecks": false,
     "strictPropertyInitialization": false,
     "esModuleInterop": true,

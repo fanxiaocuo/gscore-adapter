@@ -6,6 +6,7 @@
  * 让 upgrade 反过来 import index 就成环了。放这里两边都只依赖它。
  */
 import YAML from "yaml"
+import type { Document, Node } from "yaml"
 
 /**
  * 把 flow 风格的集合压回块状
@@ -13,7 +14,7 @@ import YAML from "yaml"
  * 为什么需要
  * --------
  * `doc.createNode({...})` 造出来的节点默认是 flow 的，于是 #早柚添加连接 写进去的
- * `connections` 会变成一行两百字符的 `[ { name: ..., url: ..., ... } ]` ——
+ * `ws_connections` 会变成一行两百字符的 `[ { name: ..., url: ..., ... } ]` ——
  * 用户既读不了也没法手改。而 flow 这个标记记在**节点自身**上，`toString` 的
  * `lineWidth: 0` 管不着它，所以一旦某次写入把它变成 flow，之后每次保存都会照写成一行。
  *
@@ -27,8 +28,8 @@ import YAML from "yaml"
  * 与 `flow` 是两个独立字段，改后者不动前者（test/upgrade.test.mjs 有断言）。
  */
 export function unflow<T>(doc: T): T {
-  YAML.visit(doc as any, {
-    Collection(_key, node: any) {
+  YAML.visit(doc as unknown as Document | Node, {
+    Collection(_key, node) {
       if (node.flow && node.items?.length) node.flow = false
     },
   })

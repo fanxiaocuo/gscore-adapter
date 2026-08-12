@@ -24,6 +24,15 @@ export interface HelpItem {
   icon: IconName
   /** 仅主人可用 */
   master?: boolean
+  /**
+   * 占满整行（双栏网格里跨两列）
+   *
+   * 给说明多行、示例又长的条目用。半栏只有 478px，`#早柚添加连接` 的示例
+   * 「127.0.0.1:8765 或 wss://域名:8765 n=主核心 t=abc」在里面要折三行，
+   * 同一行右边那张卡却只有一行说明，两张卡高度差出一倍——就是用户说的
+   * 「连接管理那的字不协调」。让它独占一行，剩下的条目才是同一量级。
+   */
+  wide?: boolean
 }
 
 /** 一个分组 */
@@ -60,31 +69,46 @@ export interface HelpData {
  * 读起来分不出主次。
  */
 /**
- * 把 <占位符> 包成不可断开的整块
+ * 把指令标题切成若干不可断开的整块
  *
- * 指令标题里的 <地址> / <编号> 是一个语义单元，劈成两行读起来像坏了。break-keep
- * 管不了这种情况：它只禁掉 CJK 的逐字断点，而这里的断点来自「连接」与「<地址>」
- * 之间那个空格（首行被右侧 MASTER 标签挤窄后就会折在那儿）。
+ * 标题里有两种语义单元，断在中间读起来都像坏了：
  *
- * 所以按 <...> 切分，占位符那段套一层 whitespace-nowrap，其余文本原样返回。
- * 只在这里做而不是整条 nowrap：整条禁折会让长标题直接溢出卡片。
+ * - 指令本身，`#早柚设置私聊上报关闭`。break-keep 只禁掉 CJK 的逐字断点，管不了
+ *   `#` 与后面汉字之间——那是「前置标点不能落行尾」的规则给的断点，于是 `#` 独占
+ *   一行、指令从第二行才开始（用户反馈的「#独占一行」「全局设置第二行就开始了」）。
+ * - `<地址>` / `<名字|序号>` 这类占位符。断点来自「连接」与「<」之间那个空格。
  *
- * 返回 string 而非数组的快路径：绝大多数指令没有占位符，避免无谓的 <span> 包裹。
+ * 所以按空白切片，每片各自 nowrap，只允许在空白处折行。片内可能仍然超栏宽（真出现
+ * 时溢出比劈开更好定位），但现行清单里最长的一片是 `max_reconnect_attempts（retry）`
+ * 477px，仍在子卡 502px 的栏宽内。
+ *
+ * 返回 string 而非数组的快路径：不含空白的标题就是一整片，不必包 <span>。
  */
 function keepAtoms(cmd: string) {
-  if (!cmd.includes("<")) return cmd
-  return cmd.split(/(<[^<>]*>)/g).map((part, i) =>
-    part.startsWith("<") && part.endsWith(">") ? (
+  if (!/\s/.test(cmd)) return <span className="whitespace-nowrap">{cmd}</span>
+  return cmd.split(/(\s+)/g).map((part, i) =>
+    /^\s+$/.test(part) ? (
+      part
+    ) : (
       <span key={i} className="whitespace-nowrap">
         {part}
       </span>
-    ) : (
-      part
     )
   )
 }
 
-function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boolean }) {
+function Item({
+  item,
+  color,
+  sub,
+  badge,
+}: {
+  item: HelpItem
+  color: string
+  sub?: boolean
+  /** 单独标 MASTER。整组都要主人权限时由分组标题统一标，这里就不标了 */
+  badge?: boolean
+}) {
   return (
     <div
       className={
@@ -129,16 +153,21 @@ function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boole
           }
         >
           {/*
-           * cmd 与 MASTER 标签是并排的两个块，不是「标签内联在标题文字里」：标题会折行
-           * （`#早柚添加连接 <地址>` 与连接管理那组的 `max_reconnect_attempts（retry）`
-           * 都比栏宽长），内联标签就会分别落在「自己单独一行」与「第二行右边」，同一个
-           * 组件排出好几种样子。做成 flex 兄弟后标签恒在首行右侧。
+           * 标题独占整行，不再与 MASTER 标签并排
+           * ----------------------------------
+           * 曾经是「cmd + 标签」两个 flex 兄弟。标签 113px 加 12px 间距，把半栏的
+           * 478px 压到 354px，而 `#早柚设置私聊上报关闭` 恰好就是 354px —— 十条主
+           * 指令里有五条卡在这个阈值上，全折成两三行。
+           *
+           * 而这个标签在整份清单里恒为真（所有指令都是 permission:"master"，见
+           * commands.ts 顶部），逐条重复 23 遍不带信息量，却付掉四分之一栏宽。
+           * 改成在分组标题右侧标一次，见 Group。
            */}
           <div
             className={
               sub
-                ? "flex items-start gap-[12px] text-[30px] font-black leading-[1.25] tracking-[-.01em]"
-                : "flex items-start gap-[12px] text-[36px] font-black leading-[1.2] tracking-[-.01em]"
+                ? "text-[30px] font-black leading-[1.25] tracking-[-.01em]"
+                : "text-[36px] font-black leading-[1.2] tracking-[-.01em]"
             }
           >
             {/*
@@ -161,27 +190,31 @@ function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boole
              * 这是对的（总得有个地方折），要保的只是「占位符不被劈开」，所以把
              * <...> 整块用 nowrap 包起来，见下面的 keepAtoms。
              */}
-            <span className="min-w-0 break-words break-keep">{keepAtoms(item.cmd)}</span>
-            {item.master && (
-              /*
-               * 曾经用 vertical-align:middle + top:-3px 纠正基线，那是它还内联在文字里时
-               * 的补丁。现在是 flex 兄弟，改用几何对齐：首行行高 43.2px（36×1.2）中线
-               * 21.6px；标签自身 18（leading-none）+ 4×2 内边距 + 1×2 边框 = 28px，中线
-               * 14px。差 7.6px，不取整——zoom 1.5 下是 11.4 个物理像素，取 8 会留 0.6px。
-               */
-              <span
-                className="mt-[7.6px] flex-none self-start rounded-[9999px] px-[13px] py-[4px] text-[18px] font-extrabold leading-none tracking-[.08em]"
-                style={{ color, background: `${color}1f`, border: `1px solid ${color}3d` }}
-              >
-                MASTER
-              </span>
-            )}
+            {keepAtoms(item.cmd)}
           </div>
+          {/*
+           * 混合分组（组里只有部分指令要主人权限）才走到这里，自成一行而不是挂在标题
+           * 右侧——标题宽度是整份清单的折行瓶颈，不能再让它分。
+           */}
+          {badge && (
+            <span
+              className="self-start rounded-[9999px] px-[13px] py-[5px] text-[18px] font-extrabold leading-none tracking-[.08em]"
+              style={{ color, background: `${color}1f`, border: `1px solid ${color}3d` }}
+            >
+              MASTER
+            </span>
+          )}
+          {/*
+           * 说明文字也要 break-keep：默认 CJK 逐字可断，于是「改完即时生效」被折成
+           * 「…生 / 效」、「各自的改法」被折成「…的 / 改法」，末行只剩一两个字。
+           * 加了 keep-all 后断点落在标点与空格上，末行不再吊单字。
+           * break-words 兜底：`media_max_size=2097152` 这类长串仍会硬断而非溢出。
+           */}
           <div
             className={
               sub
-                ? "text-[21px] leading-[1.5] whitespace-pre-line text-muted"
-                : "text-[24px] leading-[1.6] whitespace-pre-line text-muted"
+                ? "text-[21px] leading-[1.5] break-words break-keep whitespace-pre-line text-muted"
+                : "text-[24px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted"
             }
           >
             {item.dsc}
@@ -207,13 +240,25 @@ function Item({ item, color, sub }: { item: HelpItem; color: string; sub?: boole
 function Group({ group, color }: { group: HelpGroup; color: string }) {
   const total =
     group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
+  /** 整组都要主人权限时在标题上标一次，替代原先每条卡片各标一个 */
+  const allMaster = group.items.length > 0 && group.items.every(i => i.master)
 
   return (
     <div className="mb-[88px] last:mb-0">
       {/* 色条与标题都用 leading-none + items-center，色条才会正对标题的视觉中线 */}
       <div className="mb-[44px] flex items-center gap-[24px]">
         <div className="h-[56px] w-[12px] flex-none rounded-[9999px]" style={{ background: color }} />
-        <h2 className="text-[64px] font-black leading-none tracking-[-.03em]">{group.title}</h2>
+        <h2 className="flex-none text-[64px] font-black leading-none tracking-[-.03em]">
+          {group.title}
+        </h2>
+        {allMaster && (
+          <span
+            className="flex-none rounded-[9999px] px-[14px] py-[7px] text-[20px] font-extrabold leading-none tracking-[.08em]"
+            style={{ color, background: `${color}1f`, border: `1px solid ${color}3d` }}
+          >
+            MASTER
+          </span>
+        )}
         {/* 计数做成描边胶囊，和标题拉开层级；leading-none 让数字在胶囊里居中 */}
         <div className="ml-auto flex-none rounded-[9999px] border border-border bg-inset px-[18px] py-[9px] font-mono text-[22px] font-extrabold leading-none tracking-[.14em] text-muted">
           {String(total).padStart(2, "0")}
@@ -223,7 +268,10 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
       {group.items.length > 0 && (
         <div className="grid grid-cols-2 [align-items:start] gap-x-[48px] gap-y-[32px]">
           {group.items.map((it, i) => (
-            <Item key={i} item={it} color={color} />
+            // wide 的条目跨两列，见 HelpItem.wide
+            <div key={i} className={it.wide ? "col-span-2" : undefined}>
+              <Item item={it} color={color} badge={!allMaster && it.master} />
+            </div>
           ))}
         </div>
       )}

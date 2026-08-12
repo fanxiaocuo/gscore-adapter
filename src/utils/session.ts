@@ -24,8 +24,14 @@
  *
  * 注意 sender.src_guild_id 不能作为判据：频道**私聊**（makeDirectMessage）
  * 的 sender 上也有它，而那是 direct 而非 channel。
+ *
+ * 参数就地写结构而不 import YunzaiEvent：调用方既有消息事件也有 notice 事件
+ * （modules/notice/index.ts），两者没有共同的具名类型；而本文件不 import 任何
+ * 东西的理由见文件头 —— 类型 import 不成环，但三个字段写在这里更说明它只看形状。
  */
-export function isChannel(e) {
+export function isChannel(
+  e?: { isGuild?: unknown; message_type?: string; group_id?: unknown } | null,
+) {
   if (e?.isGuild) return true
   if (e?.message_type === "guild") return true
   return String(e?.group_id ?? "").startsWith("qg_")

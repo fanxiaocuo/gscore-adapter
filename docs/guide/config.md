@@ -14,7 +14,8 @@
 # config/config.yaml
 enable: true
 client:
-  connections:
+  enable_ws: true
+  ws_connections:
     - name: gsuid_core
       url: ws://127.0.0.1:8765/ws/Yunzai
       token: ""
@@ -30,7 +31,8 @@ client:
 | `enable` | 总开关，`false` 则完全不连核心（改完即时生效） | `true` |
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
-| `client.connections[]` | 连接列表，见下 | — |
+| `client.enable_ws` | 是否启用 WebSocket 连接 | `true` |
+| `client.ws_connections[]` | WebSocket 连接列表，见下 | — |
 | `filter.report_private` | 是否上报私聊消息 | `true` |
 | `filter.report_group` | 是否上报群消息（QQ 频道也算群） | `true` |
 | `filter.report_meta` | 是否上报进群 / 退群 / 戳一戳 | `true` |
@@ -47,9 +49,12 @@ client:
 
 ## 连接项的全部字段
 
+与核心之间只有 WebSocket 一种连接：
+
 ```yaml
 client:
-  connections:
+  enable_ws: true                             # 关掉则不建立任何 ws 连接
+  ws_connections:
     - name: gsuid_core                        # 连接名，仅用于日志和 #早柚状态
       url: ws://127.0.0.1:8765/ws/Yunzai      # 路由 /ws/{bot_id}，bot_id 可自定义
       token: ""                               # 核心以 ?token= 查询参数接收
@@ -62,6 +67,10 @@ client:
 ```
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+
+`#早柚添加连接` 只接受 `ws://` / `wss://`。填 `http://` 会被挡下来，并把地址换算成 ws 形式提示你重发。
+
+## 重连
 
 重连采用指数退避（`reconnect_interval` 起步，封顶其 12 倍），默认 5 次约覆盖 2.3 分钟——核心重启够用，而地址写错时不会整夜刷日志。次数用尽后发 `#早柚重连` 即可恢复；想要一直重连把 `max_reconnect_attempts` 写 `0`。
 

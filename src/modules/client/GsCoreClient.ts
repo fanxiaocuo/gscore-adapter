@@ -5,13 +5,21 @@ import { logStr, sendError, sendMessageId } from "@/utils"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
-import { metaToGscore, metaLogStr } from "@/modules/notice"
+import { metaToGscore, metaLogStr, type MetaEvent } from "@/modules/notice"
 import { count } from "@/modules/stats/index.js"
 import { isQQBot, take } from "@/modules/passive"
+import type {
+  AdapterEvent,
+  MessageSend,
+  SendBot,
+  SendTarget,
+  WsConnection,
+  SendSegment,
+} from "@/types"
 import { echoKey, markSent } from "./echo.js"
 
 export class GsCoreClient {
-  conf: any
+  conf: WsConnection
   name: string
   /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
   status: 0 | 1 | 2 | 3
@@ -25,7 +33,7 @@ export class GsCoreClient {
   aliveTimer?: NodeJS.Timeout
   lastPong: number
 
-  constructor(conf) {
+  constructor(conf: WsConnection) {
     this.conf = conf
     this.name = conf.name || conf.url
     /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
@@ -58,7 +66,7 @@ export class GsCoreClient {
     }
   }
 
-  log(level, msg) {
+  log(level: string, msg: any) {
     makeLog(level, msg, `GsCore:${this.name}`, true)
   }
 
@@ -118,7 +126,7 @@ export class GsCoreClient {
     if (wasReconnect && config.notify_master) this.notify(`${this.name} 重连成功`)
   }
 
-  notify(msg) {
+  notify(msg: string) {
     try {
       const ret = Bot.sendMasterMsg?.(`[早柚核心] ${msg}`)
       if (ret?.catch) ret.catch(() => {})
@@ -164,7 +172,11 @@ export class GsCoreClient {
     this.aliveTimer = undefined
   }
 
-  onClose(code, reason) {
+  /**
+   * @param reason ws 给的是 Buffer（对端可以不带原因，那就是个空 Buffer）；
+   *               下面靠 `reason?.length` 判空再拼进日志，不必先转字符串
+   */
+  onClose(code: number, reason: Buffer) {
     this.stopHeartbeat()
     const wasOnline = this.status === 1
     this.status = 3
@@ -182,7 +194,8 @@ export class GsCoreClient {
     this.scheduleReconnect(code)
   }
 
-  scheduleReconnect(code) {
+  /** @param code 关闭码；创建连接就失败时调用方传 -1（没有关闭码可言） */
+  scheduleReconnect(code: number) {
     if (this.stop) {
       this.status = 0
       return
@@ -235,7 +248,7 @@ export class GsCoreClient {
   }
 
   /** 本连接是否接管该 self_id */
-  accept(self_id) {
+  accept(self_id: string | number) {
     const id = String(self_id)
     const exclude = this.conf.exclude || []
     if (exclude.length && exclude.some(i => String(i) === id)) return false
@@ -246,7 +259,7 @@ export class GsCoreClient {
 
   /* ---------- 上行：云崽 -> 早柚核心 ---------- */
   /** @param selfId 已由 hooks 的 resolveSelfId 解析过，非空；e.self_id 可能是 null */
-  async sendReceive(e, isMaster, selfId = String(e.self_id ?? "")) {
+  async sendReceive(e: AdapterEvent, isMaster: boolean, selfId = String(e.self_id ?? "")) {
     if (this.status !== 1 || this.ws?.readyState !== WebSocket.OPEN) return false
 
     const botId = resolveBotId(e, this.conf, selfId)
@@ -266,7 +279,7 @@ export class GsCoreClient {
    * 上行：非消息事件（入群/退群/戳一戳）
    * 单向通知，核心不回执，发出即完成。
    */
-  sendMeta(e, meta, isMaster, selfId = String(e.self_id ?? "")) {
+  sendMeta(e: AdapterEvent, meta: MetaEvent, isMaster: boolean, selfId = String(e.self_id ?? "")) {
     if (this.status !== 1 || this.ws?.readyState !== WebSocket.OPEN) return false
 
     const data = metaToGscore(e, meta, resolveBotId(e, this.conf, selfId), { isMaster, selfId })
@@ -282,8 +295,13 @@ export class GsCoreClient {
    * 发一帧到核心。
    * 必须是二进制：核心 core.py 的读循环是 websocket.receive_bytes()，
    * 而 ws 库对 string 发的是文本帧(opcode 1)，Starlette 那边取不到 "bytes" 键会直接报错。
+   *
+   * @param data 上行帧。标 unknown 而不是 `MessageReceive`：撤回回执那一帧的
+   *             content 放的是 `recall_message_id` 段（协议里是独立结构，
+   *             见 {@link RecallReceipt}），套不进 MessageReceive.content。
+   *             这里只负责序列化，帧的形状由各调用点自己保证。
    */
-  send(data) {
+  send(data: unknown) {
     if (this.ws?.readyState !== WebSocket.OPEN) return false
     this.ws.send(Buffer.from(JSON.stringify(data), "utf8"))
     return true
@@ -295,7 +313,7 @@ export class GsCoreClient {
    * 连续 3 次拿不到就会把本适配器标记为 _supports_recall=False，永久关掉撤回能力，
    * 所以即使发送失败也要回一帧（id 给 null），让核心的 future 立刻结束。
    */
-  sendRecallReceipt(data, id) {
+  sendRecallReceipt(data: MessageSend, id: string | string[] | null) {
     if (!data.echo) return
     this.send({
       bot_id: data.bot_id,
@@ -316,17 +334,16 @@ export class GsCoreClient {
    * 两者都只在 content 长度为 1 时出现。
    * @returns 是否已作为控制指令处理
    */
-  async handleControl(data, bot) {
-    const list = Array.isArray(data.content) ? data.content : []
+  async handleControl(data: MessageSend, bot: SendBot) {
+    const list: SendSegment[] = Array.isArray(data.content) ? data.content : []
     if (list.length !== 1) return false
     const seg = list[0]
-    const d = seg?.data || {}
 
     if (seg?.type === "excute_delete_message") {
-      const id = d.message_id
+      const id = seg.data?.message_id
       try {
         // 撤回接口在各适配器上位置不一：优先群/好友对象，退化到 bot 级
-        const target =
+        const target: SendTarget | undefined =
           data.target_type === "direct"
             ? bot.pickFriend?.(Number(data.target_id) || data.target_id)
             : bot.pickGroup?.(Number(data.target_id) || data.target_id)
@@ -341,9 +358,10 @@ export class GsCoreClient {
     }
 
     if (seg?.type === "excute_ban_user") {
+      const d = seg.data || ({} as typeof seg.data)
       const duration = Number(d.duration) || 0
       try {
-        const group = bot.pickGroup?.(Number(d.group_id) || d.group_id)
+        const group: SendTarget | undefined = bot.pickGroup?.(Number(d.group_id) || d.group_id)
         if (!group?.muteMember) return this.log("warn", "当前适配器不支持禁言"), true
         await group.muteMember(Number(d.user_id) || d.user_id, duration)
         this.log("info", `${duration ? `禁言 ${duration}s` : "解除禁言"}：${d.user_id}@${d.group_id}`)
@@ -375,7 +393,13 @@ export class GsCoreClient {
    * 时钟与网络延迟都算不进去），也可能这条会话不支持。那种情况下退回普通发送，
    * 宁可丢掉引用形态，不能让消息发不出去。
    */
-  async doSend(target, message, bot, data, targetId) {
+  async doSend(
+    target: SendTarget,
+    message: any[],
+    bot: SendBot,
+    data: MessageSend,
+    targetId: string,
+  ) {
     if (!isQQBot(bot)) return await target.sendMsg(message)
 
     const type = data.target_type === "direct" ? "direct" : "group"
@@ -419,7 +443,7 @@ export class GsCoreClient {
    *
    * @returns 找不到对应函数返回 null，调用方回退
    */
-  passiveSender(adapter, type: "direct" | "group", targetId: string) {
+  passiveSender(adapter: any, type: "direct" | "group", targetId: string) {
     if (!adapter) return null
     const isGuild = targetId.startsWith("qg_")
 
@@ -429,19 +453,24 @@ export class GsCoreClient {
     const name = type === "direct" ? "sendFriendMsg" : isGuild ? "sendGuildMsg" : "sendGroupMsg"
     const fn = adapter[name]
     if (typeof fn !== "function") return null
-    return (t, msg, event) => fn.call(adapter, t, msg, event)
+    return (t: SendTarget, msg: any[], event: { id: string }) => fn.call(adapter, t, msg, event)
   }
 
   /* ---------- 下行：早柚核心 -> 云崽 ---------- */
-  async onMessage(raw) {
-    let data
+  /**
+   * @param raw ws 的 message 事件载荷。核心发的是二进制帧（Buffer），
+   *            但 ws 的类型把碎片帧的 Buffer[] 与 ArrayBuffer 也算进来，
+   *            所以统一 toString 而不假定是 Buffer
+   */
+  async onMessage(raw: import("ws").RawData) {
+    let data: MessageSend
     try {
       data = JSON.parse(raw.toString())
     } catch (err) {
       return this.log("error", ["解码数据失败", String(raw).slice(0, 300), err])
     }
 
-    const bot = Bot.bots[data.bot_self_id] || Bot
+    const bot: SendBot = Bot.bots[data.bot_self_id] || Bot
 
     // 控制指令优先，它们不走消息转换，也不需要回执
     try {
@@ -455,7 +484,7 @@ export class GsCoreClient {
     // 把本适配器标记为 _supports_recall=False，永久关掉撤回能力。
     // 参照 GenshinUID 的 Python 客户端（client.py 用 try/finally 保证同一件事）：
     // 无论找不到目标、内容为空还是发送抛错，都必须回一帧。
-    let recallId = null
+    let recallId: string | string[] | null = null
     try {
       // 纯日志帧要在 pick 之前挡掉：核心下发 log 段时 target_id 常是占位值，
       // 走到下面 pick 不到目标就会误报「找不到发送目标」。
@@ -469,8 +498,8 @@ export class GsCoreClient {
       // 先 pick 目标再转换：node 段在 Miao 上必须靠 target 的原生
       // makeForwardMsg 才能制作转发（Bot 上那个继承自 ICQQ，调用即抛）。
       const targetId = String(data.target_id ?? "")
-      let target
-      let tag
+      let target: SendTarget | undefined
+      let tag: string
 
       if (data.target_type === "direct") {
         target = bot.pickFriend(Number(targetId) || targetId)

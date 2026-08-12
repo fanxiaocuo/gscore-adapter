@@ -2,16 +2,23 @@
  * 云崽 -> 早柚核心
  */
 import { toGscoreMedia, toGscoreFile, isChannel, resolveReplyId } from "@/utils"
-import type { MessageReceive, UserPm } from "@/types"
+import type {
+  MessageReceive,
+  UserPm,
+  MessageSegment,
+  YunzaiMessage,
+  YunzaiSegment,
+  AdapterEvent,
+} from "@/types"
 import { buttonsToGscore } from "./buttons.js"
 import { toStr } from "@/utils/compat"
 
 /** 云崽 message 数组 -> 早柚核心 Message[] */
-export async function msgToGscore(msg) {
-  if (!Array.isArray(msg)) msg = [msg]
-  const out = []
+export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]> {
+  const list: (string | YunzaiSegment)[] = Array.isArray(msg) ? msg : [msg]
+  const out: MessageSegment[] = []
 
-  for (const i of msg) {
+  for (const i of list) {
     if (i == null) continue
     if (typeof i !== "object") {
       const s = String(i)
@@ -82,9 +89,10 @@ export async function msgToGscore(msg) {
 
       case "node": {
         // 协议禁止 node 嵌套，这里拍平
-        const arr = []
+        const arr: Exclude<MessageSegment, { type: "node" }>[] = []
         for (const n of Array.isArray(i.data) ? i.data : []) {
-          for (const s of await msgToGscore(n?.message ?? n)) if (s.type !== "node") arr.push(s)
+          for (const s of await msgToGscore(n?.message ?? n))
+            if (s.type !== "node") arr.push(s)
         }
         out.push({ type: "node", data: arr })
         break
@@ -108,11 +116,11 @@ export async function msgToGscore(msg) {
  * @param opts  { isMaster, selfId }
  */
 export async function yunzaiToGscore(
-  e,
-  botId,
+  e: AdapterEvent,
+  botId: string,
   opts: { isMaster?: boolean; selfId?: string } = {},
-) {
-  const content = []
+): Promise<MessageReceive | false> {
+  const content: MessageSegment[] = []
 
   // 引用消息放最前。
   //
@@ -129,7 +137,8 @@ export async function yunzaiToGscore(
   const replyId = resolveReplyId(e)
   // 消息段里已经有 reply 时不再补：msgToGscore 会把那一段转成 reply，
   // 两处都加就会出现两个 reply 段
-  if (replyId && !e.message?.some?.(i => i?.type === "reply")) {
+  const segs = Array.isArray(e.message) ? e.message : []
+  if (replyId && !segs.some(i => typeof i === "object" && i?.type === "reply")) {
     content.push({ type: "reply", data: replyId })
   }
 

@@ -42,8 +42,12 @@ export const LOG_ALIAS = { warning: "warn", success: "mark", critical: "fatal" }
  *   group_increase -> notice_type="group", sub_type="increase"
  * ICQQ 原生即是这个形状，OneBotv11 的拆分正是为了对齐它。
  * 故匹配主键是 sub_type；写成 notice_type === "group_increase" 恒为 false。
+ *
+ * 标 `Record<string, string | undefined>` 而不是让它推成字面量对象：查表的键是
+ * `e.sub_type`（任意字符串），而没命中就是「这个事件不映射」—— 那是正常分支，
+ * notice/index.ts 靠 `if (!eventName) return null` 处理。
  */
-export const SUB_TYPE_MAP = {
+export const SUB_TYPE_MAP: Record<string, string | undefined> = {
   increase: "user_join_group",
   decrease: "user_exit_group",
 }

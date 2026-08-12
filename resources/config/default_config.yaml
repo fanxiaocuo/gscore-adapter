@@ -13,11 +13,16 @@ client:
   heartbeat: 30
   # 超过多少秒没收到 pong 判定掉线并重连，0 关闭
   heartbeat_timeout: 90
-  # 连接列表，可配置多个
-  connections:
+
+  # ─────────────────────────────────────────────────────
+  # WebSocket 连接（与核心之间唯一的通路）
+  # ─────────────────────────────────────────────────────
+  # #早柚添加连接 填 http:// 会被挡下来并提示改用 ws://
+  enable_ws: true
+  ws_connections:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
-      # 早柚核心地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名，可自定义
+      # 早柚核心 WebSocket 地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名
       url: ws://127.0.0.1:8765/ws/Yunzai
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
       token: ""
@@ -85,8 +90,8 @@ bot_id_map:
   WeChat: onebot
   QQBot: qqgroup
   Satori: onebot
-  Milky: onebot
-  stdin: onebot
+  # 框架控制台输入（stdin 适配器）
+  stdin: console
   # --- adapter.name（精确到具体适配器，优先级低于 id） ---
   ICQQ: onebot
   OneBotv11: onebot

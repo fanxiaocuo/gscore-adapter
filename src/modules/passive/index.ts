@@ -34,6 +34,7 @@
  * 所以按适配器 name 严格限定。
  */
 import { makeLog } from "@/utils/compat"
+import type { AdapterEvent, SendBot } from "@/types"
 import * as db from "./db.js"
 
 /**
@@ -71,12 +72,24 @@ const FLUSH_MS = 5_000
  */
 const MAX = 2000
 
-function keyOf(selfId, targetType, targetId): string {
+/** 会话类型。与核心的 UserType 不同，这里只需要分「私聊 / 其余」两档 */
+type TargetType = "direct" | "group"
+
+function keyOf(
+  selfId: string | number | undefined,
+  targetType: TargetType,
+  targetId: string | number,
+): string {
   return `${selfId}:${targetType}:${targetId}`
 }
 
-/** 是不是 QQBot 适配器 */
-export function isQQBot(bot): boolean {
+/**
+ * 是不是 QQBot 适配器
+ *
+ * 入参既可能是事件上的 bot（`e.bot`），也可能是下行拿到的 `Bot.bots[id]`，
+ * 两者都只在这里读 `adapter.name`，所以标宽到 {@link SendBot} 就够
+ */
+export function isQQBot(bot: SendBot | undefined | null): boolean {
   return String(bot?.adapter?.name || "") === "QQBot"
 }
 
@@ -86,7 +99,7 @@ export function isQQBot(bot): boolean {
  * `event_*` 前缀的是事件 id（入群、按钮回调等），不是消息 id，拿它当被动回复
  * 的凭据会被平台拒收。空值与 0 同理。判据取自参考实现的 isValidQQBotMessageId。
  */
-export function isValidId(id): boolean {
+export function isValidId(id: unknown): boolean {
   if (id == null) return false
   const s = String(id)
   if (!s || s === "0" || s === "null" || s === "undefined") return false
@@ -101,7 +114,7 @@ export function isValidId(id): boolean {
  *               不传则退回 e.self_id —— 与 sendReceive 产出的 bot_self_id 对不上时
  *               QQBot 被动回复的 message_id 就找不到，被动回复会失效。
  */
-export function remember(e, selfId?: string): void {
+export function remember(e: AdapterEvent, selfId?: string): void {
   if (!isQQBot(e?.bot)) return
   if (!isValidId(e?.message_id)) return
 
@@ -137,7 +150,11 @@ function evict() {
  *
  * @returns 没有可用 id 时返回空串（调用方照常发，只是不带 id）
  */
-export function take(selfId, targetType, targetId): string {
+export function take(
+  selfId: string | number | undefined,
+  targetType: TargetType,
+  targetId: string | number,
+): string {
   const key = keyOf(selfId, targetType, targetId)
   const hit = recent.get(key)
   if (!hit) return ""

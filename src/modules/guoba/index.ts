@@ -13,10 +13,16 @@ import { baseSchemas } from "./schemas/base.js"
 import { clientSchemas } from "./schemas/client.js"
 import { filterSchemas } from "./schemas/filter.js"
 import { join } from "node:path"
+import type { guoba } from "trss-yunzai"
 
 /** 锅巴按点号路径读值 */
-function getValue(path: string) {
-  return path.split(".").reduce<any>((obj, key) => obj?.[key], config)
+function getValue(path: string): unknown {
+  let value: unknown = config
+  for (const key of path.split(".")) {
+    if (typeof value !== "object" || value === null) return undefined
+    value = (value as Record<string, unknown>)[key]
+  }
+  return value
 }
 
 export function supportGuoba() {
@@ -45,7 +51,7 @@ export function supportGuoba() {
       schemas: [...baseSchemas, ...clientSchemas, ...filterSchemas],
 
       getConfigData() {
-        const data: Record<string, any> = {}
+        const data: Record<string, unknown> = {}
         for (const schema of [...baseSchemas, ...clientSchemas, ...filterSchemas]) {
           // Divider 没有 field
           if (!("field" in schema) || !schema.field) continue
@@ -54,7 +60,14 @@ export function supportGuoba() {
         return data
       },
 
-      setConfigData(data: Record<string, any>, { Result }) {
+      /**
+       * @param Result 锅巴自己的返回结果类，由它注入 —— 插件不 import 它
+       *               （锅巴不装时这个模块整个不会被执行），只标类型
+       */
+      setConfigData(
+        data: Record<string, unknown>,
+        { Result }: { Result: typeof guoba.Result },
+      ) {
         // enable 由 index.ts 的 onConfigReload 热起停，client.* 靠 reloadClients，
         // 两者都不需要重启，所以这里只有成功/失败两种提示
         let touchedClient = false
@@ -70,9 +83,10 @@ export function supportGuoba() {
               doc.setIn(path, value)
             }
           })
-        } catch (err: any) {
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
           logger.error(`[${PluginName}] 保存配置失败：`, err)
-          return Result.error(`保存失败：${err?.message || err}，可手动编辑 ${configFile}`)
+          return Result.error(`保存失败：${message}，可手动编辑 ${configFile}`)
         }
 
         if (touchedClient) reloadClients()

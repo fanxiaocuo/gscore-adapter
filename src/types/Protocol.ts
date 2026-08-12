@@ -7,6 +7,8 @@
  * permisson / excute_ 均为核心源码原文的错拼，必须逐字匹配。
  */
 
+import type { YunzaiSegment } from "./Event.js"
+
 /* ============================ 消息段 ============================ */
 
 /** 纯文本 */
@@ -114,6 +116,23 @@ export interface SegGroup {
   data: string
 }
 
+/**
+ * meta 事件段，**仅出现在 MessageReceive 方向**（适配器 -> 核心）
+ *
+ * 非消息事件（入退群、戳一戳等）没有正文可发，靠这个段把事件名与数据带给核心：
+ *   handler.py `_extract_meta_segment`：seg.type.startswith("meta-")
+ *   handler.py `msg_process`：event.meta_event_type = _msg.type[len("meta-"):]
+ * data 为 dict 时整体存入 `event.meta_event_data`，核心还会用其中的
+ * user_id / group_id 回填顶层缺失字段，供权限与黑白名单使用。
+ *
+ * 与 {@link MessageSegment} 分开而不并进那个联合：正文段的 data 都是
+ * string / 数组，这里是字典，混在一起会让每个消费正文的地方都要先排除它。
+ */
+export interface SegMeta {
+  type: `meta-${string}`
+  data: Record<string, string>
+}
+
 /** MessageReceive / MessageSend 中可出现的消息段 */
 export type MessageSegment =
   | SegText
@@ -216,9 +235,20 @@ export interface YunzaiButton {
   /** 指定身份组 */
   role_ids?: string[]
   unsupport_tips?: string
+  /** 允许直接携带早柚形状 */
+  action?: unknown
+  data?: unknown
+  pressed_text?: string | null
+  GsCore?: Partial<Button>
+  GSUIDCore?: Partial<Button>
   /** 允许按平台透传原始字段 */
-  [key: string]: any
+  [key: string]: unknown
 }
+
+/* ============================ 云崽侧消息段 ============================ */
+
+/** 云崽 message 字段：段数组，也允许裸字符串或单段 */
+export type YunzaiMessage = string | YunzaiSegment | (string | YunzaiSegment)[]
 
 /* ============================ 用户 / 会话 ============================ */
 
@@ -273,10 +303,21 @@ export interface MessageReceive {
   user_type?: UserType
   /** 群/频道 id；私聊为 null */
   group_id: string | null
-  /** 消息内容 */
-  content: MessageSegment[]
-  /** 发送者信息 */
-  sender?: Sender
+  /**
+   * 消息内容
+   *
+   * 含 {@link SegMeta} 是因为非消息事件（入退群、戳一戳）走的是同一个上行结构，
+   * 只是 content 里放的是 `meta-{eventName}` 段而不是正文段 —— 见 modules/notice。
+   */
+  content: (MessageSegment | SegMeta)[]
+  /**
+   * 发送者信息
+   *
+   * meta 事件没有发送者语义（"某人被踢"里 e.user_id 与事件涉及的用户不是一个人），
+   * 那条路径发的是 `{}`，所以整个对象的字段都得是可选的，`Sender` 正是这么定的
+   * —— 唯一必填的 user_id 在 MessageReceive 顶层已经有了。
+   */
+  sender?: Partial<Sender>
   /** meta 事件专用，形如 "meta-{eventName}" 时由核心 handler 提取 */
   meta_event_type?: string
 }

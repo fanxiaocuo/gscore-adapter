@@ -36,12 +36,13 @@
  * 会是 0，算出的 id 与真实 message_id 不符。这种情况下核心查不到缓存，
  * 行为退化成「没有引用」—— 与修复前一致，不会更糟。
  */
+import type { AdapterEvent } from "@/types"
 import { makeLog } from "./compat.js"
 
 /** 从消息数组里找 reply 段的 id */
-function fromReplySegment(e): string {
-  for (const i of e?.message || []) {
-    if (i?.type !== "reply") continue
+function fromReplySegment(e: AdapterEvent): string {
+  for (const i of Array.isArray(e?.message) ? e.message : []) {
+    if (typeof i !== "object" || i?.type !== "reply") continue
     const id = i.id ?? i.message_id
     if (id != null && id !== "") return String(id)
   }
@@ -53,7 +54,7 @@ function fromReplySegment(e): string {
  *
  * @returns 算不出来返回空串
  */
-function fromIcqqSource(e): string {
+function fromIcqqSource(e: AdapterEvent): string {
   const src = e?.source
   if (!src || src.seq == null) return ""
 
@@ -99,7 +100,7 @@ function fromIcqqSource(e): string {
  *
  * @returns 没有引用返回空串
  */
-export function resolveReplyId(e): string {
+export function resolveReplyId(e: AdapterEvent): string {
   // 1) 适配器直接在 source 上给了（非 ICQQ 的适配器可能有）
   if (e?.source?.message_id != null && e.source.message_id !== "")
     return String(e.source.message_id)

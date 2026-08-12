@@ -1,9 +1,10 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
+import type { Document, ParsedNode } from "yaml"
 import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
-import type { Config } from "@/types"
+import type { AdapterEvent, Config, WsConnection } from "@/types"
 import { isChannel } from "@/utils/session.js"
 import { guessPlatform } from "@/utils/platform.js"
 import { unflow } from "./yaml.js"
@@ -23,21 +24,23 @@ const userDir = path.join(PluginPath, "config")
 const userFile = process.env.GSCORE_CONFIG || path.join(userDir, "config.yaml")
 
 /** 深合并：数组整体覆盖，对象递归 */
-function merge(def, user) {
+function merge(def: unknown, user: unknown): unknown {
   if (user === undefined) return def
   if (Array.isArray(def) || Array.isArray(user)) return user ?? def
   if (typeof def !== "object" || def === null) return user ?? def
   if (typeof user !== "object" || user === null) return user ?? def
-  const ret = { ...def }
-  for (const k of Object.keys(user)) ret[k] = merge(def[k], user[k])
+  const defaults = def as Record<string, unknown>
+  const overrides = user as Record<string, unknown>
+  const ret: Record<string, unknown> = { ...defaults }
+  for (const key of Object.keys(overrides)) ret[key] = merge(defaults[key], overrides[key])
   return ret
 }
 
-function read(file, optional = false) {
+function read(file: string, optional = false) {
   try {
     return YAML.parse(fs.readFileSync(file, "utf8")) || {}
-  } catch (err: any) {
-    if (optional && err?.code === "ENOENT") return {}
+  } catch (err) {
+    if (optional && (err as NodeJS.ErrnoException)?.code === "ENOENT") return {}
     globalThis.Bot?.makeLog?.("error", ["读取配置失败", file, err], "GsCore")
     return {}
   }
@@ -73,7 +76,7 @@ function load() {
       globalThis.Bot?.makeLog?.("error", ["升级配置失败，按原配置运行", err], "GsCore")
     }
   }
-  return merge(read(defFile), read(userFile, true))
+  return merge(read(defFile), read(userFile, true)) as Config
 }
 
 /**
@@ -102,7 +105,7 @@ export function onConfigReload(fn: () => void) {
 
 function reload() {
   const next = load()
-  for (const k of Object.keys(config)) delete config[k]
+  for (const k of Object.keys(config)) delete (config as Partial<Config>)[k as keyof Config]
   Object.assign(config, next)
   for (const fn of invalidators)
     try {
@@ -137,15 +140,26 @@ export function stopConfigWatch(): Promise<void> {
 }
 
 /**
+ * saveConfig 回调收到的 yaml 文档
+ *
+ * Strict 取 false（第二个类型参数），因为几个写入点是 `doc.getIn(path).add(...)`：
+ * Strict 为 true 时 getIn 返回 unknown，那一句要在每个调用点补一次
+ * `as YAMLSeq`。yaml 库自己就是用这个开关表达「按动态结构操作」的，
+ * 而这里的路径全是运行时拼出来的字符串数组，本来就没有静态结构可依。
+ */
+export type ConfigDoc = Document.Parsed<ParsedNode, false>
+
+/**
  * 修改用户配置并写盘，保留原有注释
  * @param fn 直接操作 yaml Document
  */
-export function saveConfig(fn) {
-  let doc
+export function saveConfig(fn: (doc: ConfigDoc) => void) {
+  let doc: ConfigDoc
   try {
-    doc = YAML.parseDocument(fs.readFileSync(userFile, "utf8"))
-  } catch (err: any) {
-    if (err?.code === "ENOENT") doc = YAML.parseDocument(fs.readFileSync(defFile, "utf8"))
+    doc = YAML.parseDocument<ParsedNode, false>(fs.readFileSync(userFile, "utf8"))
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT")
+      doc = YAML.parseDocument<ParsedNode, false>(fs.readFileSync(defFile, "utf8"))
     else throw err
   }
 
@@ -157,9 +171,9 @@ export function saveConfig(fn) {
   return config
 }
 
-/** 读取连接列表（保证是数组） */
-export function getConnections() {
-  const list = config.client?.connections
+/** 读取 WebSocket 连接列表（保证是数组） */
+export function getWsConnections() {
+  const list = config.client?.ws_connections
   return Array.isArray(list) ? list : []
 }
 
@@ -176,9 +190,30 @@ export function enabled(): boolean {
 }
 
 /**
+ * WebSocket 是否启用
+ *
+ * 缺省为 true：旧配置里没写过这项时按启用算，兼容性优先。
+ */
+export function wsEnabled(): boolean {
+  return config.client?.enable_ws !== false
+}
+
+/**
  * 解析上报用的平台 bot_id
  *
  * 优先级：连接自身配置 > self_id 精确匹配 > 频道特判 > 适配器 id > 适配器 name > 兜底
+ *
+ * 连接级 bot_id 短路掉后面全部，这是有意的 —— 但只对**用户显式指定**的值成立
+ * ----------------------------------------------------------------------
+ * 一条连接可以 bind 多个账号，而它们的平台可能各不相同（ICQQ 号是 onebot、
+ * QQBot 号是 qqgroup），所以「按连接断言平台」本身是一件很强的事：它替所有
+ * bind 的账号、包括日后才加进去的，都断言了同一个平台。
+ *
+ * 用户自己写 `id=` 时这么做是对的（那就是他要的意思）。但如果让 #早柚添加连接
+ * 把**自动识别**的结果也写进这个字段，就会出事：识别只看得到发指令的那个号，
+ * 之后往 bind 里加一个别的平台的账号，它的消息会被按错的平台静默上报。
+ * 所以那条指令改成把识别结果按账号记进 bot_id_map（见 apps/admin.ts 的 add），
+ * 连接级只留给显式指定。改这里的优先级前先读那一段。
  *
  * 为什么要查 name
  * --------------
@@ -221,7 +256,7 @@ export function enabled(): boolean {
  *               但它可能为 null，那时 `String(null)` 会拿字符串 "null" 去查表，
  *               既查不中又可能撞上用户真写了 "null" 键的极端情况，故一律先过滤。
  */
-export function resolveBotId(e, conf?, selfId?: string) {
+export function resolveBotId(e: AdapterEvent, conf?: WsConnection | null, selfId?: string) {
   if (conf?.bot_id) return conf.bot_id
   const map = config.bot_id_map || {}
 

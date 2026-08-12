@@ -14,7 +14,12 @@
  * 不学 `package.json.name.includes("trss")` 那种判法——同步读盘、依赖 cwd，
  * 且 fork 改名即失效（本仓库目录名就叫 Miao-Yunzai，实际却是 TRSS，正是反例）。
  * 每个方法各自探测，谁缺补谁；将来 Miao 补齐了任何一个，这里自动改用原生实现。
+ *
+ * 文件内的 `const B: any = globalThis.Bot` 是有意的：探测的正是**类型里没有**
+ * 的方法（Miao 上不存在，@types/trss-yunzai 又把 fileToUrl 拼成了 fileToUrll），
+ * 标类型只能标成谎话。any 收在每个函数第一行，不外泄到签名上。
  */
+import type { FileLike } from "@/types"
 
 /* ============================ 日志 ============================ */
 
@@ -97,9 +102,9 @@ export function toStr(data: any): string {
  * http(s):// / file:// / 裸路径。
  */
 export async function toBuffer(
-  file: any,
+  file: FileLike | null | undefined,
   opts: { http?: boolean; size?: number } = {},
-): Promise<any> {
+): Promise<Buffer | string> {
   const B: any = globalThis.Bot
   if (typeof B?.Buffer === "function") return B.Buffer(file, opts)
 

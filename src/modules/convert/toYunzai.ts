@@ -5,10 +5,12 @@ import { fromGscoreMedia } from "@/utils"
 import { GS_LOG_RE, LOG_LEVELS, LOG_ALIAS } from "@/constants"
 import { buttonsFromGscore } from "./buttons.js"
 import { makeLog, toStr, makeForwardMsg } from "@/utils/compat"
+import type { SendSegment, SendTarget, YunzaiSegment } from "@/types"
 
 /**
  * MessageSend.content -> 云崽 message
- * @param content 早柚核心消息段
+ * @param content 早柚核心消息段。允许单段（非数组）—— 核心多数情况发数组，
+ *                但 node 段递归时这里自己传的是单元素数组，两种都收
  * @param target  已 pick 出的 Group/Friend。仅 node 段用得上：
  *                Miao 上制作转发必须靠 target 的原生实现（见 compat.makeForwardMsg）。
  *                不传则 Miao 上的转发会降级为纯文本。
@@ -22,9 +24,22 @@ import { makeLog, toStr, makeForwardMsg } from "@/utils/compat"
  * 噪音替换静默丢弃，并没有让内容真的送达。而按钮目前基本只有 QQBot 在用，
  * QQBot 原生支持，降级路径实际服务不到什么人。
  */
-export async function gscoreToYunzai(content, target?) {
-  const message = []
-  let quote = null
+export async function gscoreToYunzai(
+  content: SendSegment | SendSegment[] | null | undefined,
+  target?: SendTarget,
+) {
+  /**
+   * 云崽侧 message
+   *
+   * 标 any[] 而不是 `(string | YunzaiSegment)[]`：装进去的是
+   * `segment.image()` / `segment.button()` 等的返回值，那些函数的声明用了泛型
+   * 各自返回不同的具体形状（segment.d.ts:41/30），而 `YunzaiSegment` 是本插件
+   * 为**读**入站段定义的宽结构。往里塞精确形状会因 index signature 的兼容规则
+   * 处处报错，收益只是一层不参与任何判断的标注 —— 这个数组造完就直接交给
+   * `target.sendMsg`，中途只被 `unshift` 与 `.length` 碰过。
+   */
+  const message: any[] = []
+  let quote: string | null = null
   let sawLog = false
 
   for (const i of Array.isArray(content) ? content : [content]) {
@@ -33,7 +48,7 @@ export async function gscoreToYunzai(content, target?) {
     if (GS_LOG_RE.test(i.type)) {
       sawLog = true
       const raw = i.type.slice(4).toLowerCase()
-      const level = LOG_ALIAS[raw] || raw
+      const level = (LOG_ALIAS as Record<string, string>)[raw] || raw
       makeLog(LOG_LEVELS.includes(level) ? level : "info", toStr(i.data), "GsCore")
       continue // 关键：继续处理后续真实内容
     }
@@ -93,7 +108,7 @@ export async function gscoreToYunzai(content, target?) {
       }
 
       case "node": {
-        const nodes = []
+        const nodes: { message: any[]; nickname: string; user_id: number }[] = []
         for (const sub of Array.isArray(i.data) ? i.data : []) {
           const { message: m } = await gscoreToYunzai([sub], target)
           if (m.length)
@@ -141,7 +156,7 @@ export async function gscoreToYunzai(content, target?) {
  * 把 gscoreToYunzai 的产物归一化成事件 message 数组
  * dealEvent 遍历 e.message 时期望 {type,...} 对象，且读 i.url 取图片
  */
-export function normalizeEventMsg(message) {
+export function normalizeEventMsg(message: (string | YunzaiSegment)[]): YunzaiSegment[] {
   return message.map(i => {
     if (typeof i === "string") return { type: "text", text: i }
     if (i?.type === "image" && !i.url) return { ...i, url: i.file }

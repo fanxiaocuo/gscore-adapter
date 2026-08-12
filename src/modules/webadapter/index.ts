@@ -24,18 +24,71 @@
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
-import { config, configFile, saveConfig, getConnections, enabled } from "@/config"
+import { config, configFile, saveConfig, getWsConnections, enabled } from "@/config"
 import { clients, startClient, stopClient, reloadClients } from "@/modules/client"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
-import { requireWsUrl } from "@/utils/url"
+import { findDuplicate, requireWsUrl } from "@/utils/url"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
+import type { WsConnection } from "@/types"
+import { isSeq } from "yaml"
+import type { ConnView, Payload } from "@/webui/api.js"
 import fs from "node:fs"
 import path from "node:path"
+
+/* ---------- 宿主契约 ---------- */
+
+/**
+ * 宿主（QQBot-Web-Adapter）传进来的 express req / res
+ *
+ * 本仓库没装 `@types/express`，也不该为这四个方法名去装 —— 宿主自己才是
+ * express 的宿主，我们只是收它递过来的对象。这里按**实际用到的成员**声明，
+ * 而不是把它标成 any：那样 `res.jsno(...)` 这种拼错也不会报。
+ */
+interface WebRequest {
+  /** 已被宿主的 body 解析中间件填好；面板送的是任意 JSON，先过 safeBody */
+  body?: unknown
+  [k: string]: any
+}
+
+interface WebResponse {
+  json(data: unknown): unknown
+  status(code: number): WebResponse
+  setHeader(name: string, value: string): unknown
+  end(data?: unknown): unknown
+  [k: string]: any
+}
+
+/**
+ * 宿主注入的上下文（index.js:307-332 调 `init(ctx)`）
+ *
+ * `registerApi` 挂的是宿主的 Bot.express 并自动套 apiAuthGuard，
+ * 所以路由**必须**从这里注册，不能自己去碰 Bot.express。
+ */
+interface WebCtx {
+  registerPage(desc: Record<string, unknown>): unknown
+  registerApi(
+    method: "get" | "post",
+    route: string,
+    handler: (req: WebRequest, res: WebResponse) => unknown,
+  ): unknown
+  /** 宿主的 logger，未必存在，调用点一律 `?.` */
+  logger?: { warn?: (msg: string) => unknown; [k: string]: any }
+  [k: string]: any
+}
+
+/**
+ * 面板送上来的请求体
+ *
+ * 前端表单的值形状不受我们控制（输入框清空是空串、复选框可能送 "true"、
+ * 数字框可能送字符串），所以字段一律 unknown，由 {@link bool} / {@link num}
+ * / `String()` 在使用点归一化 —— 那几个函数存在的理由正是这个。
+ */
+type PanelBody = Record<string, unknown>
 
 /** 原型链污染防护：这三个键写进配置对象会污染 Object.prototype */
 const BAD_KEYS = ["__proto__", "prototype", "constructor"]
@@ -46,8 +99,11 @@ const BAD_KEYS = ["__proto__", "prototype", "constructor"]
  * **不要整个 conf 扔给前端** —— 里面有 token。这里逐字段挑，token 只回一个
  * 布尔表示「配没配」，要改就重新填。同理不用 GsCoreClient 的 url getter，
  * 它会把 token 拼进查询参数。
+ *
+ * 返回类型标成 {@link ConnView}（与前端共用的那份声明）：字段改了名，
+ * 编译期就在这里报，而不是等到面板上显示成 undefined
  */
-function connView(conf, i: number) {
+function connView(conf: WsConnection, i: number): ConnView {
   const live = clients.find(c => c.name === (conf.name || conf.url))
   const enabled = conf.enable !== false
   const counters = forName(conf.name || conf.url)
@@ -75,7 +131,7 @@ function connView(conf, i: number) {
 }
 
 /** GET 回的整包 */
-function payload() {
+function payload(): Payload {
   const stats = snapshot()
   return {
     ok: true,
@@ -93,7 +149,7 @@ function payload() {
         only_reply_at: config.filter?.only_reply_at === true,
       },
     },
-    connections: getConnections().map(connView),
+    connections: getWsConnections().map(connView),
     stats: {
       total: stats.total,
       today: stats.today,
@@ -105,8 +161,8 @@ function payload() {
 }
 
 /** 按名字或 index 定位，语义与 apps/admin.ts 的 find() 一致 */
-function locate(key) {
-  const list = getConnections()
+function locate(key: unknown) {
+  const list = getWsConnections()
   if (typeof key === "number" && Number.isInteger(key) && key >= 0 && key < list.length)
     return { index: key, conf: list[key] }
   const i = list.findIndex(c => (c.name || c.url) === String(key))
@@ -114,7 +170,7 @@ function locate(key) {
 }
 
 /** 布尔字段：前端可能传 "true" 这种字符串 */
-function bool(v, dflt: boolean): boolean {
+function bool(v: unknown, dflt: boolean): boolean {
   if (v === undefined || v === null || v === "") return dflt
   if (typeof v === "boolean") return v
   return v === "true" || v === 1 || v === "1"
@@ -126,7 +182,7 @@ function bool(v, dflt: boolean): boolean {
  * Number("") 是 0，所以不能只判 Number.isFinite —— 那会把「清空输入框」
  * 当成「填了 0」，而 max_reconnect_attempts 的 0 恰好是无限重连。
  */
-function num(v, dflt: number): number {
+function num(v: unknown, dflt: number): number {
   if (v === undefined || v === null || v === "") return dflt
   const n = Number(v)
   return Number.isFinite(n) ? n : dflt
@@ -138,7 +194,7 @@ function num(v, dflt: number): number {
  * 只认白名单里的键，逐个 setIn —— 不整份覆盖，用户配置里没写过的项继续
  * 继承默认值，写过的注释也留着。
  */
-function saveGlobal(body) {
+function saveGlobal(body: PanelBody) {
   const changed: string[] = []
 
   saveConfig(doc => {
@@ -164,7 +220,10 @@ function saveGlobal(body) {
       doc.setIn(["client", k], n)
       changed.push(`client.${k}`)
     }
-    const f = body.filter || {}
+    const f =
+      typeof body.filter === "object" && body.filter !== null
+        ? (body.filter as Record<string, unknown>)
+        : {}
     for (const k of ["report_private", "report_group", "report_meta", "only_reply_at"]) {
       if (f[k] === undefined) continue
       doc.setIn(["filter", k], bool(f[k], true))
@@ -180,15 +239,28 @@ function saveGlobal(body) {
 }
 
 /** 新增连接 */
-function addConnection(body) {
-  const url = requireWsUrl(body.url)
-  const list = getConnections()
-  if (list.some(c => c.url === url)) throw new Error("该地址已存在")
+function addConnection(body: PanelBody) {
+  const list = getWsConnections()
+  const bind = (Array.isArray(body.bind) ? body.bind : []).map(String)
+  // 恰好绑一个账号时把它带进补出来的路径段，理由见 normalizeUrl。
+  // 协议校验也在这一步（http:// 会带着换算好的 ws 地址抛出来）
+  const url = requireWsUrl(String(body.url ?? ""), bind.length === 1 ? bind[0] : null)
+  const targetPath = ["client", "ws_connections"]
+
+  // 与指令入口同一套判重：(地址, 账号)，不是只看地址。面板这边 bind 是多选框，
+  // 能一次填多个账号，交集判断正好覆盖「其中一个已经加过」的情形
+  const dup = findDuplicate(list, url, bind)
+  if (dup)
+    throw new Error(
+      `这个核心已经加过了（${dup.name}），绑定：${
+        dup.bind?.length ? dup.bind.join("、") : "不限账号"
+      }。改绑其他账号可再加一条`,
+    )
 
   let name = String(body.name || "").trim() || `core${list.length + 1}`
   if (list.some(c => (c.name || c.url) === name)) name = `${name}-${Date.now().toString(36)}`
 
-  const conf: any = {
+  const conf: WsConnection = {
     name,
     url,
     token: String(body.token || ""),
@@ -198,13 +270,15 @@ function addConnection(body) {
     // 留空（面板清掉输入框会送空串）按默认次数算；显式填 0 仍是无限重连。
     // Number("") === 0，所以不能只看 Number.isFinite
     max_reconnect_attempts: num(body.max_reconnect_attempts, DEFAULT_MAX_RECONNECT),
-    bind: Array.isArray(body.bind) ? body.bind : [],
+    bind,
     exclude: Array.isArray(body.exclude) ? body.exclude : [],
   }
 
   saveConfig(doc => {
-    if (!doc.hasIn(["client", "connections"])) doc.setIn(["client", "connections"], doc.createNode([]))
-    ;(doc.getIn(["client", "connections"]) as any).add(doc.createNode(conf))
+    if (!doc.hasIn(targetPath)) doc.setIn(targetPath, doc.createNode([]))
+    const connections = doc.getIn(targetPath, true)
+    if (!isSeq(connections)) throw new Error("client.ws_connections 应为数组")
+    connections.add(doc.createNode(conf))
   })
 
   if (enabled() && conf.enable) startClient(conf)
@@ -217,14 +291,15 @@ function addConnection(body) {
  * 改完先停后起：连接参数（url / token / bind）都是建连时读的，
  * 光改配置不重连的话面板显示已改、实际还连着老地址。
  */
-function editConnection(body) {
+function editConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
-  const path = ["client", "connections", hit.index]
+
+  const path = ["client", "ws_connections", hit.index]
   const oldName = hit.conf.name || hit.conf.url
 
   saveConfig(doc => {
-    if (body.url !== undefined) doc.setIn([...path, "url"], requireWsUrl(body.url))
+    if (body.url !== undefined) doc.setIn([...path, "url"], requireWsUrl(String(body.url)))
     if (body.name !== undefined) doc.setIn([...path, "name"], String(body.name).trim())
     if (body.bot_id !== undefined) doc.setIn([...path, "bot_id"], String(body.bot_id))
     // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
@@ -246,27 +321,33 @@ function editConnection(body) {
   })
 
   stopClient(oldName)
-  const next = getConnections()[hit.index]
+  const next = getWsConnections()[hit.index]
   if (enabled() && next?.enable !== false) startClient(next)
   return next?.name || oldName
 }
 
 /** 删一条 */
-function delConnection(body) {
+function delConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
+
   const name = hit.conf.name || hit.conf.url
-  saveConfig(doc => doc.deleteIn(["client", "connections", hit.index]))
+  saveConfig(doc => {
+    doc.deleteIn(["client", "ws_connections", hit.index])
+  })
   stopClient(name)
   return name
 }
 
 /** 开关一条 */
-function toggleConnection(body) {
+function toggleConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
+
   const on = bool(body.enable, true)
-  saveConfig(doc => doc.setIn(["client", "connections", hit.index, "enable"], on))
+  saveConfig(doc => {
+    doc.setIn(["client", "ws_connections", hit.index, "enable"], on)
+  })
   const name = hit.conf.name || hit.conf.url
   if (on) {
     if (enabled()) startClient({ ...hit.conf, enable: true })
@@ -274,11 +355,16 @@ function toggleConnection(body) {
   return name
 }
 
-/** 挡住原型污染键：面板收的是任意 JSON，不能直接信 */
-function safeBody(body) {
+/**
+ * 挡住原型污染键：面板收的是任意 JSON，不能直接信
+ *
+ * 入参标 unknown（`req.body` 就是 unknown），出参是 {@link PanelBody} ——
+ * 这个函数正是「不可信输入」与「可以按字段读」之间的那道边界
+ */
+function safeBody(body: unknown): PanelBody {
   if (!body || typeof body !== "object") return {}
-  for (const k of BAD_KEYS) if (Object.hasOwn(body, k)) delete body[k]
-  return body
+  for (const k of BAD_KEYS) if (Object.hasOwn(body, k)) delete (body as PanelBody)[k]
+  return body as PanelBody
 }
 
 /**
@@ -286,7 +372,7 @@ function safeBody(body) {
  *
  * 注意签名必须是具名导出 init（宿主取 `mod.init || mod.default`）。
  */
-export function init(ctx) {
+export function init(ctx: WebCtx) {
   const { registerPage, registerApi, logger } = ctx
 
   registerPage({
@@ -313,15 +399,18 @@ export function init(ctx) {
   })
 
   /** 统一的错误出口：错误信息回给前端，堆栈只进日志 */
-  const guard = (fn, code = 400) => async (req, res) => {
-    try {
-      res.json(await fn(req))
-    } catch (err: any) {
-      makeLog("warn", ["web 面板：请求失败", err], "GsCore")
-      logger?.warn?.(`[gscore-adapter] ${err?.message}`)
-      res.status(code).json({ ok: false, error: String(err?.message || err) })
+  const guard =
+    (fn: (req: WebRequest) => unknown, code = 400) =>
+    async (req: WebRequest, res: WebResponse) => {
+      try {
+        res.json(await fn(req))
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        makeLog("warn", ["web 面板：请求失败", err], "GsCore")
+        logger?.warn?.(`[gscore-adapter] ${message}`)
+        res.status(code).json({ ok: false, error: message })
+      }
     }
-  }
 
   registerApi("get", "/gscore-adapter/config", guard(() => payload(), 500))
 
@@ -335,7 +424,7 @@ export function init(ctx) {
    * 顺带一提：导航栏那颗 icon 只能是 emoji。宿主用 textContent 渲染它
    * （web/app.js:146），给图片路径会被当字面量显示出来。
    */
-  registerApi("get", "/gscore-adapter/logo", (_req, res) => {
+  registerApi("get", "/gscore-adapter/logo", (_req: WebRequest, res: WebResponse) => {
     try {
       const file = path.join(ResPath, "template/image", PLUGIN_LOGO)
       const buf = fs.readFileSync(file)

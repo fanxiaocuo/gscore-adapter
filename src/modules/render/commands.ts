@@ -46,10 +46,13 @@ export const HELP_GROUPS: HelpGroup[] = [
     items: [
       {
         cmd: "#早柚添加连接 <地址>",
-        dsc: "新增一个早柚核心连接（支持 ws:// 与 wss://）。\n只填 host:port 即可，自动补全为 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号",
+        dsc: "新增一个早柚核心连接（ws:// / wss://）。\n只填 host:port 即可，路径按账号自动补全\n默认只绑定收到这条指令的机器人账号\n多个机器人各自发一次，即可同连一个核心",
         eg: "#早柚添加连接 127.0.0.1:8765    或    wss://域名:8765 n=主核心 t=abc",
         icon: "plus",
         master: true,
+        // 说明三行 + 长示例。挤在半栏里 `ws://` 与 `/ws/Yunzai` 都会被折断，
+        // 且比同行邻居高出近一倍，所以独占整行
+        wide: true,
       },
       {
         cmd: "#早柚删除连接 <名字|序号>",
@@ -79,7 +82,11 @@ export const HELP_GROUPS: HelpGroup[] = [
         items: [
           { cmd: "name（n）", dsc: "连接名，用于日志与各处指令定位", icon: "dot" },
           { cmd: "token（t）", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
-          { cmd: "bot_id（id）", dsc: "上报时填入 MessageReceive.bot_id 的平台标识", icon: "dot" },
+          {
+            cmd: "bot_id（id）",
+            dsc: "平台标识（onebot / qqgroup 等），不是账号。\n账号由 bind 决定，会自动按形状识别",
+            icon: "dot",
+          },
           {
             cmd: "bind",
             dsc: "只转发哪个机器人账号的消息。\n默认为发指令的账号，all 表示不限",
@@ -105,7 +112,7 @@ export const HELP_GROUPS: HelpGroup[] = [
     items: [
       {
         cmd: "#早柚设置",
-        dsc: "不带参数时出图列出当前所有配置及各自的改法",
+        dsc: "不带参数时出图，列出当前所有配置与改法",
         eg: "#早柚设置    或    #早柚配置",
         icon: "settings",
         master: true,
@@ -154,7 +161,7 @@ export const HELP_GROUPS: HelpGroup[] = [
         items: [
           {
             cmd: "开启 / 关闭",
-            dsc: "启用、打开、开 与 停用、禁用、关 都认，true/false 也可以",
+            dsc: "启用、打开、开 与 停用、禁用、关 都认，也可以写 true/false",
             icon: "dot",
           },
           {

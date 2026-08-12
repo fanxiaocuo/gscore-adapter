@@ -19,7 +19,7 @@
  * -------------
  * 往深了比就要面对「用户是不是故意删掉某个子项」的问题，而子项缺失由 merge
  * 兜住、语义上没有歧义。顶层缺失才是「整块功能不可见」，这一层收益最大、风险最小。
- * 唯一的例外是 client.connections：那是用户的连接列表，绝不能动。
+ * 唯一的例外是 client.ws_connections：那是用户的连接列表，绝不能动。
  *
  * 保留注释靠 yaml 的 Document API：把默认文件解析成 Document，取出那个键对应的
  * 节点（yaml 库把注释挂在节点的 comment / commentBefore 上），整节点塞进用户
@@ -28,6 +28,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
+import type { Document, ParsedNode } from "yaml"
 import { ConfigPath, PluginPath } from "@/dir"
 import { unflow } from "./yaml.js"
 
@@ -50,8 +51,8 @@ export function upgradeUserConfig(userFile: string): string[] {
     return changes
   }
 
-  let userDoc: any
-  let defDoc: any
+  let userDoc: Document.Parsed<ParsedNode>
+  let defDoc: Document.Parsed<ParsedNode>
   try {
     userDoc = YAML.parseDocument(userSrc)
     defDoc = YAML.parseDocument(defSrc)
@@ -60,10 +61,10 @@ export function upgradeUserConfig(userFile: string): string[] {
     // 让那条路径去提示，比在升级逻辑里炸掉启动好
     return changes
   }
-  if (userDoc.errors?.length || defDoc.errors?.length) return changes
+  if (userDoc.errors.length || defDoc.errors.length || !YAML.isMap(defDoc.contents)) return changes
 
-  for (const item of defDoc.contents?.items || []) {
-    const key = String(item.key?.value ?? "")
+  for (const item of defDoc.contents.items) {
+    const key = YAML.isScalar(item.key) ? String(item.key.value ?? "") : ""
     if (!key || userDoc.has(key)) continue
     // 整节点搬（含 commentBefore / comment），值与注释一起过去
     userDoc.add(item)
@@ -74,7 +75,7 @@ export function upgradeUserConfig(userFile: string): string[] {
 
   // 写盘前先自查一遍：解析不回来就别写，宁可保持原样。
   // unflow 与 saveConfig 那条路共用，理由见它的注释（flow 标记记在节点上，
-  // toString 的选项管不着，一行两百字符的 connections 就是这么来的）
+  // toString 的选项管不着，一行两百字符的 ws_connections 就是这么来的）
   const out = unflow(userDoc).toString({ lineWidth: 0 })
   try {
     const check = YAML.parse(out)

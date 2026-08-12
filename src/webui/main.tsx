@@ -12,18 +12,19 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
+import type { ConnView, Payload, PayloadConfig } from "./api.js"
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
 const WEB_BASE = new URLSearchParams(location.search).get("__webBase") || ""
 const API = `${WEB_BASE}/api/gscore-adapter`
 
-async function api(path: string, body?: unknown) {
+async function api(path: string, body?: unknown): Promise<Payload> {
   const res = await fetch(`${API}${path}`, {
     method: body ? "POST" : "GET",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })
-  let data
+  let data: unknown
   try {
     data = await res.json()
   } catch {
@@ -32,8 +33,9 @@ async function api(path: string, body?: unknown) {
       res.status === 401 || res.status === 403 ? "未登录或无权限" : `HTTP ${res.status}`,
     )
   }
-  if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`)
-  return data
+  const result = data as { ok?: boolean; error?: string }
+  if (!res.ok || result.ok === false) throw new Error(result.error || `HTTP ${res.status}`)
+  return data as Payload
 }
 
 /** catch 到的是 unknown，统一取一句能显示的话 */
@@ -41,7 +43,7 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function bytes(n) {
+function bytes(n: number) {
   if (!n) return "0 B"
   const u = ["B", "KiB", "MiB", "GiB"]
   let i = 0
@@ -107,7 +109,20 @@ const toList = (s: string) =>
     .map(v => v.trim())
     .filter(Boolean)
 
-const dig = (o, path) => path.split(".").reduce((a, k) => a?.[k], o)
+/**
+ * 按点号路径取值，供 FIELDS 里的 `filter.xxx` 用
+ *
+ * 返回 unknown 而不是 any：取出来的值一律要经 `!!` 或 `Number()` 才能用，
+ * 标 any 会让 `form[x.k]` 直接进 JSX 而不报错（对象会渲染成崩溃）
+ */
+const dig = (o: unknown, path: string): unknown => {
+  let value = o
+  for (const key of path.split(".")) {
+    if (typeof value !== "object" || value === null) return undefined
+    value = (value as Record<string, unknown>)[key]
+  }
+  return value
+}
 
 /*
  * 复用的 utility 组合
@@ -132,7 +147,7 @@ const PANEL =
 /* 面板头的「靠右」变体：margin 上 12 下 0，与常规 phead 的下 12 相反 */
 const PHEAD_END = "mt-[12px] flex items-center justify-end gap-[12px]"
 
-function Stat({ k, v, sub }) {
+function Stat({ k, v, sub }: { k: string; v: string; sub: string }) {
   return (
     <div className="rounded-[12px] border border-border bg-surface px-[16px] py-[14px] shadow-[var(--shadow)]">
       <div className="text-[12px] tracking-[0.04em] text-muted">{k}</div>
@@ -152,7 +167,28 @@ const DOT: Record<string, string> = {
   off: "bg-muted",
 }
 
-function Conn({ c, onAct, onEdit }) {
+/**
+ * 面板发给 /connection 的请求体
+ *
+ * 四个动作共用一个接口，字段随动作变（add 不带 key，toggle 只带 key + enable），
+ * 所以除 action 外都是可选 —— 后端 `locate()` / `bool()` 自己兜缺失值
+ */
+interface ConnAction {
+  action: "add" | "edit" | "del" | "toggle"
+  key?: number
+  enable?: boolean
+  [k: string]: unknown
+}
+
+function Conn({
+  c,
+  onAct,
+  onEdit,
+}: {
+  c: ConnView
+  onAct: (body: ConnAction) => void
+  onEdit: (conn: ConnView) => void
+}) {
   return (
     <div className="flex items-center gap-[12px] rounded-[10px] border border-border p-[12px]">
       <span
@@ -197,7 +233,15 @@ function Conn({ c, onAct, onEdit }) {
 }
 
 /** 连接编辑弹层。conn 为 null 表示新增 */
-function Modal({ conn, onClose, onSubmit }) {
+function Modal({
+  conn,
+  onClose,
+  onSubmit,
+}: {
+  conn: ConnView | null
+  onClose: () => void
+  onSubmit: (body: ConnAction) => void
+}) {
   const [form, setForm] = useState<Record<string, string>>(() => {
     const f: Record<string, string> = {}
     for (const x of CFIELDS) {
@@ -206,7 +250,7 @@ function Modal({ conn, onClose, onSubmit }) {
         f[x.k] = ""
         continue
       }
-      const v = conn[x.k]
+      const v = (conn as unknown as Record<string, unknown>)[x.k]
       f[x.k] = x.type === "list" ? (Array.isArray(v) ? v.join(", ") : "") : String(v ?? "")
     }
     if (!conn) {
@@ -217,7 +261,7 @@ function Modal({ conn, onClose, onSubmit }) {
   })
 
   const submit = () => {
-    const body: Record<string, unknown> = { action: conn ? "edit" : "add" }
+    const body: ConnAction = { action: conn ? "edit" : "add" }
     if (conn) body.key = conn.index
     for (const x of CFIELDS) {
       const v = String(form[x.k] ?? "").trim()
@@ -266,7 +310,19 @@ function Modal({ conn, onClose, onSubmit }) {
   )
 }
 
-function Settings({ config, onSave }) {
+/** 全局设置提交体。filter 那四项在后端是嵌在 filter 下的，所以单独一层 */
+interface SettingsBody {
+  filter: Record<string, boolean | number>
+  [k: string]: unknown
+}
+
+function Settings({
+  config,
+  onSave,
+}: {
+  config: PayloadConfig
+  onSave: (body: SettingsBody) => void
+}) {
   const [form, setForm] = useState<Record<string, unknown>>(() => {
     const f: Record<string, unknown> = {}
     for (const x of FIELDS) f[x.k] = dig(config, x.k)
@@ -280,7 +336,7 @@ function Settings({ config, onSave }) {
   }, [config])
 
   const submit = () => {
-    const body: Record<string, any> = { filter: {} }
+    const body: SettingsBody = { filter: {} }
     for (const x of FIELDS) {
       const v = x.type === "switch" ? !!form[x.k] : Number(form[x.k])
       if (x.k.startsWith("filter.")) body.filter[x.k.slice(7)] = v
@@ -326,11 +382,17 @@ function Settings({ config, onSave }) {
 }
 
 function App() {
-  const [state, setState] = useState(null)
-  const [toast, setToast] = useState(null)
-  const [modal, setModal] = useState(undefined) // undefined 关闭，null 新增，对象编辑
+  const [state, setState] = useState<Payload | null>(null)
+  const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null)
+  /**
+   * 弹层状态有三档，靠 undefined / null / 对象区分：
+   *   undefined  关闭（轮询也靠这个值判断「现在能不能刷」）
+   *   null       新增
+   *   ConnView   编辑这一条
+   */
+  const [modal, setModal] = useState<ConnView | null | undefined>(undefined)
   const [logoOk, setLogoOk] = useState(false)
-  const timer = useRef(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const say = useCallback((text: string, bad?: boolean) => {
     setToast({ text, bad })
@@ -347,7 +409,7 @@ function App() {
   }, [say])
 
   const send = useCallback(
-    async (path, body) => {
+    async (path: string, body: unknown) => {
       try {
         const r = await api(path, body)
         setState(r)

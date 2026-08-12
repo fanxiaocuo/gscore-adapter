@@ -24,8 +24,14 @@
  * 部分 OneBot 实现），那样会把正常发送大面积误判成失败。
  */
 
-/** 从发送返回值里提取失败原因；成功返回空串 */
-export function sendError(ret): string {
+/**
+ * 从发送返回值里提取失败原因；成功返回空串
+ *
+ * @param ret 各适配器 sendMsg 的返回值。标 any 是诚实的：这个函数存在的理由
+ *            就是各适配器返回形状不统一（见上面的说明），所有字段读取都得
+ *            先当「可能没有」处理，标个联合类型只会让每次读取都要先收窄
+ */
+export function sendError(ret: any): string {
   // undefined / null：多数适配器成功时也这样，不能算失败
   if (ret == null) return ""
   if (typeof ret !== "object") return ""
@@ -67,8 +73,10 @@ export function sendError(ret): string {
  * 转发重试，多组发送返回 `{ message_id: [], data: [], error: [] }`。
  * 协议的 RecallReceipt.id 本身允许 string[]，所以数组原样透传，
  * 只把空数组归一成 null（那等于没拿到）。
+ *
+ * @param ret 同 {@link sendError}，形状因适配器而异
  */
-export function sendMessageId(ret): string | string[] | null {
+export function sendMessageId(ret: any): string | string[] | null {
   if (ret == null || typeof ret !== "object") return null
 
   if (Array.isArray(ret)) {

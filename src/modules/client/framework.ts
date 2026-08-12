@@ -25,6 +25,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { YunzaiPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
+import type { AdapterEvent } from "@/types"
 
 export let cfg: {
   /** TRSS 专有：{ bot_id: [user_id] } */
@@ -65,7 +66,11 @@ try {
  * @param user_id  待判定的用户
  * @param e        原始事件，可选；有则优先采信框架结论
  */
-export function isMasterUser(self_id: any, user_id: any, e?: any): boolean {
+export function isMasterUser(
+  self_id: string | number,
+  user_id: string | number | null | undefined,
+  e?: AdapterEvent,
+): boolean {
   if (user_id == null) return false
 
   // 框架已算过就直接采信（避免与框架判定不一致）

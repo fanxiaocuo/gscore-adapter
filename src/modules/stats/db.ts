@@ -34,6 +34,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { PluginPath } from "@/dir"
+import type { SqliteDatabase, SqliteModule, SqliteValue } from "@/types"
 import { makeLog } from "@/utils/compat"
 import type { Counters } from "./counters.js"
 
@@ -49,7 +50,7 @@ const dbDir = path.join(PluginPath, "data")
 const dbFile = process.env.GSCORE_STATS_DB || path.join(dbDir, "stats.db")
 
 /** sqlite3 的 Database 实例，拿不到依赖时为 null */
-let db: any = null
+let db: SqliteDatabase | null = null
 
 /**
  * 写操作串行队列
@@ -71,15 +72,17 @@ function queue<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** run/all 的 Promise 包装。sqlite3 是 callback API，没有原生 Promise 接口 */
-function run(sql: string, params: any[] = []): Promise<void> {
+function run(sql: string, params: readonly SqliteValue[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, (err: Error | null) => (err ? reject(err) : resolve()))
+    db!.run(sql, params, (err: Error | null) => (err ? reject(err) : resolve()))
   })
 }
 
-function all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+function all<T>(sql: string, params: readonly SqliteValue[] = []): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    db.all(sql, params, (err: Error | null, rows: T[]) => (err ? reject(err) : resolve(rows || [])))
+    db!.all<T>(sql, params, (err: Error | null, rows: T[]) =>
+      err ? reject(err) : resolve(rows || []),
+    )
   })
 }
 
@@ -92,19 +95,20 @@ function all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
 export async function open(): Promise<boolean> {
   if (db) return true
 
-  let sqlite3: any
+  let sqlite3: SqliteModule
   try {
     // 动态 import：宿主没装 sqlite3 时（理论上不会，它在 TRSS 依赖里）
     // 走内存模式而不是启动即崩
-    sqlite3 = (await import("sqlite3")).default
-  } catch (err: any) {
-    makeLog("debug", `中转计数：sqlite3 不可用（${err?.message}），改用内存计数`, "GsCore")
+    sqlite3 = (await import("sqlite3")).default as unknown as SqliteModule
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    makeLog("debug", `中转计数：sqlite3 不可用（${message}），改用内存计数`, "GsCore")
     return false
   }
 
   try {
     fs.mkdirSync(dbDir, { recursive: true })
-    db = await new Promise((resolve, reject) => {
+    db = await new Promise<SqliteDatabase>((resolve, reject) => {
       const d = new sqlite3.Database(dbFile, (err: Error | null) => (err ? reject(err) : resolve(d)))
     })
 

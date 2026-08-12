@@ -5,8 +5,9 @@ import { forName, snapshot, resetStats } from "@/modules/stats"
 import { renderStatus, renderAbout } from "@/modules/render/pages"
 import { versionLabel, branch } from "@/modules/render/version"
 import { frameLabel, nodeVersion, releaseLabel, sysInfo } from "@/modules/render/env"
+import type { YunzaiEvent } from "@/types"
 
-export default class GsCoreStatus extends plugin {
+export default class GsCoreStatus extends plugin<"message"> {
   constructor() {
     super({
       name: "早柚核心适配器",
@@ -26,7 +27,7 @@ export default class GsCoreStatus extends plugin {
     })
   }
 
-  async about(e) {
+  async about(e: YunzaiEvent) {
     const img = await renderAbout()
     if (img) return e.reply(img)
 
@@ -48,7 +49,7 @@ export default class GsCoreStatus extends plugin {
     )
   }
 
-  async status(e) {
+  async status(e: YunzaiEvent) {
     const img = await renderStatus()
     if (img) return e.reply(img)
 
@@ -78,13 +79,13 @@ export default class GsCoreStatus extends plugin {
     await e.reply(msg.join(""))
   }
 
-  async reconnect(e) {
+  async reconnect(e: YunzaiEvent) {
     if (!clients.length) return e.reply("没有可重连的客户端连接")
     for (const c of clients) c.restart()
     await e.reply(`已触发 ${clients.length} 个连接重连`)
   }
 
-  async resetStats(e) {
+  async resetStats(e: YunzaiEvent) {
     const s = snapshot()
     try {
       await resetStats()

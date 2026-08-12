@@ -2,7 +2,7 @@
 
 云崽作为 ws 客户端主动连接早柚核心，即 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
 
-::: info 只有 client 一个方向
+::: info 只有 client 一个方向，且只走 WebSocket
 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。
 :::
 

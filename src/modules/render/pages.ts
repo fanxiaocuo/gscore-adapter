@@ -4,7 +4,8 @@
  * 把配置与运行时状态整理成组件要的形状，再交给 render()。
  * 单独一层是为了让 apps/*.ts 只写一行调用，也方便未来加新页面。
  */
-import { config, getConnections, enabled } from "@/config"
+import { config, getWsConnections, enabled } from "@/config"
+import { type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { PluginName } from "@/dir"
@@ -64,7 +65,7 @@ function tone(status: number, enabled: boolean): ConnRow["tone"] {
  *   加进去反而把配置信息挤没了。
  */
 function collect(detail = false) {
-  const list = getConnections()
+  const list = getWsConnections()
   const rows: ConnRow[] = list.map((c, i) => {
     const live = clients.find(x => x.name === c.name)
     const enabled = c.enable !== false
@@ -385,7 +386,7 @@ function settingFacts(): SettingFacts[] {
   const f = config.filter || {}
   const u = config.update_check || {}
   const srv = config.file_server || {}
-  const conns = getConnections()
+  const conns = getWsConnections()
   const hb = Number(config.client?.heartbeat) || 0
   const to = Number(config.client?.heartbeat_timeout) || 0
 
@@ -427,8 +428,8 @@ function settingFacts(): SettingFacts[] {
  * 各连接可以各配一个次数，值不一致时不必逐条列出——那是 #早柚连接列表 的事。
  * 这里只回答「会不会停」：全都无限、全都有上限、还是混着。
  */
-function reconnectLabel(conns: { max_reconnect_attempts?: number }[]): string {
-  const base = Number(config.client?.connections?.[0]?.reconnect_interval) || 5
+function reconnectLabel(conns: WsConnection[]): string {
+  const base = Number(conns[0]?.reconnect_interval) || 5
   if (!conns.length) return `间隔 ${base}s 起 · 默认最多 ${DEFAULT_MAX_RECONNECT} 次`
   const caps = conns.map(c => Number(c.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT))
   const unlimited = caps.filter(n => !(n > 0)).length

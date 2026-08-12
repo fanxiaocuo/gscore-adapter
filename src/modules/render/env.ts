@@ -27,9 +27,7 @@ export type FrameName = "TRSS-Yunzai" | "Miao-Yunzai"
 /** 跑在哪个框架上 */
 export function frameName(): FrameName {
   try {
-    // global.Bot 在插件加载阶段就存在，但类型上没有声明，这里按 any 取
-    const bot = (globalThis as any).Bot
-    if (Array.isArray(bot?.uin)) return "TRSS-Yunzai"
+    if (Array.isArray(globalThis.Bot?.uin)) return "TRSS-Yunzai"
   } catch {
     // Bot 未初始化（单测、CI）时按喵崽算
   }

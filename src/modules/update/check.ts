@@ -18,6 +18,7 @@
 import { config } from "@/config"
 import { makeLog } from "@/utils/compat"
 import { renderChangelog } from "@/modules/render/pages"
+import type { YunzaiSendable } from "@/types"
 import { checkUpdate, log, type Commit, type UpdateInfo } from "./git.js"
 
 /** 已播报过的版本标记，值为「本地 HEAD + 远端落后数」 */
@@ -53,13 +54,19 @@ export function changelogText(info: UpdateInfo, local: Commit[] = []): string {
  * 取更新日志的消息（图优先，失败回退文本）
  *
  * @param doFetch 是否先 fetch 远端
+ * @returns msg 可直接交给 `reply` / `sendMasterMsg` —— 出图成功是图片段，
+ *          失败则是 `changelogText` 的纯文本
  */
-export async function changelogMsg(doFetch: boolean): Promise<{ info: UpdateInfo; msg: any }> {
+export async function changelogMsg(
+  doFetch: boolean,
+): Promise<{ info: UpdateInfo; msg: YunzaiSendable }> {
   const info = await checkUpdate(doFetch)
   // 已最新时列本地提交，让「更新日志」这个指令名字对得上内容
   const local = info.hasUpdate ? [] : await log("", 20)
 
-  let msg: any = false
+  // false 表示「还没出图」：render 那条路径出错也返回 false（它把异常收进返回值），
+  // 所以这里用同一个哨兵，最后统一 `msg || 文本` 兜底
+  let msg: YunzaiSendable | false = false
   try {
     msg = await renderChangelog(info, local)
   } catch (err) {
@@ -94,7 +101,7 @@ export async function runCheck(): Promise<UpdateInfo> {
   makeLog("mark", `插件有新提交（落后 ${info.behind} 个）`, "GsCore")
   if (config.update_check?.notify === false) return info
 
-  let msg: any = false
+  let msg: YunzaiSendable | false = false
   try {
     msg = await renderChangelog(info)
   } catch (err) {

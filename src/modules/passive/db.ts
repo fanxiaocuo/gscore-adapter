@@ -25,13 +25,14 @@
 import fs from "node:fs"
 import path from "node:path"
 import { PluginPath } from "@/dir"
+import type { SqliteDatabase, SqliteModule, SqliteValue } from "@/types"
 import { makeLog } from "@/utils/compat"
 
 const dbDir = path.join(PluginPath, "data")
 // 测试用：指向临时库
 const dbFile = process.env.GSCORE_PASSIVE_DB || path.join(dbDir, "passive.db")
 
-let db: any = null
+let db: SqliteDatabase | null = null
 
 /** 写操作串行化，理由同 stats/db.ts：避免事务嵌套 */
 let chain: Promise<unknown> = Promise.resolve()
@@ -42,15 +43,17 @@ function queue<T>(fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-function run(sql: string, params: any[] = []): Promise<void> {
+function run(sql: string, params: readonly SqliteValue[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, (err: Error | null) => (err ? reject(err) : resolve()))
+    db!.run(sql, params, (err: Error | null) => (err ? reject(err) : resolve()))
   })
 }
 
-function all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+function all<T>(sql: string, params: readonly SqliteValue[] = []): Promise<T[]> {
   return new Promise((resolve, reject) => {
-    db.all(sql, params, (err: Error | null, rows: T[]) => (err ? reject(err) : resolve(rows || [])))
+    db!.all<T>(sql, params, (err: Error | null, rows: T[]) =>
+      err ? reject(err) : resolve(rows || []),
+    )
   })
 }
 
@@ -77,17 +80,18 @@ export interface PassiveRow {
 export async function open(): Promise<boolean> {
   if (db) return true
 
-  let sqlite3: any
+  let sqlite3: SqliteModule
   try {
-    sqlite3 = (await import("sqlite3")).default
-  } catch (err: any) {
-    makeLog("debug", `被动回复：sqlite3 不可用（${err?.message}），改用内存缓存`, "GsCore")
+    sqlite3 = (await import("sqlite3")).default as unknown as SqliteModule
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    makeLog("debug", `被动回复：sqlite3 不可用（${message}），改用内存缓存`, "GsCore")
     return false
   }
 
   try {
     fs.mkdirSync(dbDir, { recursive: true })
-    db = await new Promise((resolve, reject) => {
+    db = await new Promise<SqliteDatabase>((resolve, reject) => {
       const d = new sqlite3.Database(dbFile, (err: Error | null) => (err ? reject(err) : resolve(d)))
     })
     await run("PRAGMA journal_mode = WAL")

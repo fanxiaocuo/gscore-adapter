@@ -1,7 +1,8 @@
 /**
  * 客户端生命周期
  */
-import { config } from "@/config"
+import { config, configFile, getWsConnections, wsEnabled } from "@/config"
+import type { WsConnection } from "@/types"
 import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
@@ -18,7 +19,7 @@ function hook() {
 }
 
 /** 启动单个连接（已存在同名则跳过） */
-export function startClient(conf) {
+export function startClient(conf: WsConnection) {
   if (conf.enable === false) return null
   if (!conf.url) {
     makeLog("error", `连接 ${conf.name || "(未命名)"} 缺少 url，已跳过`, "GsCore")
@@ -34,7 +35,7 @@ export function startClient(conf) {
 }
 
 /** 停止并移除单个连接 */
-export function stopClient(name) {
+export function stopClient(name: string) {
   const idx = clients.findIndex(c => c.name === name)
   if (idx === -1) return false
   clients[idx].close()
@@ -51,9 +52,28 @@ export function reloadClients() {
 
 export function startClients() {
   hook()
-  for (const conf of config.client?.connections || []) startClient(conf)
 
-  if (clients.length) makeLog("mark", `早柚核心客户端启动 ${clients.length} 个连接`, "GsCore")
+  if (wsEnabled()) {
+    for (const conf of getWsConnections()) startClient(conf)
+  }
+
+  if (clients.length) {
+    makeLog("mark", `早柚核心客户端启动 ${clients.length} 个连接`, "GsCore")
+    return
+  }
+
+  // 一条连接都没起来时，先看是不是配置还停在 3.1 之前的 client.connections。
+  // 那个字段不再被读取（3.2 改名为 ws_connections），光说「没有可用连接」的话
+  // 用户会去查网络，而配置文件里明明写着一条连接。
+  if (Array.isArray(config.client?.connections))
+    makeLog(
+      "error",
+      [
+        "配置里的 client.connections 已废弃，不再生效。",
+        `请把它改名为 client.ws_connections（${configFile}），或发 #早柚添加连接 <地址> 重新添加`,
+      ].join("\n"),
+      "GsCore",
+    )
   else makeLog("warn", "早柚核心客户端没有可用连接", "GsCore")
 }
 

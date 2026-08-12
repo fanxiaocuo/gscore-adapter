@@ -30,8 +30,9 @@ import { pathToFileURL } from "node:url"
 import { PluginName, PluginPath, YunzaiPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
 import { changelogMsg, tick } from "@/modules/update"
+import type { YunzaiEvent } from "@/types"
 
-export default class GsCoreUpdate extends plugin {
+export default class GsCoreUpdate extends plugin<"message"> {
   constructor() {
     super({
       name: "早柚核心适配器更新",
@@ -62,7 +63,7 @@ export default class GsCoreUpdate extends plugin {
     })
   }
 
-  async update(e) {
+  async update(e: YunzaiEvent) {
     return this.run(e, e.msg.includes("强制") ? "#强制更新" : "#更新")
   }
 
@@ -72,13 +73,13 @@ export default class GsCoreUpdate extends plugin {
    * 不 fetch：只看本地已有的记录，是「刚更新完想知道改了什么」的场景，
    * 不该为此产生一次网络请求。想知道远端有没有新东西用 #早柚检查更新。
    */
-  async updateLog(e) {
+  async updateLog(e: YunzaiEvent) {
     const { msg } = await changelogMsg(false)
     return e.reply(msg)
   }
 
   /** 检查远端有无新提交（会 fetch） */
-  async checkUpdate(e) {
+  async checkUpdate(e: YunzaiEvent) {
     // fetch 走网络，慢的时候用户会以为指令没响应
     await e.reply("正在检查更新……")
     const { msg } = await changelogMsg(true)
@@ -91,7 +92,7 @@ export default class GsCoreUpdate extends plugin {
    * 改的是 e.msg 而不是 this.e.msg —— 本体读的是它自己实例上的 e。
    * 用完恢复原值：同一个事件对象后面还会流经其他插件，改坏了会影响它们的匹配。
    */
-  async run(e, type: string) {
+  async run(e: YunzaiEvent, type: string) {
     let Update
     try {
       // 与 modules/client/framework.ts 同一套做法：由 YunzaiPath 拼绝对路径后

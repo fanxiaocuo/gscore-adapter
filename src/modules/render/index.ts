@@ -49,6 +49,7 @@ import { pathToFileURL } from "node:url"
 import { createRenderer, HtmlWrapper } from "@karinjs/template-react"
 import type { ReactElement } from "react"
 import { PluginName, YunzaiPath } from "@/dir"
+import type { YunzaiSendable } from "@/types"
 import { makeLog } from "@/utils/compat"
 import { buildCss } from "./styles/index.js"
 import { pickPalette, DARK, LIGHT, type Palette } from "./theme.js"
@@ -94,8 +95,23 @@ const HTML_DIR = join(YunzaiPath, "temp", "html", `${PluginName}-html`)
  */
 const SCALE = 1.25
 
+interface ScreenshotData {
+  tplFile: string
+  saveId: string
+  imgType: "jpeg"
+  quality: number
+  pageGotoParams: { waitUntil: "load" }
+  multiPage?: boolean
+}
+
+interface PuppeteerHost {
+  html?: Record<string, unknown>
+  screenshot?: (name: string, data: ScreenshotData) => Promise<YunzaiSendable | false>
+  screenshots?: (name: string, data: ScreenshotData) => Promise<YunzaiSendable | false>
+}
+
 /** 本体 puppeteer 模块，首次渲染时惰性加载 */
-let puppeteer: any
+let puppeteer: PuppeteerHost | undefined
 
 /**
  * 取本体截图器
@@ -108,7 +124,7 @@ async function getPuppeteer() {
   if (puppeteer) return puppeteer
   try {
     const url = pathToFileURL(join(YunzaiPath, "lib/puppeteer/puppeteer.js")).href
-    puppeteer = (await import(url)).default
+    puppeteer = (await import(url)).default as PuppeteerHost
   } catch (err) {
     makeLog("error", ["加载本体 puppeteer 失败", err], "GsCore")
     return null
@@ -226,7 +242,7 @@ export interface RenderOptions {
  * 渲染成图片消息段
  * @returns 可直接 e.reply 的消息段（multiPage 时为数组）；失败返回 false
  */
-export async function render(opts: RenderOptions) {
+export async function render(opts: RenderOptions): Promise<YunzaiSendable | false> {
   const pp = await getPuppeteer()
   const shot = opts.multiPage ? pp?.screenshots : pp?.screenshot
   if (!shot) return false
