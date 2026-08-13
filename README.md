@@ -4,7 +4,7 @@ Miao-Yunzai / TRSS-Yunzai 的 **早柚核心（[gsuid_core](https://github.com/G
 
 把云崽接到早柚核心，让核心侧的插件（原神、星铁等）通过云崽已有的机器人账号收发消息。云崽作为 ws 客户端主动连接核心，即 [AdapterList](https://docs.sayu-bot.com/LinkBots/AdapterList.html) 描述的连接器形态。
 
-> **只有 client 一个方向。** 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。所以配置里只有一个总开关 `enable`。
+> **只有 client 一个方向。** 核心 `core.py` 只有入站路由 `@app.websocket("/ws/{bot_id}")`，全仓库没有任何出站连接——核心不会主动来连云崽。所以配置里没有 server 那一侧的任何东西，`enable` 关掉就是全部断开。
 
 ## ✨ 特性
 
@@ -79,6 +79,7 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 # config/config.yaml
 enable: true
 client:
+  enable_ws: true
   connections:
     - name: gsuid_core
       url: ws://127.0.0.1:8765/ws/Yunzai
@@ -86,14 +87,15 @@ client:
       enable: true
 ```
 
-重启后 `#早柚状态` 应显示「已连接」。也可以不碰配置文件，直接发 `#早柚添加连接 127.0.0.1:8765`，只填 `host:port` 时会自动补全为 `/ws/Yunzai`。
+重启后 `#早柚状态` 应显示「已连接」。也可以不碰配置文件，直接发 `#早柚添加连接 127.0.0.1:8765`：只填 `host:port` 时路径按发指令的账号补成 `/ws/Yunzai-<账号>`，多个机器人各发一次就能同连一个核心（原因见下）。
 
 | 配置项 | 说明 | 默认值 |
 | :--- | :--- | :--- |
 | `enable` | 总开关，`false` 则完全不连核心（改完即时生效） | `true` |
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
-| `client.connections[]` | 连接列表，见下 | — |
+| `client.enable_ws` | 是否启用 WebSocket 连接 | `true` |
+| `client.connections[]` | WebSocket 连接列表，见下 | — |
 | `filter.report_private` | 是否上报私聊消息 | `true` |
 | `filter.report_group` | 是否上报群消息（QQ 频道也算群） | `true` |
 | `filter.report_meta` | 是否上报进群 / 退群 / 戳一戳 | `true` |
@@ -113,19 +115,36 @@ client:
 
 ```yaml
 client:
-  connections:
-    - name: gsuid_core                        # 连接名，仅用于日志和 #早柚状态
-      url: ws://127.0.0.1:8765/ws/Yunzai      # 路由 /ws/{bot_id}，bot_id 可自定义
-      token: ""                               # 核心以 ?token= 查询参数接收
-      bot_id: ""                              # 上报的平台标识，留空按 bot_id_map 推断
+  enable_ws: true                         # 是否启用 WebSocket，默认 true
+  connections:                            # WebSocket 连接列表
+    - name: gsuid_core                    # 连接名，仅用于日志和 #早柚状态
+      url: ws://127.0.0.1:8765/ws/Yunzai  # WebSocket 地址，路径为 /ws/{bot_id}
+      token: ""                           # 核心以 ?token= 查询参数接收
+      bot_id: ""                          # 上报的平台标识，留空按 bot_id_map 推断
       enable: true
-      reconnect_interval: 5                   # 重连间隔（秒）
-      max_reconnect_attempts: 5               # 默认 5 次，<=0 无限重连
-      bind: []                                # 只转发这些 self_id，留空为全部
-      exclude: []                             # 排除这些 self_id（优先级高于 bind）
+      reconnect_interval: 5               # 重连间隔（秒）
+      max_reconnect_attempts: 5           # 默认 5 次，<=0 无限重连
+      bind: []                            # 只转发这些 self_id，留空为全部
+      exclude: []                         # 排除这些 self_id（优先级高于 bind）
 ```
 
-`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。不必手改文件：`#早柚修改连接 1 bind+=<账号>` 可增删，Web 面板上点开连接卡片的「绑定」折叠区还能看到每个账号的头像、昵称与在线状态，一键增删；`#早柚连接列表` 出图时绑定账号也显示为头像胶囊。
+
+**多个机器人连同一个核心**，在每个号上各发一次 `#早柚添加连接 127.0.0.1:8765` 即可，插件会为每条连接配好 `bind` 与互不相同的 URL 路径。判重按「核心 + 账号」算，所以第二个号不会再被回「该地址已存在」，同一个号重复加仍然会被拦。
+
+`#早柚添加连接` 只收 `ws://` / `wss://`，填 `http://` 会被挡下来并把地址换算成 ws 形式提示重发。
+
+路径必须逐个不同：核心以 `/ws/{bot_id}` 里那一段作为连接字典的键（`GsServer.connect` 里 `active_ws[bot_id] = websocket`），两条连接共用一段的话，后连上的会把前一条的 socket 顶掉，前一个号从此收不到下行。手写配置时自己保证这一段唯一，例如 `/ws/Yunzai-2463381624`。
+
+这一段与协议里的 `bot_id` 是两件不同的东西，别混：
+
+| | 是什么 | 谁填 |
+|---|---|---|
+| URL 路径段 | 核心区分**连接**的键 | 连接的 `url` |
+| `bot_id` | **平台**标识（`onebot` / `qqgroup` …） | 连接的 `bot_id`，留空按 `bot_id_map` 推断 |
+| `bot_self_id` | **账号** | 每条消息自动填，无需配置 |
+
+所以 `bot_id` 后面不接账号，也不需要写成数组——账号是逐条消息带的，一条连接服务哪些账号由 `bind` 决定。
 
 重连采用指数退避（`reconnect_interval` 起步，封顶其 12 倍），默认 5 次约覆盖 2.3 分钟；用尽后发 `#早柚重连` 恢复，想一直重连把 `max_reconnect_attempts` 写 `0`。升级只补缺失项、不动已有值，所以老实例仍用自己文件里的那个数（早期默认 `0` 即无限重连）。
 
@@ -227,7 +246,8 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 | `#早柚版本` | 插件版本、发布类型与本机运行环境快照（出图） |
 | `#早柚更新日志` | 本地已有的提交记录（出图） |
 | `#早柚重连` | 重连全部客户端连接 |
-| `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` |
+| `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` `bind=账号1+账号2` `exclude=账号` |
+| `#早柚修改连接 <名字或序号> <key=value>` | 改已有连接。`bind+=账号` 追加、`bind-=账号` 移除、`bind=all` 不限账号，`exclude` 同语法 |
 | `#早柚删除连接 <名字或序号>` | 也可 `开启` / `关闭` 连接 |
 | `#早柚设置` | 不带参数出图列出当前所有配置及各自的改法（`#早柚配置` 同义） |
 | `#早柚设置<项目><开启/关闭>` | 中文写法，可设 适配器 / 仅响应at / 私聊上报 / 群聊上报 / 事件上报 / 断线通知 / 更新检查 |
@@ -241,6 +261,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 ```
 #早柚添加连接 127.0.0.1:8765
 #早柚添加连接 127.0.0.1:8765 n=主核心 t=abc
+#早柚修改连接 1 bind+=2463381624
 #早柚设置私聊上报关闭
 #早柚设置最大媒体大小 2
 ```
@@ -250,7 +271,14 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 <details>
 <summary>连不上，日志刷「连接错误」</summary>
 
-检查核心是否在跑、地址端口是否正确、`token` 是否匹配。路由要带 `/ws/{bot_id}`，只填 `host:port` 时插件会自动补 `/ws/Yunzai`。容器部署时别把地址写成容器内的 `127.0.0.1`。
+检查核心是否在跑、地址端口是否正确、`token` 是否匹配。路由要带 `/ws/{bot_id}`，只填 `host:port` 时插件会自动补。容器部署时别把地址写成容器内的 `127.0.0.1`。
+
+</details>
+
+<details>
+<summary>另一个机器人连上后，这个号就收不到核心的回复了</summary>
+
+两条连接的 URL 路径段撞了。核心以那一段作为连接字典的键，后连上的会顶掉前一条的 socket。把每条连接的路径改成互不相同的，例如 `/ws/Yunzai-<账号>`，或者删掉重新用 `#早柚添加连接` 加一次（它会自动带账号）。
 
 </details>
 
@@ -429,7 +457,9 @@ src/
 └── apps/           status / admin / update 三组指令
 ```
 
-产物由 `tsc` **逐文件**输出到 `lib/`，镜像 `src/` 的层级，不打包（`tsc-alias` 负责把 `@/` 别名与目录 import 补成完整路径）。不用打包器的理由：`sqlite3` 是原生模块，打进去会让降级分支永远走失败路径；`ws` / `yaml` / `chokidar` 复用宿主那一份；而单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用。
+Node 侧（`src/` 除 `webui/`）由 `tsc` **逐文件**输出到 `lib/`，镜像 `src/` 的层级，不打包（`tsc-alias` 负责把 `@/` 别名与目录 import 补成完整路径）。不用打包器的理由：`sqlite3` 是原生模块，打进去会让降级分支永远走失败路径；`ws` / `yaml` / `chokidar` 复用宿主那一份；而单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用。出图组件（`modules/render/`）也在这条链上——它是 Node 侧 SSR，只把 JSX 拼成 HTML 字符串。
+
+只有 web 面板（`src/webui/`）走打包：`build:panel` 即 `vite build`（Vite 8 内置 Rolldown），出 `webadapter/panel.js` 与 `webadapter/page.css`。那份代码真的跑在浏览器里，React 运行时必须进 bundle。
 
 产物必须落在 `lib/index.js` 这一层——框架 loader 只认 `plugins/<name>/index.js`，根目录 `index.js` 只是 `export * from "./lib/index.js"`；`src/dir.ts` 也靠 `import.meta.url` 上跳一级定位插件根。
 
