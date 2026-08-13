@@ -58,11 +58,11 @@
     "types": ["node", "trss-yunzai"]
   },
   "include": ["src/**/*"],
-  // src/webui/ 是 web 面板的**浏览器**代码，由 build:panel 用 esbuild 单独打包成
+  // src/webui/ 是 web 面板的**浏览器**代码，由 build:panel 用 Vite 单独打包成
   // webadapter/panel.js，不该经 tsc 进 lib/：那份产物永远不会被 Node 侧 import，
   // 只会白占体积；而且它 import 的是 react-dom/client（浏览器入口），
   // 跟着 lib/ 发出去反而容易被误当成服务端模块。
-  // 排除后它就不受 tsc --noEmit 管了，而 esbuild 只剥类型不校验（实测塞一个
+  // 排除后它就不受 tsc --noEmit 管了，而打包器只剥类型不校验（实测塞一个
   // const x: number = "字符串" 照样退出码 0）。所以另备了 tsconfig.webui.json，
   // typecheck 脚本会把两份都跑一遍。
   "exclude": ["src/webui"],

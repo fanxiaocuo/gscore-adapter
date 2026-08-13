@@ -62,7 +62,7 @@ export default ts.config(
     rules: { "@typescript-eslint/no-unused-vars": "off" },
   },
   {
-    // src/webui/ 是**浏览器**代码：由 build:panel 用 esbuild 打包成
+    // src/webui/ 是**浏览器**代码：由 build:panel 用 Vite 打包成
     // webadapter/panel.js，宿主 QQBot-Web-Adapter 用 iframe 加载 page.html 时引入。
     // 它不经过 tsc、不进 lib/，Node 全局一个都没有，反过来 DOM 与 fetch 那批全局都有。
     //

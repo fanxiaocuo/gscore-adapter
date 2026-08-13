@@ -45,7 +45,7 @@ jobs:
           version: 10
 
       # working-directory 不能省：仓库根现在是**插件**的 package.json，
-      # 在那儿 install 会装 react / esbuild / sqlite3，run build 会跑
+      # 在那儿 install 会装 react / vite / sqlite3，run build 会跑
       # rimraf && tsc（插件的构建），而不是 VitePress。
       - name: 安装依赖
         working-directory: docs

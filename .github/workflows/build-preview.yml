@@ -134,7 +134,7 @@ jobs:
         run: |
           cd dist_branch
           # 用户装插件不需要 tsc/eslint 那一套
-          pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:panel scripts.build:panel:css scripts.build:watch \
+          pnpm pkg delete devDependencies scripts.build scripts.build:css scripts.build:panel scripts.build:watch \
             scripts.typecheck scripts.lint scripts.lint:fix scripts.dev \
             scripts.test scripts.preview scripts.contrast \
             scripts.docs:dev scripts.docs:build scripts.docs:preview

@@ -25,9 +25,9 @@ lib/
 # CI 的「构建」步骤会生成它，「自检产物完整性」会断言它确实在。
 /resources/template/css/
 
-# web 面板产物：两份都由 pnpm build 生成，源码在 src/webui/。
-#   panel.js  build:panel     esbuild 打包 main.tsx（含 React 运行时，约 200KB）
-#   page.css  build:panel:css tailwind 扫 src/webui/*.tsx 出样式
+# web 面板产物：两份都由 pnpm build 的 build:panel（vite build）一步出，源码在 src/webui/。
+#   panel.js  Rolldown 打包 main.tsx（含 React 运行时，约 200KB）
+#   page.css  main.tsx import 的 styles.css，@tailwindcss/vite 编译后抽出来的
 # 理由同上——入库只会让每次改面板都带一个几百KB的无意义 diff。
 # 两个 workflow 都会在构建后断言这两个文件存在（宿主按白名单取它们，缺一个就 403）。
 # 名字不能是 page.js —— 宿主会把它当 Node 侧的页面描述符 import，见 webadapter/index.ts。
@@ -46,6 +46,10 @@ notes/
 # pnpm test。改回入库时记得把两个 workflow 的测试步骤加回来。
 # 本地仍可 pnpm test（跑的是 lib/ 编译产物，先 pnpm build）。
 test/
+
+# Claude Code / Cursor 本地会话与工作树
+/.claude/
+/.cursor/
 
 # 编辑器 / 系统
 .vscode/
