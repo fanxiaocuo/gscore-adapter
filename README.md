@@ -80,7 +80,7 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 enable: true
 client:
   enable_ws: true
-  ws_connections:
+  connections:
     - name: gsuid_core
       url: ws://127.0.0.1:8765/ws/Yunzai
       token: ""
@@ -95,7 +95,7 @@ client:
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
 | `client.enable_ws` | 是否启用 WebSocket 连接 | `true` |
-| `client.ws_connections[]` | WebSocket 连接列表，见下 | — |
+| `client.connections[]` | WebSocket 连接列表，见下 | — |
 | `filter.report_private` | 是否上报私聊消息 | `true` |
 | `filter.report_group` | 是否上报群消息（QQ 频道也算群） | `true` |
 | `filter.report_meta` | 是否上报进群 / 退群 / 戳一戳 | `true` |
@@ -116,7 +116,7 @@ client:
 ```yaml
 client:
   enable_ws: true                         # 是否启用 WebSocket，默认 true
-  ws_connections:                         # WebSocket 连接列表
+  connections:                            # WebSocket 连接列表
     - name: gsuid_core                    # 连接名，仅用于日志和 #早柚状态
       url: ws://127.0.0.1:8765/ws/Yunzai  # WebSocket 地址，路径为 /ws/{bot_id}
       token: ""                           # 核心以 ?token= 查询参数接收
@@ -128,7 +128,7 @@ client:
       exclude: []                         # 排除这些 self_id（优先级高于 bind）
 ```
 
-`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。不必手改文件：`#早柚修改连接 1 bind+=<账号>` 可增删，Web 面板上点开连接卡片的「绑定」折叠区还能看到每个账号的头像、昵称与在线状态，一键增删；`#早柚连接列表` 出图时绑定账号也显示为头像胶囊。
 
 **多个机器人连同一个核心**，在每个号上各发一次 `#早柚添加连接 127.0.0.1:8765` 即可，插件会为每条连接配好 `bind` 与互不相同的 URL 路径。判重按「核心 + 账号」算，所以第二个号不会再被回「该地址已存在」，同一个号重复加仍然会被拦。
 
@@ -246,7 +246,8 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 | `#早柚版本` | 插件版本、发布类型与本机运行环境快照（出图） |
 | `#早柚更新日志` | 本地已有的提交记录（出图） |
 | `#早柚重连` | 重连全部客户端连接 |
-| `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` |
+| `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` `bind=账号1+账号2` `exclude=账号` |
+| `#早柚修改连接 <名字或序号> <key=value>` | 改已有连接。`bind+=账号` 追加、`bind-=账号` 移除、`bind=all` 不限账号，`exclude` 同语法 |
 | `#早柚删除连接 <名字或序号>` | 也可 `开启` / `关闭` 连接 |
 | `#早柚设置` | 不带参数出图列出当前所有配置及各自的改法（`#早柚配置` 同义） |
 | `#早柚设置<项目><开启/关闭>` | 中文写法，可设 适配器 / 仅响应at / 私聊上报 / 群聊上报 / 事件上报 / 断线通知 / 更新检查 |
@@ -260,6 +261,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 ```
 #早柚添加连接 127.0.0.1:8765
 #早柚添加连接 127.0.0.1:8765 n=主核心 t=abc
+#早柚修改连接 1 bind+=2463381624
 #早柚设置私聊上报关闭
 #早柚设置最大媒体大小 2
 ```
@@ -455,7 +457,9 @@ src/
 └── apps/           status / admin / update 三组指令
 ```
 
-产物由 `tsc` **逐文件**输出到 `lib/`，镜像 `src/` 的层级，不打包（`tsc-alias` 负责把 `@/` 别名与目录 import 补成完整路径）。不用打包器的理由：`sqlite3` 是原生模块，打进去会让降级分支永远走失败路径；`ws` / `yaml` / `chokidar` 复用宿主那一份；而单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用。
+Node 侧（`src/` 除 `webui/`）由 `tsc` **逐文件**输出到 `lib/`，镜像 `src/` 的层级，不打包（`tsc-alias` 负责把 `@/` 别名与目录 import 补成完整路径）。不用打包器的理由：`sqlite3` 是原生模块，打进去会让降级分支永远走失败路径；`ws` / `yaml` / `chokidar` 复用宿主那一份；而单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用。出图组件（`modules/render/`）也在这条链上——它是 Node 侧 SSR，只把 JSX 拼成 HTML 字符串。
+
+只有 web 面板（`src/webui/`）走打包：`build:panel` 即 `vite build`（Vite 8 内置 Rolldown），出 `webadapter/panel.js` 与 `webadapter/page.css`。那份代码真的跑在浏览器里，React 运行时必须进 bundle。
 
 产物必须落在 `lib/index.js` 这一层——框架 loader 只认 `plugins/<name>/index.js`，根目录 `index.js` 只是 `export * from "./lib/index.js"`；`src/dir.ts` 也靠 `import.meta.url` 上跳一级定位插件根。
 

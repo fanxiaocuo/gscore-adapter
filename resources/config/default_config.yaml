@@ -19,7 +19,7 @@ client:
   # ─────────────────────────────────────────────────────
   # #早柚添加连接 填 http:// 会被挡下来并提示改用 ws://
   enable_ws: true
-  ws_connections:
+  connections:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
       # 早柚核心 WebSocket 地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名
