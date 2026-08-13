@@ -2,9 +2,11 @@
  * Web 面板前端（React）
  *
  * 这份是**浏览器**代码，与 modules/webadapter/（Node 侧接口）分属两端：
- * 它由 esbuild 打包成 webadapter/panel.js，宿主用 iframe 加载 page.html 时引入。
- * 打包而不是直接 import react —— 宿主的静态白名单只放行描述符里列过的文件名
- * （src/style/script 三个），放不进 node_modules，也没有 import map。
+ * 它由 Vite（内置 Rolldown，配置见根目录 vite.config.mts）打包成
+ * webadapter/panel.js，样式从下面 import 的 styles.css 抽成 webadapter/page.css，
+ * 宿主用 iframe 加载 page.html 时引入。打包而不是直接 import react ——
+ * 宿主的静态白名单只放行描述符里列过的文件名（src/style/script 三个），
+ * 放不进 node_modules，也没有 import map。
  *
  * 与出图那边共用 react 依赖，不额外引运行时。产物约 15KB（min），
  * 与原先手写 DOM 的 314 行体量相当，但状态流转由 React 管，不必自己
@@ -12,7 +14,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import type { ConnView, Payload, PayloadConfig } from "./api.js"
+import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api.js"
+import "./styles.css"
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
 const WEB_BASE = new URLSearchParams(location.search).get("__webBase") || ""
@@ -180,54 +183,181 @@ interface ConnAction {
   [k: string]: unknown
 }
 
+/**
+ * 机器人头像，加载失败回退成首字圆
+ *
+ * 头像 URL 可能取自 qlogo 的按号猜测（离线账号），号不存在时图挂掉，
+ * 不能让页面上顶着一个碎图标。
+ */
+function Avatar({ p, size = 26 }: { p: BotProfile; size?: number }) {
+  const [err, setErr] = useState(false)
+  return (
+    <span
+      className="inline-flex flex-none items-center justify-center overflow-hidden rounded-[50%] border border-border bg-bg text-[12px] font-bold text-muted"
+      style={{ width: size, height: size }}
+    >
+      {p.avatar && !err ? (
+        <img className="size-full object-cover" src={p.avatar} alt="" onError={() => setErr(true)} />
+      ) : (
+        (p.name || p.id).slice(0, 1)
+      )}
+    </span>
+  )
+}
+
+/**
+ * 绑定账号管理（连接卡片的折叠区）
+ *
+ * 已绑定的账号逐行列出（头像 + 昵称 + 账号 + 在线状态），每行一个移除键；
+ * 下方是「在线但未绑定」的机器人，点一下即追加进 bind。两种操作都直接走
+ * 后端已有的 edit 动作（只带 bind 字段），改完自动重连该连接生效。
+ */
+function BindManager({
+  c,
+  bots,
+  onAct,
+}: {
+  c: ConnView
+  bots: BotProfile[]
+  onAct: (body: ConnAction) => void
+}) {
+  const bindBots = c.bind_bots || []
+  const bound = (c.bind || []).map(String)
+  const excluded = (c.exclude || []).map(String)
+  const save = (next: string[]) => onAct({ action: "edit", key: c.index, bind: next })
+  const candidates = bots.filter(b => !bound.includes(b.id))
+
+  return (
+    <div className="mt-[10px] flex flex-col gap-[8px] rounded-[10px] border border-border bg-bg p-[12px]">
+      {bindBots.length === 0 ? (
+        <p className={FHINT}>
+          当前不限账号：所有机器人的消息都会转发到这个核心。绑定任意一个后，只转发绑定的账号。
+        </p>
+      ) : (
+        bindBots.map(b => (
+          <div className="flex items-center gap-[10px]" key={b.id}>
+            <Avatar p={b} />
+            <span className="text-[13px] font-semibold">{b.name !== b.id ? b.name : "未知昵称"}</span>
+            <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
+              {b.id}
+            </span>
+            <span className={TAG}>{b.online ? "在线" : "离线"}</span>
+            {/* 排除名单优先级高于绑定，两边同时有这个号等于白绑，必须标出来 */}
+            {excluded.includes(b.id) && (
+              <span className={`${TAG} text-danger`}>已被排除，不会转发</span>
+            )}
+            <button
+              className={`${BTN_DANGER} ml-auto`}
+              onClick={() => {
+                const next = bound.filter(x => x !== b.id)
+                if (
+                  next.length ||
+                  confirm("移除最后一个绑定后将变为「不限账号」，所有机器人的消息都会转发。继续？")
+                )
+                  save(next)
+              }}
+            >
+              移除
+            </button>
+          </div>
+        ))
+      )}
+      {candidates.length > 0 && (
+        <>
+          <div className={FHINT}>在线机器人（点击绑定到本连接）</div>
+          <div className="flex flex-wrap gap-[8px]">
+            {candidates.map(b => (
+              <button
+                className={`${BTN} flex items-center gap-[8px]`}
+                key={b.id}
+                onClick={() => save([...bound, b.id])}
+              >
+                <Avatar p={b} size={20} />
+                <span>{b.name !== b.id ? b.name : b.id}</span>
+                <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[11px] text-muted">
+                  {b.id}
+                </span>
+                <span className="font-bold text-primary">＋</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function Conn({
   c,
+  bots,
   onAct,
   onEdit,
 }: {
   c: ConnView
+  bots: BotProfile[]
   onAct: (body: ConnAction) => void
   onEdit: (conn: ConnView) => void
 }) {
+  /**
+   * 绑定折叠区的开合。放在组件内而不是提升到 App：轮询刷新会整包替换 state，
+   * 但 Conn 按 index 作 key，同位实例复用，开合状态在刷新间存活。
+   */
+  const [open, setOpen] = useState(false)
+  const bindBots = c.bind_bots || []
+
   return (
-    <div className="flex items-center gap-[12px] rounded-[10px] border border-border p-[12px]">
-      <span
-        className={`size-[10px] flex-none rounded-[50%] ${DOT[c.enable ? c.status : "off"] ?? "bg-muted"}`}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="font-semibold">{c.name}</div>
-        {/* 字体栈与 Tailwind 的 font-mono 略有出入，按原样式表逐项写死 */}
-        <div className="truncate font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
-          {c.url}
+    <div className="rounded-[10px] border border-border p-[12px]">
+      <div className="flex items-center gap-[12px]">
+        <span
+          className={`size-[10px] flex-none rounded-[50%] ${DOT[c.enable ? c.status : "off"] ?? "bg-muted"}`}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold">{c.name}</div>
+          {/* 字体栈与 Tailwind 的 font-mono 略有出入，按原样式表逐项写死 */}
+          <div className="truncate font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
+            {c.url}
+          </div>
+          <div className="mt-[6px] flex flex-wrap items-center gap-[6px]">
+            <span className={TAG}>{c.status_text}</span>
+            {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
+            {c.bot_id && <span className={TAG}>bot_id {c.bot_id}</span>}
+            {c.has_token && <span className={TAG}>已配 token</span>}
+            {/* 绑定标签升级成折叠开关：缩起时预览前几个头像，点开进管理区 */}
+            <button
+              className={`${TAG} flex cursor-pointer items-center gap-[5px] hover:border-primary`}
+              onClick={() => setOpen(o => !o)}
+              title="展开绑定账号管理"
+            >
+              {bindBots.slice(0, 3).map(b => (
+                <Avatar key={b.id} p={b} size={16} />
+              ))}
+              <span>绑定 {c.bind?.length ? `${c.bind.length} 个账号` : "不限"}</span>
+              <span className="text-[9px]">{open ? "▲" : "▼"}</span>
+            </button>
+            {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
+            <span className={TAG}>
+              ↑{c.up} ↓{c.down}
+            </span>
+          </div>
         </div>
-        <div className="mt-[6px] flex flex-wrap gap-[6px]">
-          <span className={TAG}>{c.status_text}</span>
-          {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
-          {c.bot_id && <span className={TAG}>bot_id {c.bot_id}</span>}
-          {c.has_token && <span className={TAG}>已配 token</span>}
-          {c.bind?.length > 0 && <span className={TAG}>绑定 {c.bind.join("、")}</span>}
-          {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
-          <span className={TAG}>
-            ↑{c.up} ↓{c.down}
-          </span>
+        <div className="flex flex-none gap-[6px]">
+          <button className={BTN} onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}>
+            {c.enable ? "停用" : "启用"}
+          </button>
+          <button className={BTN} onClick={() => onEdit(c)}>
+            编辑
+          </button>
+          <button
+            className={BTN_DANGER}
+            onClick={() => {
+              if (confirm(`删除连接「${c.name}」？`)) onAct({ action: "del", key: c.index })
+            }}
+          >
+            删除
+          </button>
         </div>
       </div>
-      <div className="flex flex-none gap-[6px]">
-        <button className={BTN} onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}>
-          {c.enable ? "停用" : "启用"}
-        </button>
-        <button className={BTN} onClick={() => onEdit(c)}>
-          编辑
-        </button>
-        <button
-          className={BTN_DANGER}
-          onClick={() => {
-            if (confirm(`删除连接「${c.name}」？`)) onAct({ action: "del", key: c.index })
-          }}
-        >
-          删除
-        </button>
-      </div>
+      {open && <BindManager c={c} bots={bots} onAct={onAct} />}
     </div>
   )
 }
@@ -515,6 +645,7 @@ function App() {
               <Conn
                 key={c.index}
                 c={c}
+                bots={state.bots || []}
                 onAct={b => send("/connection", b)}
                 onEdit={x => setModal(x)}
               />

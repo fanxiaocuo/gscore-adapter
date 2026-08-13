@@ -20,9 +20,26 @@
  * 复用 `WsConnection` 会让前端以为能读到 `token`。
  */
 
+/**
+ * 机器人档案
+ *
+ * 与 `utils/bots.ts` 的 BotProfile 同形。本文件刻意不 import（见文件头），
+ * 形状靠 webadapter 里 `botProfile()` 的赋值点由编译器对齐。
+ */
+export interface BotProfile {
+  /** 账号（self_id） */
+  id: string
+  /** 昵称，取不到时等于账号 */
+  name: string
+  /** 头像 URL，可能为空串（前端回退成首字圆） */
+  avatar: string
+  /** 是否在线 */
+  online: boolean
+}
+
 /** 一条连接在面板上的视图，对应 `connView()` */
 export interface ConnView {
-  /** 在 ws_connections 里的下标，改/删/开关都用它定位 */
+  /** 在 client.connections 里的下标，改/删/开关都用它定位 */
   index: number
   name: string
   url: string
@@ -34,6 +51,8 @@ export interface ConnView {
   max_reconnect_attempts: number
   bind: (string | number)[]
   exclude: (string | number)[]
+  /** bind 里各账号的档案（头像/昵称/在线），与 bind 一一对应 */
+  bind_bots: BotProfile[]
   /** 0 未连接 1 已连接 2 连接中 3 断线待重连 */
   status: 0 | 1 | 2 | 3
   status_text: string
@@ -71,6 +90,8 @@ export interface Payload {
   plugin: { name: string; version: string; configFile: string }
   config: PayloadConfig
   connections: ConnView[]
+  /** 当前在线的机器人，供「添加绑定」候选 */
+  bots: BotProfile[]
   stats: {
     total: Counters
     today: Counters

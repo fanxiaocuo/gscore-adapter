@@ -3,7 +3,9 @@
 首次运行自动把 `resources/config/default_config.yaml` 复制成 `config/config.yaml`。**改后者**，前者是出厂默认值、升级会被覆盖。只需写想改的项，其余自动继承默认。
 
 ::: tip 升级会自动补新增的配置项
-插件更新后多出来的顶层配置，启动时会连同注释一起追加到你的 `config/config.yaml`，已有的项一律不动。补写前会先备份成 `config.yaml.bak`。
+插件更新后多出来的顶层配置，启动时会连同注释一起追加到你的 `config/config.yaml`，已有的项一律不动。首次改动你的文件之前会备份一份 `config.yaml.bak`（只备份这一次，保留插件动过你文件之前的原样）。
+
+键名迁移也在这一步自动完成：3.2 短暂使用过的 `client.ws_connections` 会被改名回 `client.connections`，连接项和注释原样保留。
 :::
 
 ## 最小配置
@@ -15,7 +17,7 @@
 enable: true
 client:
   enable_ws: true
-  ws_connections:
+  connections:
     - name: gsuid_core
       url: ws://127.0.0.1:8765/ws/Yunzai
       token: ""
@@ -32,7 +34,7 @@ client:
 | `client.heartbeat` | ws ping 间隔（秒），0 关闭 | `30` |
 | `client.heartbeat_timeout` | 超时无 pong 判定掉线，0 关闭 | `90` |
 | `client.enable_ws` | 是否启用 WebSocket 连接 | `true` |
-| `client.ws_connections[]` | WebSocket 连接列表，见下 | — |
+| `client.connections[]` | WebSocket 连接列表，见下 | — |
 | `filter.report_private` | 是否上报私聊消息 | `true` |
 | `filter.report_group` | 是否上报群消息（QQ 频道也算群） | `true` |
 | `filter.report_meta` | 是否上报进群 / 退群 / 戳一戳 | `true` |
@@ -54,7 +56,7 @@ client:
 ```yaml
 client:
   enable_ws: true                             # 关掉则不建立任何 ws 连接
-  ws_connections:
+  connections:
     - name: gsuid_core                        # 连接名，仅用于日志和 #早柚状态
       url: ws://127.0.0.1:8765/ws/Yunzai      # 路由 /ws/{bot_id}，bot_id 可自定义
       token: ""                               # 核心以 ?token= 查询参数接收
@@ -66,7 +68,9 @@ client:
       exclude: []                             # 排除这些 self_id（优先级高于 bind）
 ```
 
-`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。
+`bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。不必手改文件——指令 `#早柚修改连接 1 bind+=<账号>` 与 [Web 面板](./panel.md)的折叠管理（带头像与在线状态）都能增删；`#早柚连接列表` 出图时绑定账号显示为头像胶囊。
+
+删除、开关连接时如果文件里还没有 `connections` 键（列表来自默认配置的示例连接），会自动把当前生效的列表物化进你的文件再操作，与 `#早柚连接列表` 看到的保持一致。
 
 `#早柚添加连接` 只接受 `ws://` / `wss://`。填 `http://` 会被挡下来，并把地址换算成 ws 形式提示你重发。
 

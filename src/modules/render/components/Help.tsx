@@ -110,11 +110,15 @@ function Item({
   badge?: boolean
 }) {
   return (
+    // h-full：网格行内按最高的那张拉齐（默认 stretch）。原来是 [align-items:start]
+    // 让每张卡保持内容高度，同一行两张卡的底边就差出几十像素，整页边缘参差 ——
+    // 用户反馈的「空白一大部分」有一半来自这些高低差。内容仍贴卡片顶部，
+    // 只是卡片外框补齐到行高。
     <div
       className={
         sub
-          ? "rounded-[26px] border border-border bg-surface px-[26px] py-[22px]"
-          : "rounded-[26px] border border-border bg-surface px-[30px] py-[28px]"
+          ? "h-full rounded-[26px] border border-border bg-surface px-[26px] py-[22px]"
+          : "h-full rounded-[26px] border border-border bg-surface px-[30px] py-[28px]"
       }
     >
       {/*
@@ -237,11 +241,32 @@ function Item({
   )
 }
 
+/**
+ * 算每张卡要不要跨两列
+ *
+ * wide 的显式跨列；其余按网格流依次放。走到组尾还剩半栏时，把最后一张也拉通 ——
+ * 双栏网格里落单的半栏是整页最大的空白来源（三个分组各空着一大块）。
+ * wide 卡恰好排在半行位置时同理把前一张补齐，否则网格会在上一行留洞。
+ */
+function spanMap(items: { wide?: boolean }[]): boolean[] {
+  const spans = items.map(it => !!it.wide)
+  let col = 0
+  spans.forEach((wide, i) => {
+    if (wide) {
+      if (col === 1) spans[i - 1] = true
+      col = 0
+    } else col = col === 0 ? 1 : 0
+  })
+  if (col === 1) spans[items.length - 1] = true
+  return spans
+}
+
 function Group({ group, color }: { group: HelpGroup; color: string }) {
   const total =
     group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
   /** 整组都要主人权限时在标题上标一次，替代原先每条卡片各标一个 */
   const allMaster = group.items.length > 0 && group.items.every(i => i.master)
+  const spans = spanMap(group.items)
 
   return (
     <div className="mb-[88px] last:mb-0">
@@ -266,30 +291,35 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
       </div>
 
       {group.items.length > 0 && (
-        <div className="grid grid-cols-2 [align-items:start] gap-x-[48px] gap-y-[32px]">
+        <div className="grid grid-cols-2 gap-x-[48px] gap-y-[32px]">
           {group.items.map((it, i) => (
-            // wide 的条目跨两列，见 HelpItem.wide
-            <div key={i} className={it.wide ? "col-span-2" : undefined}>
+            // 跨列由 spanMap 统一算：显式 wide 的、以及组尾落单的那张
+            <div key={i} className={spans[i] ? "col-span-2" : undefined}>
               <Item item={it} color={color} badge={!allMaster && it.master} />
             </div>
           ))}
         </div>
       )}
 
-      {group.subGroups?.map((sub, i) => (
-        <div className="mt-[56px]" key={i}>
-          <div className="mb-[32px] flex items-center gap-[14px] text-[28px] font-extrabold leading-[1.3] tracking-[.06em] opacity-[.62]">
-            {/* flex-none 防止圆点被长标题挤成椭圆 */}
-            <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
-            {sub.title}
+      {group.subGroups?.map((sub, i) => {
+        const subSpans = spanMap(sub.items)
+        return (
+          <div className="mt-[56px]" key={i}>
+            <div className="mb-[32px] flex items-center gap-[14px] text-[28px] font-extrabold leading-[1.3] tracking-[.06em] opacity-[.62]">
+              {/* flex-none 防止圆点被长标题挤成椭圆 */}
+              <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
+              {sub.title}
+            </div>
+            <div className="grid grid-cols-2 gap-x-[48px] gap-y-[32px]">
+              {sub.items.map((it, j) => (
+                <div key={j} className={subSpans[j] ? "col-span-2" : undefined}>
+                  <Item item={it} color={color} sub />
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 [align-items:start] gap-x-[48px] gap-y-[32px]">
-            {sub.items.map((it, j) => (
-              <Item key={j} item={it} color={color} sub />
-            ))}
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -319,7 +349,7 @@ export function Help(data: HelpData) {
         name={data.title}
         version={data.version}
         palette={data.palette}
-        lines={[data.time, "MASTER ONLY 标记的指令仅主人可用"]}
+        lines={[data.time, "MASTER 标记的指令仅主人可用"]}
       />
     </>
   )

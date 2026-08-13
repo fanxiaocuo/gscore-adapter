@@ -189,7 +189,10 @@ function Result({ done, errs, palette }: { done: string[]; errs: string[]; palet
     <div className="mb-[64px] flex flex-col gap-[16px]">
       {rows.map((r, i) => (
         <div
-          className="flex items-center gap-[20px] rounded-[24px] border border-l-[6px] px-[30px] py-[24px] text-[27px] leading-[1.5] break-words"
+          // break-keep：错误行里嵌着「可设置：适配器 / 仅响应at / …」这类清单，
+          // CJK 逐字断点会把「更新检查」劈成「更新检 / 查」（预览里实际出现过）。
+          // keep-all 让断点落在 / 与空格上，词保持完整
+          className="flex items-center gap-[20px] rounded-[24px] border border-l-[6px] px-[30px] py-[24px] text-[27px] leading-[1.5] break-words break-keep"
           key={i}
           style={{ color: r.color, background: `${r.color}14`, borderColor: `${r.color}3d` }}
         >
@@ -257,7 +260,9 @@ export function Settings(data: SettingsData) {
                       key={ii}
                     >
                       <span className="flex-none text-muted">{it.k}</span>
-                      <span className="min-w-0 flex-1 break-words text-right font-mono font-bold">
+                      {/* break-keep：取值可能是「间隔 5s 起 · 最多 5 次」这类中文串，
+                          不加会在任意字间断开；break-words 兜底防长串溢出 */}
+                      <span className="min-w-0 flex-1 break-words break-keep text-right font-mono font-bold">
                         {it.v}
                       </span>
                     </div>

@@ -24,18 +24,28 @@
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
-import { config, configFile, saveConfig, getWsConnections, enabled } from "@/config"
+import {
+  config,
+  configFile,
+  saveConfig,
+  getWsConnections,
+  appendConnection,
+  updateConnection,
+  removeConnection,
+  enabled,
+  type ConnectionPatch,
+} from "@/config"
 import { clients, startClient, stopClient, reloadClients } from "@/modules/client"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
 import { findDuplicate, requireWsUrl } from "@/utils/url"
+import { botProfile, onlineBots } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
 import type { WsConnection } from "@/types"
-import { isSeq } from "yaml"
 import type { ConnView, Payload } from "@/webui/api.js"
 import fs from "node:fs"
 import path from "node:path"
@@ -121,6 +131,8 @@ function connView(conf: WsConnection, i: number): ConnView {
     max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
+    // 每个绑定账号带上头像/昵称/在线状态，面板的折叠区直接可视化
+    bind_bots: (Array.isArray(conf.bind) ? conf.bind : []).map(botProfile),
     status: live?.status ?? 0,
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
     status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
@@ -150,6 +162,8 @@ function payload(): Payload {
       },
     },
     connections: getWsConnections().map(connView),
+    // 在线机器人清单：面板「添加绑定」的候选，含头像与昵称
+    bots: onlineBots(),
     stats: {
       total: stats.total,
       today: stats.today,
@@ -245,7 +259,6 @@ function addConnection(body: PanelBody) {
   // 恰好绑一个账号时把它带进补出来的路径段，理由见 normalizeUrl。
   // 协议校验也在这一步（http:// 会带着换算好的 ws 地址抛出来）
   const url = requireWsUrl(String(body.url ?? ""), bind.length === 1 ? bind[0] : null)
-  const targetPath = ["client", "ws_connections"]
 
   // 与指令入口同一套判重：(地址, 账号)，不是只看地址。面板这边 bind 是多选框，
   // 能一次填多个账号，交集判断正好覆盖「其中一个已经加过」的情形
@@ -274,12 +287,7 @@ function addConnection(body: PanelBody) {
     exclude: Array.isArray(body.exclude) ? body.exclude : [],
   }
 
-  saveConfig(doc => {
-    if (!doc.hasIn(targetPath)) doc.setIn(targetPath, doc.createNode([]))
-    const connections = doc.getIn(targetPath, true)
-    if (!isSeq(connections)) throw new Error("client.ws_connections 应为数组")
-    connections.add(doc.createNode(conf))
-  })
+  appendConnection(conf)
 
   if (enabled() && conf.enable) startClient(conf)
   return conf.name
@@ -295,30 +303,31 @@ function editConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  const path = ["client", "ws_connections", hit.index]
   const oldName = hit.conf.name || hit.conf.url
 
-  saveConfig(doc => {
-    if (body.url !== undefined) doc.setIn([...path, "url"], requireWsUrl(String(body.url)))
-    if (body.name !== undefined) doc.setIn([...path, "name"], String(body.name).trim())
-    if (body.bot_id !== undefined) doc.setIn([...path, "bot_id"], String(body.bot_id))
-    // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
-    // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
-    if (body.token) doc.setIn([...path, "token"], String(body.token))
-    if (body.clear_token) doc.setIn([...path, "token"], "")
-    if (body.enable !== undefined) doc.setIn([...path, "enable"], bool(body.enable, true))
-    for (const k of ["reconnect_interval", "max_reconnect_attempts"]) {
-      if (body[k] === undefined) continue
-      const n = Number(body[k])
-      if (!Number.isFinite(n)) throw new Error(`${k} 应为数字`)
-      doc.setIn([...path, k], n)
-    }
-    for (const k of ["bind", "exclude"]) {
-      if (body[k] === undefined) continue
-      if (!Array.isArray(body[k])) throw new Error(`${k} 应为数组`)
-      doc.setIn([...path, k], doc.createNode(body[k]))
-    }
-  })
+  // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
+  const patch: ConnectionPatch = {}
+  if (body.url !== undefined) patch.url = requireWsUrl(String(body.url))
+  if (body.name !== undefined) patch.name = String(body.name).trim()
+  if (body.bot_id !== undefined) patch.bot_id = String(body.bot_id)
+  // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
+  // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
+  if (body.token) patch.token = String(body.token)
+  if (body.clear_token) patch.token = ""
+  if (body.enable !== undefined) patch.enable = bool(body.enable, true)
+  for (const k of ["reconnect_interval", "max_reconnect_attempts"] as const) {
+    if (body[k] === undefined) continue
+    const n = Number(body[k])
+    if (!Number.isFinite(n)) throw new Error(`${k} 应为数字`)
+    patch[k] = n
+  }
+  for (const k of ["bind", "exclude"] as const) {
+    if (body[k] === undefined) continue
+    if (!Array.isArray(body[k])) throw new Error(`${k} 应为数组`)
+    patch[k] = body[k] as (string | number)[]
+  }
+
+  updateConnection(hit.index, patch)
 
   stopClient(oldName)
   const next = getWsConnections()[hit.index]
@@ -332,9 +341,7 @@ function delConnection(body: PanelBody) {
   if (!hit) throw new Error("找不到该连接")
 
   const name = hit.conf.name || hit.conf.url
-  saveConfig(doc => {
-    doc.deleteIn(["client", "ws_connections", hit.index])
-  })
+  removeConnection(hit.index)
   stopClient(name)
   return name
 }
@@ -345,9 +352,7 @@ function toggleConnection(body: PanelBody) {
   if (!hit) throw new Error("找不到该连接")
 
   const on = bool(body.enable, true)
-  saveConfig(doc => {
-    doc.setIn(["client", "ws_connections", hit.index, "enable"], on)
-  })
+  updateConnection(hit.index, { enable: on })
   const name = hit.conf.name || hit.conf.url
   if (on) {
     if (enabled()) startClient({ ...hit.conf, enable: true })

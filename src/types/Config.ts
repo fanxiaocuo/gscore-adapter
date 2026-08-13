@@ -109,9 +109,9 @@ export interface Config {
     /** 是否启用 WebSocket 连接 */
     enable_ws?: boolean
     /** WebSocket 连接列表 */
-    ws_connections?: WsConnection[]
-    /** 3.1 及更早版本使用的废弃字段，仅用于启动时给出迁移提示 */
-    connections?: unknown
+    connections?: WsConnection[]
+    /** 3.2 短暂使用过的键名，启动时自动迁回 connections，仅用于迁移提示 */
+    ws_connections?: unknown
   }
   filter?: FilterConfig
   /**

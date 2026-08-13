@@ -18,6 +18,11 @@ export interface ConnRow {
   tone: "on" | "off" | "warn" | "err"
   /** 附加标签 */
   meta: string[]
+  /**
+   * bind 账号的档案（头像 + 昵称），渲染成头像胶囊；没有绑定时不给。
+   * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
+   */
+  bots?: { id: string; name: string; avatar: string }[]
 }
 
 /**
@@ -119,6 +124,36 @@ export function Status(data: StatusData) {
                     <div className="break-all font-mono text-[23px] leading-[1.45] text-muted">
                       {row.url}
                     </div>
+                    {/*
+                     * bind 胶囊：头像 + 昵称 + 账号。头像可能来自外链（qlogo），
+                     * 截图用 waitUntil:"load"，初始 DOM 里的图片会等加载完再截；
+                     * 取不到头像的账号回退成首字圆，不会出现碎图标。
+                     */}
+                    {row.bots && row.bots.length > 0 && (
+                      <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
+                        <span className="font-mono text-[20px] leading-none text-muted">bind</span>
+                        {row.bots.map(b => (
+                          <span
+                            className="flex items-center gap-[9px] rounded-[9999px] border border-border bg-inset py-[4px] pr-[15px] pl-[5px]"
+                            key={b.id}
+                          >
+                            <span className="grid size-[34px] flex-none place-items-center overflow-hidden rounded-[9999px] border border-border bg-surface text-[17px] font-bold text-muted">
+                              {b.avatar ? (
+                                <img className="block size-full object-cover" src={b.avatar} alt="" />
+                              ) : (
+                                (b.name || b.id).slice(0, 1)
+                              )}
+                            </span>
+                            {b.name && b.name !== b.id && (
+                              <span className="text-[21px] font-bold leading-none">{b.name}</span>
+                            )}
+                            <span className="font-mono text-[19px] leading-none text-muted">
+                              {b.id}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     {row.meta.length > 0 && (
                       <div className="mt-[4px] flex flex-wrap gap-[10px]">
                         {row.meta.map((m, i) => (
@@ -178,7 +213,8 @@ export function Status(data: StatusData) {
                       key={ii}
                     >
                       <span className="flex-none text-muted">{it.k}</span>
-                      <span className="min-w-0 flex-1 break-words text-right font-mono font-bold">
+                      {/* break-keep 同 Settings 的 facts：中文取值不在字间断开 */}
+                      <span className="min-w-0 flex-1 break-words break-keep text-right font-mono font-bold">
                         {it.v}
                       </span>
                     </div>

@@ -19,7 +19,7 @@
  * -------------
  * 往深了比就要面对「用户是不是故意删掉某个子项」的问题，而子项缺失由 merge
  * 兜住、语义上没有歧义。顶层缺失才是「整块功能不可见」，这一层收益最大、风险最小。
- * 唯一的例外是 client.ws_connections：那是用户的连接列表，绝不能动。
+ * 唯一的例外是 client.connections：那是用户的连接列表，绝不能动。
  *
  * 保留注释靠 yaml 的 Document API：把默认文件解析成 Document，取出那个键对应的
  * 节点（yaml 库把注释挂在节点的 comment / commentBefore 上），整节点塞进用户
@@ -62,6 +62,21 @@ export function upgradeUserConfig(userFile: string): string[] {
     return changes
   }
   if (userDoc.errors.length || defDoc.errors.length || !YAML.isMap(defDoc.contents)) return changes
+
+  // 3.2 曾把连接列表改名为 client.ws_connections，现已改回 client.connections。
+  // 中间版本写出的配置要迁回来，否则保存时对不存在的键做索引操作会抛
+  // YAML collection 错误。只在新键不存在时改名，直接搬 Pair 节点以保留
+  // 连接项和用户注释；两套键同时存在时不擅自合并（lifecycle 启动时会告警）。
+  const client = userDoc.getIn(["client"], true)
+  if (YAML.isMap(client) && client.has("ws_connections") && !client.has("connections")) {
+    const legacy = client.items.find(
+      item => YAML.isScalar(item.key) && String(item.key.value ?? "") === "ws_connections",
+    )
+    if (legacy && YAML.isScalar(legacy.key)) {
+      legacy.key.value = "connections"
+      changes.push("~ client.ws_connections -> client.connections")
+    }
+  }
 
   for (const item of defDoc.contents.items) {
     const key = YAML.isScalar(item.key) ? String(item.key.value ?? "") : ""

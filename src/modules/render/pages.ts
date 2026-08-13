@@ -7,6 +7,7 @@
 import { config, getWsConnections, enabled } from "@/config"
 import { type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
+import { botProfile } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
@@ -76,7 +77,10 @@ function collect(detail = false) {
     if (c.token) meta.push("token 已设置")
     if (c.bot_id) meta.push(`bot_id: ${c.bot_id}`)
     if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
-    if (c.bind?.length) meta.push(`bind: ${c.bind.length}`)
+    // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
+    // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
+    // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图可出
+    const bots = c.bind?.length ? c.bind.map(id => botProfile(id)) : undefined
     if (c.exclude?.length) meta.push(`exclude: ${c.exclude.length}`)
 
     // 一条都没有时补一句「怎么办」
@@ -84,8 +88,8 @@ function collect(detail = false) {
     // 没配 token / bot_id / bind / exclude 的连接（默认配置就是这样）meta 是空数组，
     // 卡片只剩名字和地址两行，右边一大片空。而这种卡片恰好最需要一句提示：
     // 停用的要说明怎么启用，未启动的要说明重载。有内容时不加——那句话对已经
-    // 连上的连接没有意义，只会挤占位置。
-    if (meta.length === 0) {
+    // 连上的连接没有意义，只会挤占位置。bind 胶囊也算内容
+    if (meta.length === 0 && !bots) {
       if (!enabled) meta.push(`用 #早柚启用连接 ${c.name || i + 1} 恢复`)
       else if (!live) meta.push("尚未建立连接，可用 #早柚重载 重试")
       else meta.push("未配置 token / bind / exclude，按默认规则中转")
@@ -110,6 +114,7 @@ function collect(detail = false) {
       state,
       tone: tone(status, enabled),
       meta,
+      bots,
     }
   })
 

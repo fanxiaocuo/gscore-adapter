@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import type { Document, ParsedNode } from "yaml"
+import type { Document, ParsedNode, YAMLSeq } from "yaml"
 import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
 import type { AdapterEvent, Config, WsConnection } from "@/types"
@@ -173,8 +173,90 @@ export function saveConfig(fn: (doc: ConfigDoc) => void) {
 
 /** 读取 WebSocket 连接列表（保证是数组） */
 export function getWsConnections() {
-  const list = config.client?.ws_connections
+  const list = config.client?.connections
   return Array.isArray(list) ? list : []
+}
+
+/**
+ * 取用户文档里的 client.connections 序列，缺失时物化当前生效的列表
+ *
+ * 为什么不能只报错
+ * --------------
+ * 运行时的连接列表是深合并出来的：用户文件里**没有** connections 时，
+ * 列表来自默认配置的那条示例连接 —— #早柚连接列表 看得到它、能对它发
+ * 删除/停用指令，但 saveConfig 操作的是用户文档，那里根本没有这个键。
+ * 原来直接 deleteIn/setIn 会抛 `Expected YAML collection at connections`；
+ * 后来改成报「请先执行配置迁移」也不对 —— 用户什么都没配错，只是还没写过这个键。
+ *
+ * 所以把「用户此刻看到的列表」原样写进文档再操作：删除示例连接会留下
+ * `connections: []`，运行时合并规则（数组整体覆盖）让它从此不再从默认值
+ * 冒出来，与用户的预期一致。文件里已有正常序列时本函数只是取出它，零改动。
+ *
+ * `client` 键存在但不是 map（手改成了 null / 标量）时先删掉再建 ——
+ * 不删的话 setIn 会在 client 那一层抛同样的 collection 错误。
+ */
+function ensureWsConnections(doc: ConfigDoc): YAMLSeq {
+  const target = ["client", "connections"]
+  const node = doc.getIn(target, true)
+  if (YAML.isSeq(node)) return node as YAMLSeq
+
+  const client = doc.get("client", true)
+  if (client !== undefined && !YAML.isMap(client)) doc.delete("client")
+  doc.setIn(target, doc.createNode(getWsConnections()))
+  return doc.getIn(target, true) as YAMLSeq
+}
+
+/**
+ * updateConnection 的补丁
+ *
+ * undefined 的键跳过（没改），null 写成 YAML null（显式清空，
+ * 如 `#早柚修改连接 1 bot_id=` 清掉连接级平台标识）。
+ */
+export type ConnectionPatch = { [K in keyof WsConnection]?: WsConnection[K] | null }
+
+/**
+ * 连接的增 / 改 / 删，三个入口（指令、Web 面板、将来可能的新入口）共用
+ * ------------------------------------------------------------------
+ * 原来两边各写一遍「ensureWsConnections → 取条目 → 校验是 map → 逐字段 setIn」，
+ * 同一句「连接序号 X 不存在」出现在四处。收敛到这里之后调用方只负责两件事：
+ * 把用户输入校验成 patch / conf，以及把抛出来的错误变成一句能回给用户的话。
+ *
+ * 校验刻意留在调用方：指令要回中文短句、面板要回 400 JSON，错误的措辞与
+ * 时机（写盘前逐条回）不同，塞进这里会让两边都别扭。
+ */
+
+/** 追加一条连接并写盘。extra 在同一次保存里执行（如添加时顺手记 bot_id_map） */
+export function appendConnection(conf: WsConnection, extra?: (doc: ConfigDoc) => void) {
+  saveConfig(doc => {
+    ensureWsConnections(doc).add(doc.createNode(conf))
+    extra?.(doc)
+  })
+}
+
+/**
+ * 对单条连接做增量修改并写盘
+ *
+ * @param index 连接下标，与 getWsConnections() 的下标一致
+ * @param patch 要写的字段。数组走 createNode（flow 风格由写盘出口的 unflow 拍平）
+ */
+export function updateConnection(index: number, patch: ConnectionPatch) {
+  saveConfig(doc => {
+    const item = ensureWsConnections(doc).get(index, true)
+    if (!item || !YAML.isMap(item)) throw new Error(`连接序号 ${index + 1} 不存在`)
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) continue
+      item.set(key, Array.isArray(value) ? doc.createNode(value) : value)
+    }
+  })
+}
+
+/** 删除一条连接并写盘 */
+export function removeConnection(index: number) {
+  saveConfig(doc => {
+    const seq = ensureWsConnections(doc)
+    if (!seq.get(index, true)) throw new Error(`连接序号 ${index + 1} 不存在`)
+    seq.delete(index)
+  })
 }
 
 /**

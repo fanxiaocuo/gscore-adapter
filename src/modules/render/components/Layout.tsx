@@ -194,7 +194,8 @@ export function Empty({ title, tip }: { title: string; tip: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-[16px] rounded-[32px] border border-dashed border-border bg-surface px-[80px] py-[96px] text-center">
       <div className="text-[44px] font-black leading-[1.2]">{title}</div>
-      <div className="text-[26px] leading-[1.7] whitespace-pre-line text-muted">{tip}</div>
+      {/* break-keep：提示里嵌着 #早柚设置适配器开启 这类指令，不能在字间劈开 */}
+      <div className="text-[26px] leading-[1.7] whitespace-pre-line break-words break-keep text-muted">{tip}</div>
     </div>
   )
 }
@@ -208,7 +209,7 @@ export function Empty({ title, tip }: { title: string; tip: string }) {
 export function Notice({ text, color }: { text: string; color: string }) {
   return (
     <div
-      className="mb-[44px] rounded-[24px] border border-l-[6px] px-[32px] py-[26px] text-[25px] leading-[1.65] break-words"
+      className="mb-[44px] rounded-[24px] border border-l-[6px] px-[32px] py-[26px] text-[25px] leading-[1.65] break-words break-keep"
       style={{ color, background: `${color}14`, borderColor: `${color}3d` }}
     >
       {text}
