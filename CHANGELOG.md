@@ -3,6 +3,20 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [3.2.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.1.0...v3.2.0) (2026-08-13)
+
+
+### ✨ 新功能
+
+* 多账号绑定管理与连接改配置指令 ([4a3a65c](https://github.com/fanxiaocuo/gscore-adapter/commit/4a3a65cad7f1b30fffb7e38409cfd0c6926934e0))
+* 完善多账号连接与类型 ([f1ec1ab](https://github.com/fanxiaocuo/gscore-adapter/commit/f1ec1ab9a0a259b38f96dd32f94a728be4eadf10))
+
+
+### 📝 文档
+
+* **help:** 完善帮助图说明 ([cff1d28](https://github.com/fanxiaocuo/gscore-adapter/commit/cff1d287064e98862ba6ef294ae574e03266976d))
+* 文档站改为液态毛玻璃主题 ([242de1e](https://github.com/fanxiaocuo/gscore-adapter/commit/242de1ecdca0f8dc1b40308411bb3bd1b7867821))
+
 ## [3.1.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.0.0...v3.1.0) (2026-08-11)
 
 
