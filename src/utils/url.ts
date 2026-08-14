@@ -35,12 +35,12 @@ export function stripAccountPath(url: string): string {
 }
 
 /**
- * 补全成完整的路由
+ * 自动端点规范化
  *
- * 允许只填 `host:port`：路径为空时补 `/ws/Yunzai`。解析不了就原样返回。
- * `http://host:port` 也会被补路径，协议校验交给 requireWsUrl。
+ * 只补协议、去掉根路径，**不再**补 `/ws/Yunzai` —— 路由段现在由 bind 账号在
+ * 建连时生成（materializeAccountUrl），配置里不该再出现派生信息。
  */
-export function normalizeUrl(url: string | null | undefined) {
+export function normalizeEndpoint(url: string | null | undefined): string {
   if (!url) return ""
   url = String(url).trim()
   // 只在「没写协议」时补 ws://。原来是「不是 ws/wss 就补」，于是 http://h:1/ws 被
@@ -50,12 +50,30 @@ export function normalizeUrl(url: string | null | undefined) {
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `ws://${url}`
   try {
     const u = new URL(url)
-    if (u.pathname === "/" || u.pathname === "") u.pathname = DEFAULT_WS_PATH
-    // 旧配置 / 手滑写成 /ws/Yunzai-账号 时，入口就收到默认路径，别等升级
-    else if (AUTO_ACCOUNT_PATH.test(u.pathname)) u.pathname = DEFAULT_WS_PATH
-    return u.toString()
+    if (u.pathname === "/") u.pathname = ""
+    return u.toString().replace(/\/$/, "")
   } catch {
     return url
+  }
+}
+
+/** 账号只当一个 path segment：不许注入 `/`、`?`、`#` */
+export function materializeAccountUrl(endpoint: string, account: string): string {
+  const id = encodeURIComponent(String(account).trim())
+  if (!id) throw new Error("绑定账号不能为空")
+  const u = new URL(endpoint)
+  u.pathname = `${DEFAULT_WS_PATH}-${id}`
+  return u.toString()
+}
+
+/** 运行时身份：协议 + 主机 + 端口 + 路径，query/token 不参与 */
+export function routeKey(url?: string): string {
+  if (!url) return ""
+  try {
+    const u = new URL(String(url))
+    return `${u.protocol}//${u.host}${u.pathname}`.toLowerCase()
+  } catch {
+    return String(url).trim().toLowerCase()
   }
 }
 
@@ -72,7 +90,7 @@ export function normalizeUrl(url: string | null | undefined) {
  * 「同一个核心」按 origin 比，不是按整个 URL（路径只是后台显示名）。
  *
  * @param list 既有连接
- * @param url  已 normalizeUrl 过的地址
+ * @param url  已 normalizeEndpoint 过的地址
  * @param bind 新连接的账号白名单，空数组 = 不限
  * @returns 冲突的那条，没有则 undefined
  */
@@ -152,7 +170,7 @@ export function coreKey(url?: string) {
  * 并把地址换算成 ws 形式一起给出去。
  */
 export function requireWsUrl(url: string | null | undefined): string {
-  const s = normalizeUrl(url)
+  const s = normalizeEndpoint(url)
   if (!s) throw new Error("连接地址不能为空")
   let u: URL
   try {
