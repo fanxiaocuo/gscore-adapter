@@ -1,13 +1,13 @@
 /**
  * 客户端生命周期
  */
-import { config, configFile, getWsConnections, wsEnabled } from "@/config"
-import type { WsConnection } from "@/types"
+import { config, configFile, enabled, getWsConnections, wsEnabled } from "@/config"
+import type { RuntimeWsConnection, WsConnection } from "@/types"
 import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
+import { expandConnections } from "./expand.js"
 import { makeLog } from "@/utils/compat"
-import { isAutoYunzaiPath } from "@/utils/url.js"
 
 let hooked = false
 
@@ -20,16 +20,21 @@ function hook() {
 }
 
 /** 启动单个连接（已存在同名则跳过） */
-export function startClient(conf: WsConnection) {
+export function startClient(conf: WsConnection | RuntimeWsConnection) {
   if (conf.enable === false) return null
+  const rt = conf as Partial<RuntimeWsConnection>
+  const hasSourceIndex = Number.isInteger(rt.sourceIndex) && Number(rt.sourceIndex) >= 0
+  const sourceLabel = hasSourceIndex ? `连接 #${Number(rt.sourceIndex) + 1}` : "(未命名)"
+  const name = rt.runtimeName || conf.name || sourceLabel
   if (!conf.url) {
-    makeLog("error", `连接 ${conf.name || "(未命名)"} 缺少 url，已跳过`, "GsCore")
+    makeLog("error", `连接 ${name} 缺少 url，已跳过`, "GsCore")
     return null
   }
-  if (clients.some(c => c.name === (conf.name || conf.url))) return null
+  if (clients.some(c => c.name === name)) return null
 
   hook()
   const c = new GsCoreClient(conf)
+  if (!rt.runtimeName && !conf.name) c.name = name
   clients.push(c)
   c.connect()
   return c
@@ -42,6 +47,39 @@ export function stopClient(name: string) {
   clients[idx].close()
   clients.splice(idx, 1)
   return true
+}
+
+/** 停掉一条逻辑连接派生的全部运行时客户端 */
+export function stopSource(sourceIndex: number, name?: string) {
+  let stopped = 0
+  for (let i = clients.length - 1; i >= 0; i--) {
+    const client = clients[i]
+    const legacyNameHit = client.sourceIndex === -1 && name !== undefined && client.name === name
+    if (client.sourceIndex !== sourceIndex && !legacyNameHit) continue
+    client.close()
+    clients.splice(i, 1)
+    stopped++
+  }
+  return stopped
+}
+
+/** 按当前配置展开并启动一条逻辑连接派生的全部运行时客户端 */
+export function startSource(sourceIndex: number) {
+  if (!enabled() || !wsEnabled()) return 0
+
+  const list = getWsConnections()
+  const source = list[sourceIndex]
+  if (!source || source.enable === false) return 0
+
+  // 必须展开完整列表：来源序号与全局「前项优先」冲突语义都依赖原始上下文。
+  const { runtime, errors } = expandConnections(list)
+  for (const error of errors) makeLog("error", error, "GsCore")
+
+  let started = 0
+  for (const conf of runtime) {
+    if (conf.sourceIndex === sourceIndex && startClient(conf)) started++
+  }
+  return started
 }
 
 /** 按当前配置重建所有连接（用于 #早柚重载） */
@@ -74,8 +112,9 @@ export function startClients() {
     )
 
   if (wsEnabled()) {
-    warnPathCollision(getWsConnections())
-    for (const conf of getWsConnections()) startClient(conf)
+    const { runtime, errors } = expandConnections(getWsConnections())
+    for (const error of errors) makeLog("error", error, "GsCore")
+    for (const conf of runtime) startClient(conf)
   }
 
   if (clients.length) {
@@ -89,40 +128,4 @@ export function startClients() {
 export function stopClients() {
   for (const c of clients) c.close()
   clients.length = 0
-}
-
-/**
- * 两条启用中的连接若 URL 路径相同，核心侧后连上的会把先连上的 socket 顶掉。
- * 自动路径（/ws/Yunzai）本该合并 bind，走到这里说明用户手改了配置。
- */
-function warnPathCollision(list: WsConnection[]) {
-  const seen = new Map<string, string>()
-  for (const c of list) {
-    if (c.enable === false || !c.url) continue
-    let key = ""
-    try {
-      const u = new URL(String(c.url))
-      key = `${u.origin}${u.pathname}`.toLowerCase()
-    } catch {
-      key = String(c.url)
-    }
-    const prev = seen.get(key)
-    if (prev) {
-      const hint = (() => {
-        try {
-          return isAutoYunzaiPath(new URL(String(c.url)).pathname)
-            ? "请把账号都绑到同一条连接（#早柚修改连接 bind+=）。"
-            : "请改成不同的路径，或把账号合并到一条连接。"
-        } catch {
-          return "请检查连接地址。"
-        }
-      })()
-      makeLog(
-        "error",
-        `连接 ${c.name || c.url} 与 ${prev} 的 URL 路径相同（${key}），` +
-          `核心侧后连上的会顶掉先连上的。${hint}`,
-        "GsCore",
-      )
-    } else seen.set(key, String(c.name || c.url))
-  }
 }
