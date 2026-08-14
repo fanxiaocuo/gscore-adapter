@@ -19,8 +19,8 @@
  * 从旧版**保留**的中文可读性适配（这些与风格无关，是硬约束）：
  *   - 正文 16px/1.8，窄屏回 15px；代码 13.5px/1.7
  *   - h1 取 clamp(34,5vw,46)/1.08 —— 西文规范的超密行高会让方块字粘连
- *   - 导航/侧栏无衬线 13.5px；等宽小字只给纯拉丁数字的角落
- *     （时间戳、表头、badge、分组标签 —— 「系统仪表」语气）
+ *   - 导航/侧栏链接 15px；侧栏分组标题无衬线 13px（中文分组不要等宽大写）
+ *     等宽小字只给纯拉丁数字的角落（时间戳、表头、badge）
  *   - hero 左对齐
  *
  * 无障碍红线（ui-ux-pro-max: glassmorphism 条目）：
@@ -45,10 +45,10 @@
   --radius-2xl: 24px;
   --radius-pill: 999px;
 
-  /* chrome 字号（沿用）：11px 档只给纯拉丁数字的角落 */
+  /* chrome 字号：caption 只给纯拉丁数字的角落；nav 要能读中文 */
   --text-caption: 11px;
   --text-chrome: 12px;
-  --text-nav: 13.5px;
+  --text-nav: 15px;
   --tracking-chrome: -0.02em;
 
   /* 强调色与产品界面同源（src/webui/styles.css 的 --primary），
@@ -135,7 +135,7 @@
 
   --vp-nav-height: 56px;
   --vp-layout-max-width: 1440px;
-  --vp-sidebar-width: 260px;
+  --vp-sidebar-width: 276px;
 
   /* 本文件自用 */
   --doc-text: #333849;
@@ -344,7 +344,7 @@ body::after {
   background: var(--vp-c-brand-soft);
 }
 
-/* 导航、侧栏、右侧 outline：无衬线 13.5px，中文读得清（沿用） */
+/* 导航、侧栏、右侧 outline：无衬线 15px，中文读得清 */
 .VPNavBarMenuLink,
 .VPNavBarMenuGroup .VPFlyout .text,
 .VPSidebarItem .text,
@@ -352,16 +352,18 @@ body::after {
 .VPDocFooter .title {
   font-family: var(--font-display);
   font-size: var(--text-nav);
+  line-height: 1.55;
   letter-spacing: normal;
 }
 
-/* 侧栏分组标题：等宽大写小字（标签不是导航项，沿用） */
+/* 侧栏分组标题是中文（「开始」「排障」），不要等宽大写 11px */
 .VPSidebarItem.level-0 > .item > .text {
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--vp-c-text-3);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.04em;
+  color: var(--vp-c-text-2);
 }
 
 /* 激活项：胶囊填充替代旧版的左侧竖线 */

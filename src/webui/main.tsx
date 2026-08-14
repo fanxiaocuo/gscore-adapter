@@ -81,7 +81,6 @@ const CFIELDS = [
   { k: "name", label: "连接名", ph: "gsuid_core" },
   { k: "url", label: "地址", ph: "127.0.0.1:8765（自动补 /ws/Yunzai）" },
   { k: "token", label: "token", ph: "留空则不修改", type: "password" },
-  { k: "bot_id", label: "bot_id", ph: "留空按 bot_id_map 推断", hint: "平台标签，非机器人账号" },
   { k: "reconnect_interval", label: "重连间隔（秒）", type: "number" },
   {
     k: "max_reconnect_attempts",
@@ -241,6 +240,7 @@ function BindManager({
             <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
               {b.id}
             </span>
+            {b.platform && <span className={TAG}>{b.platform}</span>}
             <span className={TAG}>{b.online ? "在线" : "离线"}</span>
             {/* 排除名单优先级高于绑定，两边同时有这个号等于白绑，必须标出来 */}
             {excluded.includes(b.id) && (
@@ -277,6 +277,11 @@ function BindManager({
                 <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[11px] text-muted">
                   {b.id}
                 </span>
+                {b.platform && (
+                  <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[11px] text-muted">
+                    {b.platform}
+                  </span>
+                )}
                 <span className="font-bold text-primary">＋</span>
               </button>
             ))}
@@ -320,7 +325,6 @@ function Conn({
           <div className="mt-[6px] flex flex-wrap items-center gap-[6px]">
             <span className={TAG}>{c.status_text}</span>
             {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
-            {c.bot_id && <span className={TAG}>bot_id {c.bot_id}</span>}
             {c.has_token && <span className={TAG}>已配 token</span>}
             {/* 绑定标签升级成折叠开关：缩起时预览前几个头像，点开进管理区 */}
             <button

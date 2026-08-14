@@ -35,6 +35,8 @@ export interface BotProfile {
   avatar: string
   /** 是否在线 */
   online: boolean
+  /** 上报用的平台标识 */
+  platform?: string
 }
 
 /** 一条连接在面板上的视图，对应 `connView()` */
@@ -43,7 +45,6 @@ export interface ConnView {
   index: number
   name: string
   url: string
-  bot_id: string
   enable: boolean
   /** 只说明配没配，不回原值 */
   has_token: boolean

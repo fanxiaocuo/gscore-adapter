@@ -12,8 +12,11 @@ import { initStats } from "@/modules/stats"
 import { initPassive } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
 
-// 适配器 load() 早于 online。此时 Bot.bots 通常还是空的，
-// 早到的 MessageSend 会经 Proxy 兜底到随机一个 bot，把消息发错账号；
+// 适配器 load() 早于 online。此时还没有登录号，在全局 Bot 上调发送方法
+// 会经 Proxy 重定向到 this.uin.toJSON()（0 个号是空串，3 个以上会抽一个），
+// 把消息发错账号。
+// `Bot[e.self_id]` 本身是该账号的实例（Proxy 的 target 就是 this.bots），
+// 事件路径没问题；危险的是不带账号键、把全局 Bot 当某个号用。
 // 且在框架 lib/events/message.js 之前注册 Bot.on("message") 会把我们排到
 // 监听器队列最前，正是 e.isMaster 尚未定义的那个顺序。
 //
@@ -47,7 +50,7 @@ onConfigReload(() => {
   if (now === last) return
   last = now
 
-  // online 之前不碰连接：此时 startClients 会因 Bot.bots 为空而发错消息，
+  // online 之前不碰连接：此时还没有登录号，在全局 Bot 上发消息会发错账号，
   // 上面的钩子会在 online 时按最新的 enabled() 决定拉不拉起
   if (!online) return
 

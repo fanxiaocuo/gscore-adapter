@@ -1,4 +1,5 @@
 import {
+  accountPlatform,
   config,
   saveConfig,
   getWsConnections,
@@ -11,9 +12,9 @@ import {
 import { clients, startClient, stopClient } from "@/modules/client"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
-import { findDuplicate, requireWsUrl } from "@/utils/url"
+import { findDuplicate, findSameCore, requireWsUrl, stripAccountPath } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
-import { guessPlatform } from "@/utils/platform"
+import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
 import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
@@ -235,54 +236,65 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const selfId = resolveSelfId(e)
     const bind = kv.bind ? parseBind(kv.bind) : selfId ? [selfId] : []
 
-    // 只填 host:port 时补出的路径段带上账号，两个 Bot 才能同时连一个核心，
-    // 理由见 normalizeUrl。bind=all（不限账号）时不带 —— 那条连接不属于某个账号。
-    // 必须排在 bind 之后：段里用的就是它绑的那个账号
-    //
     // 走 requireWsUrl 而不是裸 normalizeUrl：协议校验只有那一处（见该函数），
     // http:// 会带着换算好的 ws 地址抛出来，直接把话回给用户就是可用的建议
     let url: string
     try {
-      url = requireWsUrl(kv.url || urlPart, bind.length === 1 ? bind[0] : null)
+      url = requireWsUrl(kv.url || urlPart)
     } catch (err) {
       return e.reply(
         `${errorMessage(err)}\n用法：#早柚添加连接 127.0.0.1:8765（只填 host:port 即可）`,
       )
     }
 
-    // 平台标识分两处落：显式 id= 写进连接，自动识别的写进 bot_id_map
-    // ------
-    // 为什么不都写进连接的 bot_id
-    // -------------------------
-    // resolveBotId 的第一行是 `if (conf?.bot_id) return conf.bot_id` —— 连接级的值
-    // 短路掉后面所有按账号的解析。而这里的自动识别只看得到「发这条指令的那个号」，
-    // 一条连接却可以 bind 多个账号，且它们的平台可能不同（ICQQ 号是 onebot、
-    // QQBot 号是 qqgroup）。把猜出来的值写进连接，等于替所有 bind 的账号都断言了
-    // 同一个平台：日后往 bind 里加一个别的平台的号，它的消息就会被按错的平台上报，
-    // 而且是静默的。
-    //
-    // 所以自动识别的结果按账号记到 bot_id_map 里（那张表本来就是 self_id 精确匹配
-    // 优先，见 resolveBotId），连接的 bot_id 只留给用户显式 id= —— 那是他自己的
-    // 断言「这条连接一律按这个平台上报」，短路是对的。
-    //
-    // 多个账号平台相同的情形不会让这张表膨胀得难看：同平台的键各写一行，值一样，
-    // 而适配器级的粗粒度键（QQ: onebot）仍在表里覆盖没被单独记过的号。
-    const guessed = selfId ? guessPlatform(selfId, globalThis.Bot?.[selfId]) : ""
-    const botId = kv.bot_id || ""
-
-    // 判重按 (核心, 账号) 而不是只看地址，理由见 findDuplicate。
-    // 必须排在 bind 算出来之后 —— 判重要用它
-    const dup = findDuplicate(list, url, bind)
-    if (dup) {
-      const had = dup.bind?.length ? dup.bind.join("、") : "不限账号"
+    // 同一个核心已经有连接时，把新账号并进 bind，而不是再开一条 ws。
+    // 每个账号的平台标识单独记进 bot_id_map。
+    const existing = findSameCore(list, url)
+    if (existing) {
+      if (findDuplicate([existing], url, bind)) {
+        const had = existing.bind?.length ? existing.bind.join("、") : "不限账号"
+        return e.reply(
+          `这个核心已经加过了：${existing.name}\n` +
+            `已绑定：${had}\n` +
+            (bind.length
+              ? `本次要绑 ${bind.join("、")}，与它重复。`
+              : `本次是「不限账号」，会与它重复上报。\n想按账号分开，用 bind=<账号> 指定。`),
+        )
+      }
+      const idx = list.indexOf(existing)
+      const prevBind = Array.isArray(existing.bind) ? existing.bind.map(String) : []
+      const nextBind = [...new Set([...prevBind, ...bind])]
+      const nextUrl = stripAccountPath(existing.url || url)
+      const patch: ConnectionPatch = { bind: nextBind }
+      if (nextUrl !== existing.url) patch.url = nextUrl
+      if (existing.bot_id) patch.bot_id = null
+      const explicit = kv.bot_id || ""
+      try {
+        updateConnection(idx, patch, doc => {
+          for (const id of nextBind)
+            writeAccountBotId(
+              doc,
+              id,
+              explicit && bind.includes(String(id)) ? explicit : undefined,
+              config.bot_id_map,
+            )
+        })
+      } catch (err) {
+        makeLog("error", ["写入配置失败", err], "GsCore")
+        return e.reply(`保存失败：${errorMessage(err)}`)
+      }
+      stopClient(existing.name || existing.url)
+      const next = getWsConnections()[idx]
+      if (next?.enable !== false && clientMode()) startClient(next)
+      const mapped = nextBind
+        .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
+        .filter(Boolean)
       return e.reply(
-        `这个核心已经加过了：${dup.name}\n` +
-          `已绑定：${had}\n` +
-          (bind.length
-            ? `本次要绑 ${bind.join("、")}，与它重复。\n` +
-              `想让别的机器人也连这个核心，就在那个号上发这条指令。`
-            : `本次是「不限账号」，会与它重复上报。\n` +
-              `想按账号分开，用 bind=<账号> 指定。`),
+        `已把账号 ${bind.join("、") || "（不限）"} 绑到连接 ${existing.name}\n` +
+          `地址：${nextUrl}\n` +
+          `当前绑定：${nextBind.length ? nextBind.join("、") : "不限账号"}\n` +
+          (mapped.length ? `平台标识：${mapped.join("、")}\n` : "") +
+          (clientMode() ? "已开始连接，稍后可用 #早柚状态 查看" : "配置已保存"),
       )
     }
 
@@ -295,7 +307,6 @@ export default class GsCoreAdmin extends plugin<"message"> {
       name,
       url,
       token: kv.token || null,
-      bot_id: botId || null,
       enable: true,
       reconnect_interval: Number(kv.reconnect_interval) || 5,
       // retry=0 要能写进去（那是「无限重连」的显式选择），所以不能用 `|| 默认值` ——
@@ -307,17 +318,10 @@ export default class GsCoreAdmin extends plugin<"message"> {
       exclude: kv.exclude ? splitIds(kv.exclude) : [],
     }
 
-    // 自动识别出的平台按账号记一笔，与连接写在同一次保存里
-    // ------
-    // 只在「这个账号还没有记录」时写：那张表是用户可以手改的，他改过的值不该被
-    // 一条添加连接指令悄悄改回去。也不写进连接的 bot_id，理由见上面 guessed 那段。
-    const mapped = selfId && guessed && !config.bot_id_map?.[selfId] ? guessed : ""
-
+    const explicit = kv.bot_id || ""
     try {
-      // 自动识别的平台映射与连接写在同一次保存里。
-      // setIn 会把缺失的中间层补出来，bot_id_map 整个不存在时也不用先建
       appendConnection(conf, doc => {
-        if (mapped) doc.setIn(["bot_id_map", String(selfId)], mapped)
+        for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
       })
     } catch (err) {
       makeLog("error", ["写入配置失败", err], "GsCore")
@@ -325,25 +329,20 @@ export default class GsCoreAdmin extends plugin<"message"> {
     }
 
     const started = clientMode() ? startClient(conf) : null
+    const mappedNow = bind
+      .map(id => {
+        const p = explicit || config.bot_id_map?.[id]
+        return p ? `${id}=${p}` : ""
+      })
+      .filter(Boolean)
     return e.reply(
       `已添加连接 ${name}\n地址：${url}\n` +
-        // 把绑定结果说出来：这是这条指令唯一不来自用户输入的字段，
-        // 不显示的话多 Bot 环境里没人知道它到底绑到了哪个号
         (bind.length ? `绑定账号：${bind.join("、")}（bind=all 可改为不限）\n` : "账号：不限\n") +
-        // 路径段带账号是「多个 Bot 能同时连一个核心」的关键（核心按这一段区分连接），
-        // 但用户只填了 host:port，不说他不会知道地址被改过
-        (bind.length === 1 && url.includes(`/ws/Yunzai-${bind[0]}`)
-          ? `路径已按账号区分，其他机器人可连同一个核心\n`
-          : "") +
-        // 平台标识落在哪儿要说清楚：连接级会盖掉所有账号，表里的只管这一个号。
-        // 用户看不到这个区别的话，多账号时排查不动
-        (kv.bot_id
-          ? `平台标识：${botId}（本连接一律按它上报，含日后加进 bind 的账号）\n`
-          : mapped
-            ? `平台标识：${mapped}（自动识别，已按账号 ${selfId} 记入 bot_id_map）\n`
-            : selfId && config.bot_id_map?.[selfId]
-              ? `平台标识：${config.bot_id_map[selfId]}（bot_id_map 里已有 ${selfId} 的记录）\n`
-              : "平台标识：未识别，上报时按 bot_id_map 推断\n") +
+        (mappedNow.length
+          ? `平台标识：${mappedNow.join("、")}（按账号记入 bot_id_map）\n`
+          : bind.length
+            ? "平台标识：未识别，上报时按 bot_id_map 推断\n"
+            : "") +
         (started
           ? "已开始连接，稍后可用 #早柚状态 查看"
           : clientMode()
@@ -361,7 +360,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         "用法：#早柚修改连接 <名字|序号> bind+=<账号>\n" +
           "bind=账号1+账号2 替换，bind+=账号 追加，bind-=账号 移除，bind=all 表示不限账号\n" +
           "exclude 同语法（排除账号，优先级高于 bind）\n" +
-          "也可修改 url、token、bot_id、enable、interval、retry",
+          "也可修改 url、token、enable、interval、retry；id= 按账号写入 bot_id_map",
       )
 
     const hit = this.find(target)
@@ -386,7 +385,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 抛出去就是一条框架级异常日志而不是回给用户的话
     let nextUrl: string
     try {
-      nextUrl = kv.url ? requireWsUrl(kv.url) : hit.conf.url
+      nextUrl = kv.url ? requireWsUrl(kv.url) : stripAccountPath(String(hit.conf.url || ""))
     } catch (err) {
       return e.reply(errorMessage(err))
     }
@@ -401,10 +400,11 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 字段校验都在写盘之前做完：报错要作为一句话回给用户，不能等 updateConnection
     // 写到一半才抛。patch 的键序即回复里「xx 已更新」的顺序
     const patch: ConnectionPatch = {}
-    if (kv.url) patch.url = nextUrl
+    if (kv.url || nextUrl !== hit.conf.url) patch.url = nextUrl
     if (kv.name) patch.name = kv.name
     if (kv.token !== undefined) patch.token = kv.token || null
-    if (kv.bot_id !== undefined) patch.bot_id = kv.bot_id || null
+    // 显式 id= 按 bind 账号写入 bot_id_map；任何改动都顺手清掉连接上的旧字段
+    if (kv.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
     if (kv.enable !== undefined) {
       if (!["true", "false"].includes(kv.enable.toLowerCase()))
         return e.reply("enable 只能是 true 或 false")
@@ -423,8 +423,22 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.bind !== undefined) patch.bind = nextBind
     if (kv.exclude !== undefined) patch.exclude = nextExclude
 
+    const ids = (kv.bind !== undefined ? nextBind : hit.conf.bind || []).map(String)
+    if (kv.bot_id && !ids.length)
+      return e.reply(
+        "当前连接不限账号，id= 无法写入 bot_id_map。请先 bind=<账号> 再设平台",
+      )
+
     try {
-      updateConnection(hit.index, patch)
+      updateConnection(hit.index, patch, doc => {
+        if (kv.bot_id) {
+          for (const id of ids) writeAccountBotId(doc, id, kv.bot_id, undefined, true)
+        } else {
+          if (hit.conf.bot_id)
+            for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
+          if (kv.bind !== undefined) writeAccountBotIds(doc, ids, config.bot_id_map)
+        }
+      })
     } catch (err) {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
@@ -443,16 +457,12 @@ export default class GsCoreAdmin extends plugin<"message"> {
       lines.push(`当前绑定：${nextBind.length ? nextBind.join("、") : "不限账号"}`)
       if (!nextBind.length && kv.bind_op === "remove")
         lines.push("绑定已清空，本连接现在转发所有机器人的消息；如非本意请用 bind+= 加回")
-      // 连接级 bot_id 会替 bind 里所有账号断言同一个平台（resolveBotId 第一优先级）。
-      // 往一条固定了平台的连接里加第二个账号是最容易踩错的组合：另一个平台的
-      // 账号消息会被静默按错的平台上报，所以这里必须说一声
-      const finalBotId = kv.bot_id !== undefined ? kv.bot_id : hit.conf.bot_id
-      if (finalBotId && nextBind.length > 1)
-        lines.push(
-          `注意：本连接的平台标识固定为 ${finalBotId}，bind 里所有账号都按它上报。` +
-            `若账号平台不同，发 #早柚修改连接 ${next?.name || hit.index + 1} bot_id= 清掉，改为按账号自动识别`,
-        )
     }
+    if (kv.bot_id)
+      lines.push(
+        `平台标识 ${kv.bot_id} 已按账号记入 bot_id_map` +
+          (nextBind.length ? `（${nextBind.join("、")}）` : ""),
+      )
     if (kv.exclude !== undefined)
       lines.push(`当前排除：${nextExclude.length ? nextExclude.join("、") : "无"}`)
     return e.reply(lines.filter(Boolean).join("\n"))
@@ -489,8 +499,14 @@ export default class GsCoreAdmin extends plugin<"message"> {
         `\n\n${i + 1}. ${c.name}  [${state}]` +
           `\n   ${c.url}` +
           (c.token ? "\n   token: 已设置" : "") +
-          (c.bot_id ? `\n   bot_id: ${c.bot_id}` : "") +
-          (c.bind?.length ? `\n   bind: ${c.bind.join("、")}` : "") +
+          (c.bind?.length
+            ? `\n   bind: ${c.bind
+                .map(id => {
+                  const p = accountPlatform(id)
+                  return p ? `${id}(${p})` : String(id)
+                })
+                .join("、")}`
+            : "") +
           (live?.retry ? `\n   已重连 ${live.retry} 次` : ""),
       )
     })

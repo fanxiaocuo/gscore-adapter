@@ -3,7 +3,7 @@
  *
  * 为什么单独一个文件
  * ----------------
- * 这套判据有两个调用方：`apps/admin.ts`（#早柚添加连接 时给 bot_id 填个默认值）
+ * 这套判据有两个调用方：`apps/admin.ts`（#早柚添加连接 时写入 bot_id_map）
  * 与 `config/index.ts` 的 `resolveBotId`（上报时查表全落空后的兜底）。
  * 放进 config 里会让 admin → config 的依赖方向多一层含义；放 `utils/message.ts`
  * 更不行——那个模块 import 了 `@/config`，而 config 要用这里的函数，会成环
@@ -88,7 +88,8 @@ export function isQQBotAppId(id: string | number | null | undefined): boolean {
  * 按账号与 Bot 对象推断核心平台标识
  *
  * @param selfId 机器人账号（云崽的 self_id / Bot.uin）
- * @param bot    可选的 Bot 实例，用来读 adapter.id / adapter.name
+ * @param bot    可选的 Bot 实例，用来读 adapter.id / adapter.name；
+ *               不传则只按账号形状推断，不自己去翻全局 Bot
  * @returns 平台标识，推不出返回 ""
  *
  * 判定顺序（先具体后笼统）：
@@ -97,9 +98,8 @@ export function isQQBotAppId(id: string | number | null | undefined): boolean {
  *   3. 适配器名与 id 查表
  *   4. 推不出返回 ""
  *
- * 为什么返回 "" 而不是兜一个 onebot：调用方的两处需求不同。添加连接时「推不出」
- * 意味着不写 bot_id、留给运行时按 bot_id_map 走；上报兜底时才需要一个具体值，
- * 那一步的兜底本来就在 `resolveBotId` 里。在这里兜掉会让前者失去「不确定」这个状态。
+ * 为什么返回 "" 而不是兜一个 onebot：添加连接时「推不出」就不写 bot_id_map，
+ * 留给运行时再推断；上报兜底才需要一个具体值，那一步在 `resolveBotId` 里。
  */
 export function guessPlatform(
   selfId: string | number | null | undefined,

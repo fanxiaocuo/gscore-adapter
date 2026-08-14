@@ -22,7 +22,7 @@ export interface ConnRow {
    * bind 账号的档案（头像 + 昵称），渲染成头像胶囊；没有绑定时不给。
    * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
    */
-  bots?: { id: string; name: string; avatar: string }[]
+  bots?: { id: string; name: string; avatar: string; platform?: string }[]
 }
 
 /**
@@ -150,6 +150,11 @@ export function Status(data: StatusData) {
                             <span className="font-mono text-[19px] leading-none text-muted">
                               {b.id}
                             </span>
+                            {b.platform && (
+                              <span className="font-mono text-[17px] leading-none text-muted">
+                                {b.platform}
+                              </span>
+                            )}
                           </span>
                         ))}
                       </div>

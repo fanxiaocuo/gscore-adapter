@@ -16,6 +16,7 @@ import type {
   WsConnection,
   SendSegment,
 } from "@/types"
+import { getBot } from "@/utils/bots.js"
 import { echoKey, markSent } from "./echo.js"
 
 export class GsCoreClient {
@@ -470,11 +471,11 @@ export class GsCoreClient {
       return this.log("error", ["解码数据失败", String(raw).slice(0, 300), err])
     }
 
-    const bot: SendBot = Bot.bots[data.bot_self_id] || Bot
+    const bot: SendBot | null = getBot(data.bot_self_id)
 
     // 控制指令优先，它们不走消息转换，也不需要回执
     try {
-      if (await this.handleControl(data, bot)) return
+      if (bot && (await this.handleControl(data, bot))) return
     } catch (err) {
       return this.log("error", ["处理控制指令错误", err])
     }
@@ -486,6 +487,11 @@ export class GsCoreClient {
     // 无论找不到目标、内容为空还是发送抛错，都必须回一帧。
     let recallId: string | string[] | null = null
     try {
+      if (!bot) {
+        const account = String(data.bot_self_id ?? "").trim() || "(空)"
+        this.log("error", `找不到机器人账号 ${account}`)
+        return
+      }
       // 纯日志帧要在 pick 之前挡掉：核心下发 log 段时 target_id 常是占位值，
       // 走到下面 pick 不到目标就会误报「找不到发送目标」。
       // 这里只判类型不做转换 —— gscoreToYunzai 会写日志、上传转发，跑两遍就重复了。

@@ -28,9 +28,11 @@
 import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
-import type { Document, ParsedNode } from "yaml"
+import type { Document, ParsedNode, YAMLMap, YAMLSeq } from "yaml"
 import { ConfigPath, PluginPath } from "@/dir"
 import { unflow } from "./yaml.js"
+import { coreKey, isAutoYunzaiPath, stripAccountPath } from "@/utils/url.js"
+import { writeAccountBotId } from "./botmap.js"
 
 const defFile = path.join(ConfigPath, "default_config.yaml")
 
@@ -86,6 +88,9 @@ export function upgradeUserConfig(userFile: string): string[] {
     changes.push(`+ ${key}`)
   }
 
+  // 按账号写入 bot_id_map；同一核心多条连接合并 bind
+  migrateAccountConnections(userDoc, changes)
+
   if (!changes.length) return changes
 
   // 写盘前先自查一遍：解析不回来就别写，宁可保持原样。
@@ -114,4 +119,122 @@ export function upgradeUserConfig(userFile: string): string[] {
   }
   fs.writeFileSync(userFile, out)
   return changes
+}
+
+function scalarText(node: unknown): string {
+  return YAML.isScalar(node) ? String(node.value ?? "").trim() : ""
+}
+
+/** 缺省为启用；只有显式 false/0/off 才算关 */
+function isEnabled(item: YAMLMap): boolean {
+  if (!item.has("enable")) return true
+  const n = item.get("enable", true)
+  if (!YAML.isScalar(n)) return true
+  const v = n.value
+  if (typeof v === "boolean") return v
+  const s = String(v ?? "").trim().toLowerCase()
+  return s !== "false" && s !== "0" && s !== "off" && s !== "no"
+}
+
+function readIdList(item: YAMLMap, key: string): string[] {
+  const node = item.get(key, true)
+  if (!YAML.isSeq(node)) return []
+  return [
+    ...new Set(
+      node.items
+        .map(n => (YAML.isScalar(n) ? String(n.value ?? "").trim() : ""))
+        .filter(Boolean),
+    ),
+  ]
+}
+
+/** 按账号写入 bot_id_map，同一核心的多条连接合并 bind */
+function migrateAccountConnections(userDoc: Document.Parsed<ParsedNode>, changes: string[]) {
+  const client = userDoc.getIn(["client"], true)
+  if (!YAML.isMap(client)) return
+  const seq = client.get("connections", true)
+  if (!YAML.isSeq(seq)) return
+
+  for (const item of seq.items) {
+    if (!YAML.isMap(item)) continue
+    const url = scalarText(item.get("url", true))
+    if (url) {
+      const next = stripAccountPath(url)
+      if (next !== url) {
+        item.set("url", next)
+        changes.push("~ url -> /ws/Yunzai")
+      }
+    }
+
+    const bind = readIdList(item, "bind")
+    const botId = scalarText(item.get("bot_id", true))
+    // 旧模型是「一条连接一个平台」：多个 bind 共享同一个 bot_id，要写给每个账号
+    if (botId) {
+      for (const id of bind) {
+        if (writeAccountBotId(userDoc, id, botId)) changes.push(`+ bot_id_map.${id}`)
+      }
+    }
+    if (item.has("bot_id")) {
+      item.delete("bot_id")
+      changes.push("~ connection.bot_id -> bot_id_map")
+    }
+    for (const id of bind) {
+      if (writeAccountBotId(userDoc, id)) changes.push(`+ bot_id_map.${id}`)
+    }
+  }
+
+  const groups = new Map<string, number[]>()
+  seq.items.forEach((item, i) => {
+    if (!YAML.isMap(item)) return
+    const url = scalarText(item.get("url", true))
+    if (!url) return
+    try {
+      if (!isAutoYunzaiPath(new URL(url).pathname)) return
+    } catch {
+      return
+    }
+    const key = coreKey(url)
+    const arr = groups.get(key) || []
+    arr.push(i)
+    groups.set(key, arr)
+  })
+
+  const drop: number[] = []
+  for (const indices of groups.values()) {
+    if (indices.length < 2) continue
+    // 优先留下已启用的那条，避免合并后只剩一条停用的空壳
+    const keepIdx =
+      indices.find(i => {
+        const item = seq.get(i, true)
+        return YAML.isMap(item) && isEnabled(item)
+      }) ?? indices[0]
+    const keep = seq.get(keepIdx, true)
+    if (!YAML.isMap(keep)) continue
+    const bind = new Set<string>()
+    const exclude = new Set<string>()
+    let open = false
+    const absorb = (item: YAMLMap) => {
+      const ids = readIdList(item, "bind")
+      if (!ids.length) open = true
+      else for (const id of ids) bind.add(id)
+      for (const id of readIdList(item, "exclude")) exclude.add(id)
+    }
+    for (const i of indices) {
+      const item = seq.get(i, true)
+      if (!YAML.isMap(item)) continue
+      absorb(item)
+      if (i === keepIdx) continue
+      // 被丢掉的那条若带着 token，别把鉴权弄丢
+      if (!scalarText(keep.get("token", true))) {
+        const t = scalarText(item.get("token", true))
+        if (t) keep.set("token", t)
+      }
+      drop.push(i)
+    }
+    keep.set("bind", userDoc.createNode(open ? [] : [...bind]))
+    keep.set("exclude", userDoc.createNode([...exclude]))
+    changes.push("~ merge same-core connections")
+  }
+  drop.sort((a, b) => b - a)
+  for (const i of drop) (seq as YAMLSeq).delete(i)
 }

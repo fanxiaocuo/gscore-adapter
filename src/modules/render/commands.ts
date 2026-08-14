@@ -46,7 +46,7 @@ export const HELP_GROUPS: HelpGroup[] = [
     items: [
       {
         cmd: "#早柚添加连接 <地址>",
-        dsc: "新增一个早柚核心连接（ws:// / wss://）。\n只填 host:port 即可，路径按账号自动补全\n默认只绑定收到这条指令的机器人账号\n多个机器人各自发一次，即可同连一个核心",
+        dsc: "新增一个早柚核心连接（ws:// / wss://）。\n只填 host:port 即可，自动补 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号\n其他号再发一次会并进同一条连接，不会新开 ws",
         eg: "#早柚添加连接 127.0.0.1:8765    或    wss://域名:8765 n=主核心 t=abc",
         icon: "plus",
         master: true,
@@ -56,7 +56,7 @@ export const HELP_GROUPS: HelpGroup[] = [
       },
       {
         cmd: "#早柚修改连接 <名字|序号> <key=value>",
-        dsc: "改已有连接，最常用的是给同一个核心再绑一个机器人：\nbind+=<账号> 追加，bind-=<账号> 移除\nbind=账号1+账号2 整体替换，bind=all 表示不限账号\nurl / token / bot_id / enable / interval / retry 也可改",
+        dsc: "改已有连接，最常用的是给同一个核心再绑一个机器人：\nbind+=<账号> 追加，bind-=<账号> 移除\nbind=账号1+账号2 整体替换，bind=all 表示不限账号\nurl / token / enable / interval / retry 也可改；id= 按账号写入平台映射",
         eg: "#早柚修改连接 1 bind+=2463381624    或    #早柚修改连接 主核心 bind=all",
         icon: "settings",
         master: true,
@@ -93,7 +93,7 @@ export const HELP_GROUPS: HelpGroup[] = [
           { cmd: "token（t）", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
           {
             cmd: "bot_id（id）",
-            dsc: "平台标识（onebot / qqgroup 等），不是账号。\n账号由 bind 决定，会自动按形状识别",
+            dsc: "该账号的平台标识（onebot / qqgroup 等），写入 bot_id_map",
             icon: "dot",
           },
           {

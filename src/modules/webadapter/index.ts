@@ -25,6 +25,7 @@
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
 import {
+  accountPlatform,
   config,
   configFile,
   saveConfig,
@@ -39,7 +40,8 @@ import { clients, startClient, stopClient, reloadClients } from "@/modules/clien
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
-import { findDuplicate, requireWsUrl } from "@/utils/url"
+import { findDuplicate, findSameCore, requireWsUrl, stripAccountPath } from "@/utils/url"
+import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
 import { makeLog } from "@/utils/compat"
@@ -121,7 +123,6 @@ function connView(conf: WsConnection, i: number): ConnView {
     index: i,
     name: conf.name || conf.url,
     url: conf.url || "",
-    bot_id: conf.bot_id || "",
     enable: enabled,
     /** 只说明有没有配，不回原值 */
     has_token: !!conf.token,
@@ -132,7 +133,11 @@ function connView(conf: WsConnection, i: number): ConnView {
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
     // 每个绑定账号带上头像/昵称/在线状态，面板的折叠区直接可视化
-    bind_bots: (Array.isArray(conf.bind) ? conf.bind : []).map(botProfile),
+    bind_bots: (Array.isArray(conf.bind) ? conf.bind : []).map(id => {
+      const p = botProfile(id)
+      const platform = accountPlatform(id)
+      return platform ? { ...p, platform } : p
+    }),
     status: live?.status ?? 0,
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
     status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
@@ -163,7 +168,10 @@ function payload(): Payload {
     },
     connections: getWsConnections().map(connView),
     // 在线机器人清单：面板「添加绑定」的候选，含头像与昵称
-    bots: onlineBots(),
+    bots: onlineBots().map(p => {
+      const platform = accountPlatform(p.id)
+      return platform ? { ...p, platform } : p
+    }),
     stats: {
       total: stats.total,
       today: stats.today,
@@ -256,19 +264,39 @@ function saveGlobal(body: PanelBody) {
 function addConnection(body: PanelBody) {
   const list = getWsConnections()
   const bind = (Array.isArray(body.bind) ? body.bind : []).map(String)
-  // 恰好绑一个账号时把它带进补出来的路径段，理由见 normalizeUrl。
-  // 协议校验也在这一步（http:// 会带着换算好的 ws 地址抛出来）
-  const url = requireWsUrl(String(body.url ?? ""), bind.length === 1 ? bind[0] : null)
+  const url = requireWsUrl(String(body.url ?? ""))
+  const explicit = String(body.bot_id || "").trim()
 
-  // 与指令入口同一套判重：(地址, 账号)，不是只看地址。面板这边 bind 是多选框，
-  // 能一次填多个账号，交集判断正好覆盖「其中一个已经加过」的情形
-  const dup = findDuplicate(list, url, bind)
-  if (dup)
-    throw new Error(
-      `这个核心已经加过了（${dup.name}），绑定：${
-        dup.bind?.length ? dup.bind.join("、") : "不限账号"
-      }。改绑其他账号可再加一条`,
-    )
+  // 同一核心已有自动路径的连接 → 合并 bind，不再新开一条 ws
+  const existing = findSameCore(list, url)
+  if (existing) {
+    if (findDuplicate([existing], url, bind))
+      throw new Error(
+        `这个核心已经加过了（${existing.name}），绑定：${
+          existing.bind?.length ? existing.bind.join("、") : "不限账号"
+        }`,
+      )
+    const idx = list.indexOf(existing)
+    const prev = Array.isArray(existing.bind) ? existing.bind.map(String) : []
+    const nextBind = [...new Set([...prev, ...bind])]
+    const nextUrl = stripAccountPath(existing.url || url)
+    const patch: ConnectionPatch = { bind: nextBind }
+    if (nextUrl !== existing.url) patch.url = nextUrl
+    if (existing.bot_id) patch.bot_id = null
+    updateConnection(idx, patch, doc => {
+      for (const id of nextBind)
+        writeAccountBotId(
+          doc,
+          id,
+          explicit && bind.includes(String(id)) ? explicit : undefined,
+          config.bot_id_map,
+        )
+    })
+    stopClient(existing.name || existing.url)
+    const next = getWsConnections()[idx]
+    if (enabled() && next?.enable !== false) startClient(next)
+    return next?.name || existing.name || existing.url
+  }
 
   let name = String(body.name || "").trim() || `core${list.length + 1}`
   if (list.some(c => (c.name || c.url) === name)) name = `${name}-${Date.now().toString(36)}`
@@ -277,17 +305,16 @@ function addConnection(body: PanelBody) {
     name,
     url,
     token: String(body.token || ""),
-    bot_id: String(body.bot_id || ""),
     enable: bool(body.enable, true),
     reconnect_interval: Number(body.reconnect_interval) || 5,
-    // 留空（面板清掉输入框会送空串）按默认次数算；显式填 0 仍是无限重连。
-    // Number("") === 0，所以不能只看 Number.isFinite
     max_reconnect_attempts: num(body.max_reconnect_attempts, DEFAULT_MAX_RECONNECT),
     bind,
     exclude: Array.isArray(body.exclude) ? body.exclude : [],
   }
 
-  appendConnection(conf)
+  appendConnection(conf, doc => {
+    for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
+  })
 
   if (enabled() && conf.enable) startClient(conf)
   return conf.name
@@ -308,8 +335,12 @@ function editConnection(body: PanelBody) {
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
   if (body.url !== undefined) patch.url = requireWsUrl(String(body.url))
+  else {
+    const stripped = stripAccountPath(String(hit.conf.url || ""))
+    if (stripped !== hit.conf.url) patch.url = stripped
+  }
   if (body.name !== undefined) patch.name = String(body.name).trim()
-  if (body.bot_id !== undefined) patch.bot_id = String(body.bot_id)
+  if (body.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
   // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
   // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
   if (body.token) patch.token = String(body.token)
@@ -327,7 +358,20 @@ function editConnection(body: PanelBody) {
     patch[k] = body[k] as (string | number)[]
   }
 
-  updateConnection(hit.index, patch)
+  const nextBind = (
+    body.bind !== undefined ? (patch.bind as (string | number)[]) : hit.conf.bind || []
+  ).map(String)
+  const explicit = body.bot_id !== undefined ? String(body.bot_id || "").trim() : ""
+  if (explicit && !nextBind.length)
+    throw new Error("当前连接不限账号，无法按账号写入平台标识。请先填写绑定账号")
+  updateConnection(hit.index, patch, doc => {
+    if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
+    else {
+      if (hit.conf.bot_id)
+        for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
+      if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
+    }
+  })
 
   stopClient(oldName)
   const next = getWsConnections()[hit.index]

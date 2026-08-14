@@ -22,13 +22,10 @@ client:
   connections:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
-      # 早柚核心 WebSocket 地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名
+      # 早柚核心 WebSocket 地址。路由为 /ws/Yunzai；多个机器人用下面的 bind
       url: ws://127.0.0.1:8765/ws/Yunzai
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
       token: ""
-      # 上报时填入 MessageReceive.bot_id 的平台标识
-      # 留空则按下方 bot_id_map 自动推断
-      bot_id: ""
       # 是否启用本连接
       enable: true
       # 重连间隔（秒）
@@ -39,6 +36,7 @@ client:
       max_reconnect_attempts: 5
       # 只转发这些 self_id 的消息，留空表示全部
       # 例：["2463381624", "3889017463"]
+      # 每个账号的平台标识（onebot / qqgroup …）记在下方 bot_id_map
       bind: []
       # 排除这些 self_id（优先级高于 bind）
       exclude: []
@@ -76,8 +74,9 @@ filter:
 # ---------- 平台标识映射 ----------
 # 把云崽适配器映射为早柚核心认识的 bot_id。
 #
-# 查找顺序：连接自身的 bot_id > self_id 精确匹配 > 频道特判(QQGuild) >
-#           adapter.id > adapter.name > default
+# 查找顺序：self_id 精确匹配 > 频道特判(QQGuild) >
+#           adapter.id > adapter.name > 按账号形状推断 > default
+# 每个 bind 过的机器人账号都应在这里有自己的一行。
 #
 # 键既可以写 adapter.id，也可以写 adapter.name，还可以直接写 self_id 精确覆盖。
 # 两者都查是因为本机实测 id 会撞车：ICQQ / OneBotv11 / OPQBot 的 adapter.id

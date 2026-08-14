@@ -7,8 +7,10 @@ import { PluginPath, ConfigPath } from "@/dir"
 import type { AdapterEvent, Config, WsConnection } from "@/types"
 import { isChannel } from "@/utils/session.js"
 import { guessPlatform } from "@/utils/platform.js"
+import { getBot } from "@/utils/bots.js"
 import { unflow } from "./yaml.js"
 import { upgradeUserConfig } from "./upgrade.js"
+export { writeAccountBotId, writeAccountBotIds, syncConnectionAccounts } from "./botmap.js"
 
 /**
  * 默认值与用户配置分属两个目录：
@@ -46,7 +48,7 @@ function read(file: string, optional = false) {
   }
 }
 
-function load() {
+function load(migrate = false) {
   // 首次运行自动生成用户配置（仅此一次写盘）
   if (!fs.existsSync(userFile)) {
     try {
@@ -58,10 +60,9 @@ function load() {
     } catch (err) {
       globalThis.Bot?.makeLog?.("error", ["生成配置失败", err], "GsCore")
     }
-  } else {
-    // 已有配置：把默认里后加的顶层项连注释补进去。
-    // 运行时 merge 本就能兜住值，补写是为了让用户在**文件里看得到**这些项。
-    // 只在这里做（模块首次求值），热重载走的是 reload()，不会反复改用户文件。
+  } else if (migrate) {
+    // 已有配置：把默认里后加的顶层项连注释补进去，并迁旧连接。
+    // 只在模块首次求值时做；热重载再跑会把用户事后拆开的连接又合并回去。
     try {
       const changes = upgradeUserConfig(userFile)
       if (changes.length)
@@ -83,7 +84,7 @@ function load() {
  * 配置对象。热重载时原地更新（delete + assign），
  * 保证其它模块已 import 的引用同步生效。
  */
-export const config: Config = load()
+export const config: Config = load(true)
 
 /** 用户配置文件路径，供报错信息与管理指令使用 */
 export const configFile = userFile
@@ -209,8 +210,7 @@ function ensureWsConnections(doc: ConfigDoc): YAMLSeq {
 /**
  * updateConnection 的补丁
  *
- * undefined 的键跳过（没改），null 写成 YAML null（显式清空，
- * 如 `#早柚修改连接 1 bot_id=` 清掉连接级平台标识）。
+ * undefined 的键跳过（没改），null 删除该键。
  */
 export type ConnectionPatch = { [K in keyof WsConnection]?: WsConnection[K] | null }
 
@@ -239,14 +239,23 @@ export function appendConnection(conf: WsConnection, extra?: (doc: ConfigDoc) =>
  * @param index 连接下标，与 getWsConnections() 的下标一致
  * @param patch 要写的字段。数组走 createNode（flow 风格由写盘出口的 unflow 拍平）
  */
-export function updateConnection(index: number, patch: ConnectionPatch) {
+export function updateConnection(
+  index: number,
+  patch: ConnectionPatch,
+  extra?: (doc: ConfigDoc) => void,
+) {
   saveConfig(doc => {
     const item = ensureWsConnections(doc).get(index, true)
     if (!item || !YAML.isMap(item)) throw new Error(`连接序号 ${index + 1} 不存在`)
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue
+      if (value === null) {
+        item.delete(key)
+        continue
+      }
       item.set(key, Array.isArray(value) ? doc.createNode(value) : value)
     }
+    extra?.(doc)
   })
 }
 
@@ -283,19 +292,10 @@ export function wsEnabled(): boolean {
 /**
  * 解析上报用的平台 bot_id
  *
- * 优先级：连接自身配置 > self_id 精确匹配 > 频道特判 > 适配器 id > 适配器 name > 兜底
+ * 优先级：self_id 精确匹配 > 频道特判 > 适配器 id > 适配器 name > 形状推断 > 兜底
  *
- * 连接级 bot_id 短路掉后面全部，这是有意的 —— 但只对**用户显式指定**的值成立
- * ----------------------------------------------------------------------
- * 一条连接可以 bind 多个账号，而它们的平台可能各不相同（ICQQ 号是 onebot、
- * QQBot 号是 qqgroup），所以「按连接断言平台」本身是一件很强的事：它替所有
- * bind 的账号、包括日后才加进去的，都断言了同一个平台。
- *
- * 用户自己写 `id=` 时这么做是对的（那就是他要的意思）。但如果让 #早柚添加连接
- * 把**自动识别**的结果也写进这个字段，就会出事：识别只看得到发指令的那个号，
- * 之后往 bind 里加一个别的平台的账号，它的消息会被按错的平台静默上报。
- * 所以那条指令改成把识别结果按账号记进 bot_id_map（见 apps/admin.ts 的 add），
- * 连接级只留给显式指定。改这里的优先级前先读那一段。
+ * 一条连接可以 bind 多个账号，平台可能各不相同（ICQQ → onebot、QQBot → qqgroup），
+ * 所以按账号查 `bot_id_map`。显式 `id=` 也是写进这张表。
  *
  * 为什么要查 name
  * --------------
@@ -338,8 +338,15 @@ export function wsEnabled(): boolean {
  *               但它可能为 null，那时 `String(null)` 会拿字符串 "null" 去查表，
  *               既查不中又可能撞上用户真写了 "null" 键的极端情况，故一律先过滤。
  */
-export function resolveBotId(e: AdapterEvent, conf?: WsConnection | null, selfId?: string) {
-  if (conf?.bot_id) return conf.bot_id
+/** 某个账号当前会用的平台标识，供状态图 / 面板展示 */
+export function accountPlatform(selfId: string | number): string {
+  const sid = String(selfId ?? "").trim()
+  if (!sid) return ""
+  const map = config.bot_id_map || {}
+  return map[sid] || guessPlatform(sid, getBot(sid)) || ""
+}
+
+export function resolveBotId(e: AdapterEvent, _conf?: WsConnection | null, selfId?: string) {
   const map = config.bot_id_map || {}
 
   // self_id 精确覆盖优先级最高（同一适配器下的不同账号可各指其一）

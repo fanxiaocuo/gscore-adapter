@@ -4,7 +4,7 @@
  * 把配置与运行时状态整理成组件要的形状，再交给 render()。
  * 单独一层是为了让 apps/*.ts 只写一行调用，也方便未来加新页面。
  */
-import { config, getWsConnections, enabled } from "@/config"
+import { accountPlatform, config, getWsConnections, enabled } from "@/config"
 import { type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
 import { botProfile } from "@/utils/bots.js"
@@ -75,17 +75,22 @@ function collect(detail = false) {
 
     const meta: string[] = []
     if (c.token) meta.push("token 已设置")
-    if (c.bot_id) meta.push(`bot_id: ${c.bot_id}`)
     if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
     // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
     // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
     // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图可出
-    const bots = c.bind?.length ? c.bind.map(id => botProfile(id)) : undefined
+    const bots = c.bind?.length
+      ? c.bind.map(id => {
+          const p = botProfile(id)
+          const platform = accountPlatform(id)
+          return platform ? { ...p, platform } : p
+        })
+      : undefined
     if (c.exclude?.length) meta.push(`exclude: ${c.exclude.length}`)
 
     // 一条都没有时补一句「怎么办」
     // ------
-    // 没配 token / bot_id / bind / exclude 的连接（默认配置就是这样）meta 是空数组，
+    // 没配 token / bind / exclude 的连接（默认配置就是这样）meta 是空数组，
     // 卡片只剩名字和地址两行，右边一大片空。而这种卡片恰好最需要一句提示：
     // 停用的要说明怎么启用，未启动的要说明重载。有内容时不加——那句话对已经
     // 连上的连接没有意义，只会挤占位置。bind 胶囊也算内容

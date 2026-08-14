@@ -7,6 +7,7 @@ import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
 import { makeLog } from "@/utils/compat"
+import { isAutoYunzaiPath } from "@/utils/url.js"
 
 let hooked = false
 
@@ -73,6 +74,7 @@ export function startClients() {
     )
 
   if (wsEnabled()) {
+    warnPathCollision(getWsConnections())
     for (const conf of getWsConnections()) startClient(conf)
   }
 
@@ -87,4 +89,40 @@ export function startClients() {
 export function stopClients() {
   for (const c of clients) c.close()
   clients.length = 0
+}
+
+/**
+ * 两条启用中的连接若 URL 路径相同，核心侧后连上的会把先连上的 socket 顶掉。
+ * 自动路径（/ws/Yunzai）本该合并 bind，走到这里说明用户手改了配置。
+ */
+function warnPathCollision(list: WsConnection[]) {
+  const seen = new Map<string, string>()
+  for (const c of list) {
+    if (c.enable === false || !c.url) continue
+    let key = ""
+    try {
+      const u = new URL(String(c.url))
+      key = `${u.origin}${u.pathname}`.toLowerCase()
+    } catch {
+      key = String(c.url)
+    }
+    const prev = seen.get(key)
+    if (prev) {
+      const hint = (() => {
+        try {
+          return isAutoYunzaiPath(new URL(String(c.url)).pathname)
+            ? "请把账号都绑到同一条连接（#早柚修改连接 bind+=）。"
+            : "请改成不同的路径，或把账号合并到一条连接。"
+        } catch {
+          return "请检查连接地址。"
+        }
+      })()
+      makeLog(
+        "error",
+        `连接 ${c.name || c.url} 与 ${prev} 的 URL 路径相同（${key}），` +
+          `核心侧后连上的会顶掉先连上的。${hint}`,
+        "GsCore",
+      )
+    } else seen.set(key, String(c.name || c.url))
+  }
 }

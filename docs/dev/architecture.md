@@ -41,14 +41,14 @@ src/
 | :--- | :--- | :--- |
 | 通用 | `saveConfig(fn)` | 拿到 yaml `Document` 任意改，保留注释、写盘、热重载一步完成 |
 | 连接 | `appendConnection` / `updateConnection` / `removeConnection` | 连接的增 / 改 / 删。内部自带「文件里没有 `connections` 键时把运行时列表物化进文件」的兜底 |
-| 迁移 | `upgrade.ts` | 启动时补缺失的顶层键、把旧键名 `ws_connections` 迁回 `connections`，只在首次改动前留一份 `.bak` |
+| 迁移 | `upgrade.ts` | 仅模块首次加载时跑：补缺失顶层键、迁 `ws_connections`、合并同一核心旧连接。热重载不再改用户文件 |
 
 两条约定：
 
 - **校验留在调用方**。指令要回中文短句、面板要回 400 JSON，错误的措辞与时机不同；连接层只负责「条目存在」这一个不变量（`连接序号 X 不存在`）。
 - **写盘出口统一过 `unflow`**（`config/yaml.ts`）：`createNode` 产出的 flow 风格集合在这里拍回块状，新加写入点不必各自记这件事。
 
-`updateConnection` 的 patch 语义：`undefined` 跳过、`null` 写成 YAML null（显式清空，如 `bot_id=` 清掉连接级平台标识）、数组自动 `createNode`。
+`updateConnection` 的 patch 语义：`undefined` 跳过、`null` 删除该键、数组自动 `createNode`。每个 bind 账号的平台标识写在 `bot_id_map`。
 
 ## 只有面板走打包器
 

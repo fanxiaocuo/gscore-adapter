@@ -3,7 +3,8 @@
  *
  * 为什么不直接用 @types/trss-yunzai 的 Client / Group / Friend
  * ---------------------------------------------------------
- * 下行发送这条路径拿到的 bot 是 `Bot.bots[self_id] || Bot`，两种形状并存：
+ * 下行发送这条路径拿到的 bot 是 `getBot(self_id)`（TRSS 即底层注册表的该账号），
+ * Miao 仅在 self_id 与根 Bot.uin 相等时返回全局 Bot；错号同样空着。
  *
  *   Client（单个 bot 实例）   adapter 是 Adapter
  *   Yunzai（全局 Bot 兜底）   adapter 是 Adapter[]
@@ -40,7 +41,7 @@ export interface SendTarget {
   [k: string]: any
 }
 
-/** 下行发送用到的 bot（`Bot.bots[self_id]`，取不到时是全局 Bot） */
+/** 下行发送用到的账号实例（TRSS 精确注册表；Miao 仅同 uin 返回根 Bot） */
 export interface SendBot {
   /** Client 上是 Adapter，全局 Bot 上是 Adapter[]，只交给能力探测用 */
   adapter?: any

@@ -9,11 +9,11 @@
 export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */
   name?: string
-  /** 早柚核心 WebSocket 地址，路由为 /ws/{bot_id}，bot_id 为本机器人平台名 */
+  /** 早柚核心 WebSocket 地址，默认路由 /ws/Yunzai */
   url: string
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
-  /** 上报时填入 MessageReceive.bot_id；留空则按 bot_id_map 推断 */
+  /** 旧字段，升级时迁入 bot_id_map 后删除；上报不再读取 */
   bot_id?: string
   /** 是否启用本连接 */
   enable?: boolean

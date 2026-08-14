@@ -8,6 +8,7 @@
  */
 import { PluginPath, PluginName, ResPath } from "@/dir"
 import { config, configFile, saveConfig } from "@/config"
+import { syncConnectionAccounts } from "@/config/botmap.js"
 import { reloadClients } from "@/modules/client"
 import { baseSchemas } from "./schemas/base.js"
 import { clientSchemas } from "./schemas/client.js"
@@ -74,14 +75,18 @@ export function supportGuoba() {
 
         try {
           saveConfig(doc => {
+            let connectionsTouched = false
             for (const [field, value] of Object.entries(data)) {
               if (value === undefined) continue
               const path = field.split(".")
               // 值没变就不写，避免把用户手写的等价格式（如 'a' vs "a"）改掉
               if (JSON.stringify(getValue(field)) === JSON.stringify(value)) continue
               if (path[0] === "client") touchedClient = true
+              if (field === "client.connections") connectionsTouched = true
               doc.setIn(path, value)
             }
+            // 锅巴整表写回连接列表，不会走指令那条 writeAccountBotId
+            if (connectionsTouched) syncConnectionAccounts(doc, config.bot_id_map)
           })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
