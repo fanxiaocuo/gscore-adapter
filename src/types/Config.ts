@@ -37,6 +37,8 @@ export interface RuntimeWsConnection extends WsConnection {
   runtimeName: string
   /** 最终连接地址（不含 token 查询参数） */
   runtimeUrl: string
+  /** 兼容地址原本是否显式携带 token 参数（含空值） */
+  inlineToken?: boolean
   /** 是否由 origin + bind 派生 */
   automatic: boolean
 }

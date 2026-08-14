@@ -47,6 +47,22 @@ function parseEndpoint(url: string): URL | null {
   }
 }
 
+/**
+ * 兼容地址中的鉴权参数归回配置字段，运行时目标本身不携带凭据。
+ *
+ * URLSearchParams.get() 读取首个精确名称匹配；delete() 清除全部同名项。
+ * 若地址与配置都提供鉴权值，地址中的值优先，保持现有客户端 getter 的语义。
+ */
+function detachInlineToken(url: URL): { runtimeUrl: string; token?: string; inlineToken?: boolean } {
+  const hasInlineToken = url.searchParams.has("token")
+  const inlineToken = url.searchParams.get("token")
+  url.searchParams.delete("token")
+  return {
+    runtimeUrl: url.toString(),
+    ...(hasInlineToken ? { token: inlineToken || "", inlineToken: true } : {}),
+  }
+}
+
 /** 自动端点仅指 pathname 为空或根路径；旧 Yunzai 路径留给后续迁移任务 */
 function isRootEndpoint(url: URL): boolean {
   return url.pathname === "" || url.pathname === "/"
@@ -58,20 +74,20 @@ export function expandConnections(list: WsConnection[]): {
 } {
   const runtime: RuntimeWsConnection[] = []
   const errors: string[] = []
-  const taken = new Map<string, string>()
+  const taken = new Map<string, Pick<RuntimeWsConnection, "runtimeName" | "sourceIndex">>()
 
   const claim = (conn: RuntimeWsConnection) => {
     const key = routeKey(conn.runtimeUrl)
     const prev = taken.get(key)
     if (prev) {
       errors.push(
-        `连接 ${conn.runtimeName} 与 ${prev} 的最终路径相同（${key}），` +
-          `已保留 ${prev}，跳过 ${conn.runtimeName}。` +
+        `连接路径冲突，已保留 ${prev.runtimeName}（来源 #${prev.sourceIndex + 1}），` +
+          `跳过 ${conn.runtimeName}（来源 #${conn.sourceIndex + 1}）。` +
           `核心侧后连上的会顶掉先连上的，请检查绑定账号或自定义路径。`,
       )
       return
     }
-    taken.set(key, conn.runtimeName)
+    taken.set(key, { runtimeName: conn.runtimeName, sourceIndex: conn.sourceIndex })
     runtime.push(conn)
   }
 
@@ -106,12 +122,15 @@ export function expandConnections(list: WsConnection[]): {
             `请改为只填 host:port 并补上绑定账号。`,
         )
       }
+      const { runtimeUrl, token: inlineToken, inlineToken: hasInlineToken } =
+        detachInlineToken(parsed)
       claim({
         ...conf,
+        ...(hasInlineToken ? { token: inlineToken, inlineToken: true } : {}),
         sourceIndex,
         account: null,
         runtimeName: label,
-        runtimeUrl: url,
+        runtimeUrl,
         automatic: false,
         bind: accounts,
       })
@@ -124,12 +143,19 @@ export function expandConnections(list: WsConnection[]): {
     }
 
     for (const account of accounts) {
+      let runtimeUrl: string
+      try {
+        runtimeUrl = materializeAccountUrl(url, account)
+      } catch {
+        errors.push(`连接 ${label} 的账号编码失败，已跳过`)
+        continue
+      }
       claim({
         ...conf,
         sourceIndex,
         account,
         runtimeName: `${label} [${account}]`,
-        runtimeUrl: materializeAccountUrl(url, account),
+        runtimeUrl,
         automatic: true,
         // 收窄成单账号：客户端 accept(self_id) 仍是最后防线。
         bind: [account],
