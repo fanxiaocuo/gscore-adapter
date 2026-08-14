@@ -27,6 +27,20 @@ export interface WsConnection {
   exclude?: (string | number)[]
 }
 
+/** 展开到具体账号或兼容路径后的运行时 WebSocket 连接 */
+export interface RuntimeWsConnection extends WsConnection {
+  /** 来源逻辑连接在 getWsConnections() 中的下标 */
+  sourceIndex: number
+  /** 自动端点对应的唯一账号；自定义路径为 null */
+  account: string | null
+  /** 日志 / 状态 / 重连 / 统计用的唯一名称 */
+  runtimeName: string
+  /** 最终连接地址（不含 token 查询参数） */
+  runtimeUrl: string
+  /** 是否由 origin + bind 派生 */
+  automatic: boolean
+}
+
 /** 消息过滤，仅影响 client 方向的上报 */
 export interface FilterConfig {
   /**
