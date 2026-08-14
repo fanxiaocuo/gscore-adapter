@@ -22,8 +22,10 @@ client:
   connections:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
-      # 早柚核心 WebSocket 地址。路由为 /ws/Yunzai；多个机器人用下面的 bind
-      url: ws://127.0.0.1:8765/ws/Yunzai
+      # 早柚核心地址，只填到 host:port。
+      # 运行时按下面 bind 里的每个账号连成 /ws/Yunzai-<账号>，
+      # 每个账号在核心侧是独立客户端，不会互相顶掉。
+      url: ws://127.0.0.1:8765
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
       token: ""
       # 是否启用本连接
@@ -34,9 +36,7 @@ client:
       # 默认 5 次：配合上面的指数退避约覆盖 2.3 分钟，核心重启够用；
       # 而地址写错时不会整夜刷日志。停了发 #早柚重连 即可恢复
       max_reconnect_attempts: 5
-      # 只转发这些 self_id 的消息，留空表示全部
-      # 例：["2463381624", "3889017463"]
-      # 每个账号的平台标识（onebot / qqgroup …）记在下方 bot_id_map
+      # 要接入早柚核心的机器人账号，至少填一个
       bind: []
       # 排除这些 self_id（优先级高于 bind）
       exclude: []
