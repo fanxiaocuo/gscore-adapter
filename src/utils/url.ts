@@ -50,8 +50,8 @@ export function normalizeEndpoint(url: string | null | undefined): string {
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `ws://${url}`
   try {
     const u = new URL(url)
-    if (u.pathname === "/") u.pathname = ""
-    return u.toString().replace(/\/$/, "")
+    if (u.pathname === "/" || u.pathname === "") return u.origin
+    return u.toString()
   } catch {
     return url
   }
@@ -62,7 +62,10 @@ export function materializeAccountUrl(endpoint: string, account: string): string
   const id = encodeURIComponent(String(account).trim())
   if (!id) throw new Error("绑定账号不能为空")
   const u = new URL(endpoint)
+  if (u.pathname !== "/" && u.pathname !== "") throw new Error("自定义路径不能生成账号连接地址")
   u.pathname = `${DEFAULT_WS_PATH}-${id}`
+  u.search = ""
+  u.hash = ""
   return u.toString()
 }
 
