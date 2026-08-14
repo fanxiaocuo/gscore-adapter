@@ -14,14 +14,18 @@ import type {
   SendBot,
   SendTarget,
   WsConnection,
+  RuntimeWsConnection,
   SendSegment,
 } from "@/types"
 import { getBot } from "@/utils/bots.js"
 import { echoKey, markSent } from "./echo.js"
 
 export class GsCoreClient {
-  conf: WsConnection
+  conf: WsConnection | RuntimeWsConnection
   name: string
+  sourceIndex: number
+  account: string | null
+  target: string
   /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
   status: 0 | 1 | 2 | 3
   retry: number
@@ -34,9 +38,14 @@ export class GsCoreClient {
   aliveTimer?: NodeJS.Timeout
   lastPong: number
 
-  constructor(conf: WsConnection) {
+  constructor(conf: WsConnection | RuntimeWsConnection) {
     this.conf = conf
-    this.name = conf.name || conf.url
+    const rt = conf as Partial<RuntimeWsConnection>
+    // 运行时连接自带唯一名称与最终地址；直接传逻辑连接时退回旧行为。
+    this.name = rt.runtimeName || conf.name || String(conf.url || "")
+    this.target = rt.runtimeUrl || String(conf.url || "")
+    this.sourceIndex = typeof rt.sourceIndex === "number" ? rt.sourceIndex : -1
+    this.account = rt.account ?? null
     /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
     this.status = 0
     this.retry = 0
@@ -55,15 +64,17 @@ export class GsCoreClient {
 
   /** 早柚核心用 ?token= 查询参数鉴权，不使用请求头 */
   get url() {
-    const url = String(this.conf.url || "")
-    if (!this.conf.token) return url
+    const url = this.target
+    const inlineToken = (this.conf as Partial<RuntimeWsConnection>).inlineToken === true
+    const token = String(this.conf.token ?? "")
+    if (!inlineToken && !token) return url
     try {
       const u = new URL(url)
-      if (!u.searchParams.has("token")) u.searchParams.set("token", this.conf.token)
+      if (inlineToken || !u.searchParams.has("token")) u.searchParams.set("token", token)
       return u.toString()
     } catch {
       if (/[?&]token=/.test(url)) return url
-      return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.conf.token)}`
+      return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
     }
   }
 
