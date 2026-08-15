@@ -282,7 +282,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
       if (findDuplicate([existing], url, bind)) {
         const had = existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
         return e.reply(
-          `这个核心已经加过了：${existing.name}\n` +
+          `这个核心已经加过了：${existing.name || safeUrl(existing.url)}\n` +
             `已绑定：${had}\n` +
             `本次要绑 ${bind.join("、") || "（无账号）"}，与它重复。`,
         )
@@ -537,7 +537,12 @@ export default class GsCoreAdmin extends plugin<"message"> {
     stopSource(hit.index, hit.conf.name || hit.conf.url)
     // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移
     shiftSourceIndex(hit.index)
-    return e.reply(`已删除连接 ${hit.conf.name}（${safeUrl(hit.conf.url)}）`)
+    // 没起名字的连接只有地址可报，别再拼一个 undefined 进去
+    return e.reply(
+      hit.conf.name
+        ? `已删除连接 ${hit.conf.name}（${safeUrl(hit.conf.url)}）`
+        : `已删除连接 ${safeUrl(hit.conf.url)}`,
+    )
   }
 
   async list(e: YunzaiEvent) {
