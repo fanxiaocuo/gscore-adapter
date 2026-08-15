@@ -37,6 +37,28 @@ export function effectiveAccounts(
   return { accounts, conflicts }
 }
 
+/**
+ * 这条逻辑连接在日志、错误话术与运行时名字里的显示名
+ *
+ * 没起名字时用来源序号而不是 url：地址可能内联着 `?token=`（normalizeEndpoint 对
+ * 非根路径原样保留查询串，utils/url.ts:53-54），而这些话术既进日志，也随面板整包
+ * 回给前端（webui/api.ts 的 Payload.errors）。
+ */
+export function sourceLabel(conf: WsConnection, sourceIndex: number): string {
+  return conf.name || `连接 #${sourceIndex + 1}`
+}
+
+/**
+ * 账号级运行时连接的名字，也是停起（lifecycle.stopClient）与计数（stats.forName）的键
+ *
+ * 单独抽一个函数是给「只停一个账号」的调用点用的：面板的绑定开关关掉一个号时按
+ * 名字停那一条客户端（modules/webadapter 的 bindConnection），名字与这里拼得不一样
+ * 就会停不掉，而且不会报错 —— stopClient 找不到人只回 false。
+ */
+export function accountRuntimeName(label: string, account: string): string {
+  return `${label} [${account}]`
+}
+
 function parseEndpoint(url: string): URL | null {
   try {
     const parsed = new URL(url)
@@ -66,6 +88,20 @@ function detachInlineToken(url: URL): { runtimeUrl: string; token?: string; inli
 /** 自动端点仅指 pathname 为空或根路径；显式非根路径按自定义兼容连接处理 */
 function isRootEndpoint(url: URL): boolean {
   return url.pathname === "" || url.pathname === "/"
+}
+
+/**
+ * 是不是「自动端点」：地址能解析成 ws/wss 且 pathname 为空或根
+ *
+ * 自动端点按有效账号逐条派生运行时连接，一个账号一条 ws；非根路径只起一条兼容
+ * 连接，bind 在它上头是转发过滤器（GsCoreClient.accept）而不是路由来源。两者对
+ * 「改了 bind 之后要重启哪些客户端」的答案不一样，所以调用方需要能问这一句。
+ */
+export function isAutomaticEndpoint(conf: WsConnection): boolean {
+  const url = normalizeEndpoint(conf.url)
+  if (!url) return false
+  const parsed = parseEndpoint(url)
+  return !!parsed && isRootEndpoint(parsed)
 }
 
 /**
@@ -111,7 +147,7 @@ export function expandConnections(list: WsConnection[]): {
   list.forEach((conf, sourceIndex) => {
     if (conf.enable === false) return
 
-    const label = conf.name || `连接 #${sourceIndex + 1}`
+    const label = sourceLabel(conf, sourceIndex)
     const url = normalizeEndpoint(conf.url)
     if (!url) {
       errors.push(`连接 ${label} 缺少 url，已跳过`)
@@ -171,7 +207,7 @@ export function expandConnections(list: WsConnection[]): {
         ...conf,
         sourceIndex,
         account,
-        runtimeName: `${label} [${account}]`,
+        runtimeName: accountRuntimeName(label, account),
         runtimeUrl,
         automatic: true,
         // 收窄成单账号：客户端 accept(self_id) 仍是最后防线。

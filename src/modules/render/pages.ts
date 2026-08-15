@@ -12,6 +12,7 @@ import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
 import { fileServerEnabled, pendingFiles } from "@/utils/fileServer.js"
+import { inlineToken, redactUrl } from "@/utils/url.js"
 import { forName, snapshot } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { Help } from "./components/Help.js"
@@ -50,6 +51,16 @@ function stamp(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/**
+ * 卡片上显示的地址：脱敏后再画进图里
+ *
+ * 状态图会被发到群里，凭据落进截图是永久留痕。空地址仍回空串 —— redactUrl 对空
+ * 输入回的是「(空)」，那是给错误话术用的措辞，卡片这一行留空即可。
+ */
+function shownUrl(url?: string): string {
+  return url ? redactUrl(url) : ""
+}
+
 /** 按状态码给出色调 */
 function tone(status: number, enabled: boolean): ConnRow["tone"] {
   if (!enabled) return "off"
@@ -74,7 +85,10 @@ function collect(detail = false) {
     const state = !enabled ? "已停用" : live ? STATUS_TEXT[status] || String(status) : "未启动"
 
     const meta: string[] = []
-    if (c.token) meta.push("token 已设置")
+    // 内联在地址里的凭据也算配过：非根路径的地址（`ws://h:8765/ws/Custom?token=x`）
+    // 规范化时会把查询串一起留下，那种配置的 c.token 是空的。只看 c.token 的话，
+    // 排查时这张图会对一条其实配了凭据的连接说「没设 token」，把人引向错误方向
+    if (c.token || inlineToken(c.url) !== null) meta.push("token 已设置")
     if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
     // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
     // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
@@ -113,9 +127,12 @@ function collect(detail = false) {
 
     return {
       index: i + 1,
-      name: c.name || c.url,
-      // 不用 client.url —— 那个 getter 会把 token 拼进查询参数，截图会外泄凭据
-      url: String(c.url || ""),
+      name: c.name || shownUrl(c.url),
+      // 不用 client.url —— 那个 getter 会把 token 拼进查询参数，截图会外泄凭据。
+      // 配置里的 c.url 也不能原样用：normalizeEndpoint 只把根路径收成 origin，
+      // 非根路径连查询串一起留着（utils/url.ts:53-54），于是
+      // `ws://host:port/ws/Custom?token=xxx` 这种配置的凭据就在 c.url 里
+      url: shownUrl(c.url),
       state,
       tone: tone(status, enabled),
       meta,

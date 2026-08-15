@@ -172,13 +172,16 @@ const DOT: Record<string, string> = {
 /**
  * 面板发给 /connection 的请求体
  *
- * 四个动作共用一个接口，字段随动作变（add 不带 key，toggle 只带 key + enable），
- * 所以除 action 外都是可选 —— 后端 `locate()` / `bool()` 自己兜缺失值
+ * 五个动作共用一个接口，字段随动作变（add 不带 key，toggle 只带 key + enable，
+ * bind 带 key + id + on），所以除 action 外都是可选 —— 后端 `locate()` / `bool()`
+ * 自己兜缺失值
  */
 interface ConnAction {
-  action: "add" | "edit" | "del" | "toggle"
+  action: "add" | "edit" | "del" | "toggle" | "bind"
   key?: number
   enable?: boolean
+  id?: string
+  on?: boolean
   [k: string]: unknown
 }
 
@@ -222,8 +225,19 @@ function BindManager({
 }) {
   const bindBots = c.bind_bots || []
   const bound = (c.bind || []).map(String)
-  const excluded = (c.exclude || []).map(String)
-  const save = (next: string[]) => onAct({ action: "edit", key: c.index, bind: next })
+  // 「绑了但被排除」由后端算好回在 conflicts 里（exclude 优先级更高），不在这儿把
+  // bind 与 exclude 再交一次 —— 那等于把 effectiveAccounts 的规则抄第二份，
+  // 两边跑偏时面板会显示成另一套语义
+  const conflicts = (c.conflicts || []).map(String)
+  /**
+   * 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
+   *
+   * 不用 edit + 整份 bind 数组：edit 会把这条核心上所有账号的运行时连接全停再全起
+   * （webadapter 的 editConnection 走 stopSource/startSource），拨一个开关就把已经连着的
+   * 其他账号一起断一次；bind 动作只停这一个账号那条 ws。整份数组回传还有并发覆盖问题
+   * —— 两个开关几乎同时拨，后一个请求带的是它自己看到的旧数组，会把前一个的结果抹掉。
+   */
+  const toggleBind = (id: string, on: boolean) => onAct({ action: "bind", key: c.index, id, on })
   const candidates = bots.filter(b => !bound.includes(b.id))
 
   return (
@@ -243,7 +257,7 @@ function BindManager({
             {b.platform && <span className={TAG}>{b.platform}</span>}
             <span className={TAG}>{b.online ? "在线" : "离线"}</span>
             {/* 排除名单优先级高于绑定，两边同时有这个号等于白绑，必须标出来 */}
-            {excluded.includes(b.id) && (
+            {conflicts.includes(b.id) && (
               <span className={`${TAG} text-danger`}>已被排除，不会转发</span>
             )}
             <button
@@ -254,7 +268,7 @@ function BindManager({
                   next.length ||
                   confirm("移除最后一个绑定后将变为「不限账号」，所有机器人的消息都会转发。继续？")
                 )
-                  save(next)
+                  toggleBind(b.id, false)
               }}
             >
               移除
@@ -270,7 +284,7 @@ function BindManager({
               <button
                 className={`${BTN} flex items-center gap-[8px]`}
                 key={b.id}
-                onClick={() => save([...bound, b.id])}
+                onClick={() => toggleBind(b.id, true)}
               >
                 <Avatar p={b} size={20} />
                 <span>{b.name !== b.id ? b.name : b.id}</span>
@@ -573,6 +587,8 @@ function App() {
 
   const online = state.connections.filter(c => c.status === 1).length
   const s = state.stats
+  // 展开阶段被跳过的连接在卡片上只显示「未启动」，原因只有这份话术说得出
+  const errors = state.errors || []
 
   return (
     <>
@@ -640,6 +656,16 @@ function App() {
           </button>
         </div>
         <div className="flex flex-col gap-[8px]">
+          {errors.length > 0 && (
+            <div className="rounded-[10px] border border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
+              <div className="mb-[4px] font-semibold">有连接没能启动</div>
+              {errors.map(e => (
+                <p className="whitespace-pre-line text-[12px]" key={e}>
+                  {e}
+                </p>
+              ))}
+            </div>
+          )}
           {state.connections.length === 0 ? (
             <p className="rounded-[10px] border border-dashed border-border p-[28px] text-center text-muted">
               还没有连接。点「添加连接」，或直接发 #早柚添加连接 127.0.0.1:8765

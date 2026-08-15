@@ -57,6 +57,29 @@ export function normalizeEndpoint(url: string | null | undefined): string {
   }
 }
 
+/**
+ * 地址里内联的 `?token=` 值；没写内联凭据回 null（写了空值 `?token=` 算配过，回 `""`）
+ *
+ * 判据与 modules/client/expand.ts 的 detachInlineToken 对齐：`searchParams.has`，
+ * 空值也算配过。并且先过 {@link normalizeEndpoint} —— 配置里允许不写协议
+ * （`h:8765/ws/X`），直接 `new URL` 会抛，而 expand 那边是规范化之后才解析的。
+ * 两边判据一旦不一致，就会出现「运行时确实取到了凭据，面板与状态图却说没配 token」。
+ *
+ * 根路径地址（`ws://h:8765/?token=x`）这里回 null，而且这是对的：normalizeEndpoint
+ * 对根路径回 `u.origin`、查询串在那一步就没了（:53），expand 的根路径分支也压根不调
+ * detachInlineToken（它只在非根分支上，:178），派生地址还会被 materializeAccountUrl
+ * 显式清空 search。也就是说那种配置的凭据运行时根本用不上 —— 回 null 与运行时一致。
+ * 「写进配置的凭据被静默丢掉」是 normalizeEndpoint 自己的问题，要治在那儿治。
+ */
+export function inlineToken(url: string | null | undefined): string | null {
+  try {
+    const u = new URL(normalizeEndpoint(String(url ?? "")))
+    return u.searchParams.has("token") ? u.searchParams.get("token") || "" : null
+  } catch {
+    return null
+  }
+}
+
 /** 账号只当一个 path segment：不许注入 `/`、`?`、`#` */
 export function materializeAccountUrl(endpoint: string, account: string): string {
   const id = encodeURIComponent(String(account).trim())
@@ -160,15 +183,27 @@ export function coreKey(url?: string) {
 /**
  * 回显前脱敏：砍掉查询串、fragment 与 userinfo
  *
- * 这两条错误话术会被指令层原样回进群里（apps/admin.ts 的 add/edit 两个 catch），
+ * 抛错路径
+ * ------
+ * 下面两条错误话术会被指令层原样回进群里（apps/admin.ts 的 add/edit 两个 catch），
  * 而抛错时的输入恰好最可能是从旧模型复制粘贴过来的完整地址 —— 那种地址里
  * `?token=` 是常态。成功路径由 admin 的 safeUrl() 把守，失败路径只能在这里守：
  * 抛出去之后调用方看到的就只是一句话，没法再按 URL 结构过滤。
  *
+ * 显示路径（导出的原因）
+ * ------
+ * 面板视图（modules/webadapter 的 connView）与状态图（modules/render/pages.ts 的
+ * collect）显示的是配置里的原始地址，而 {@link normalizeEndpoint} 只把根路径收成
+ * origin，非根路径是 `u.toString()`、连查询串一起留下（:53-54）。于是
+ * `ws://host:port/ws/Custom?token=xxx` 这种配置的凭据只存在于 url 字段里、
+ * `token` 字段是空的 —— 原样回给前端等于把凭据发进浏览器，落进截图更是永久留痕。
+ * 所以这个函数不只守抛错话术，也守所有对外显示的地址。
+ *
  * 不走 new URL()：这个函数最主要的调用点就是「URL 解析失败」那一支，
  * 能解析的话也就不需要它了。所以按字符切，宁可粗一点也不能漏。
+ * 空输入回「(空)」而不是空串 —— 它的第一批调用点是错误话术。
  */
-function redactUrl(value: string | null | undefined): string {
+export function redactUrl(value: string | null | undefined): string {
   const s = String(value ?? "").trim()
   if (!s) return "(空)"
   // 先砍 ? 与 #，再砍 userinfo。顺序要紧：查询串里也可能出现 @

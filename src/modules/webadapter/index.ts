@@ -37,12 +37,34 @@ import {
   enabled,
   type ConnectionPatch,
 } from "@/config"
-import { clients, reloadClients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
-import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
+import {
+  clients,
+  reloadClients,
+  shiftSourceIndex,
+  startSource,
+  stopClient,
+  stopSource,
+} from "@/modules/client"
+import {
+  accountRuntimeName,
+  effectiveAccounts,
+  expandConnections,
+  isAutomaticEndpoint,
+  readIds,
+  requireAccounts,
+  sourceLabel,
+} from "@/modules/client/expand"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
-import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
+import {
+  findDuplicate,
+  findSameCore,
+  inlineToken,
+  normalizeEndpoint,
+  redactUrl,
+  requireWsUrl,
+} from "@/utils/url"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
@@ -119,12 +141,53 @@ function withPlatform(p: BotProfile): BotProfile {
 }
 
 /**
+ * 面板与回包话术里显示的连接名
+ *
+ * 没起名字的连接只能拿地址当名字，而**凭据可能只存在于地址里**：normalizeEndpoint
+ * 只把根路径收成 origin，非根路径是 `u.toString()`、查询串一起留着
+ * （utils/url.ts:53-54），所以 `ws://host:port/ws/Custom?token=xxx` 这种配置的
+ * conf.token 是空的。这个串会进面板卡片、也会进 POST 回包的 message，
+ * 所以一律先过 redactUrl。
+ *
+ * locate() 定位比的是配置里的原值（`c.name || c.url`），与这里的显示串是两条路径；
+ * 面板发的动作都带 index（webui/main.tsx 一律 `key: c.index`）。
+ */
+function label(conf: WsConnection): string {
+  return conf.name || redactUrl(conf.url)
+}
+
+/**
+ * 聚合状态的取值顺序：已连接 > 连接中 > 断线待重连 > 未连接
+ *
+ * 一条逻辑连接的多个账号各有状态，面板顶行只能显示一个。原来只特判「已连接」、
+ * 其余按 views[0] 取，于是账号 A 重连耗尽停在 0、账号 B 正在握手（2）时，
+ * 面板说整条连接「未连接」—— 而 B 其实正连着。同名次内保持出现顺序（find 取首个），
+ * 与展开顺序（也就是 bind 的书写顺序）一致。
+ */
+const STATUS_ORDER: (0 | 1 | 2 | 3)[] = [1, 2, 3, 0]
+
+/** 按 {@link STATUS_ORDER} 挑出代表整条连接的那一条运行时视图 */
+function pickView(views: RuntimeConnView[]): RuntimeConnView | undefined {
+  for (const status of STATUS_ORDER) {
+    const hit = views.find(v => v.status === status)
+    if (hit) return hit
+  }
+  return undefined
+}
+
+/**
  * 一条连接的绑定候选
  *
  * 面板要为每个候选画一个开关，所以候选集是「在线的全部机器人 ∪ 本连接已绑定的
  * 账号」：只给已绑定的就没法在面板上绑一个新号，只给在线的又没法解绑一个已经
  * 离线的号。其他连接绑过、本连接没绑又不在线的账号不塞进来 —— 那是别人的号，
  * 出现在这里只会让人误点。
+ *
+ * exclude 刻意不在这里减掉：被排除的账号仍要留在候选里，否则面板上就没有任何
+ * 地方能把它放回来（绑定开关打开时会把它从 exclude 里删掉，见 bindConnection）。
+ * 前端也不是把它画成一个普通的绿开关就完事 —— 这一行会额外挂「已被排除，不会转发」
+ * 标记（main.tsx 按 {@link ConnView.conflicts} 判），所以「绑了但不会连」是看得见的；
+ * 反过来若在这里按 exclude 过滤掉，那个号会从列表里整条消失，用户会以为自己没绑过它。
  */
 function bindBots(conf: WsConnection): BotProfile[] {
   // 在线的排前面：union 的顺序就是显示顺序，先在线后离线才好扫
@@ -164,28 +227,44 @@ function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[])
       down: counters.down,
     }
   })
+  // exclude 优先级高于 bind（expand.ts 的 effectiveAccounts），所以「配了哪些账号」
+  // 与「哪些账号真会连」不是一回事：两边都写了的号留在 bind 里却永远派生不出运行时
+  // 连接。前端只看 bind 的话会把它画成一个绿着却不连的开关，所以两个集合都回。
+  const { accounts, conflicts } = effectiveAccounts(conf)
+  // 顶行只能显示一个状态，按 STATUS_ORDER 挑代表：不让一条 0 盖掉另一条正在连的 2
+  const lead = pickView(views)
   return {
     index: i,
-    name: conf.name || conf.url,
-    url: conf.url || "",
+    name: label(conf),
+    // 地址脱敏后再回：token 可能只内联在 url 里，见 label() 的说明
+    url: conf.url ? redactUrl(conf.url) : "",
     enable: enabled,
-    /** 只说明有没有配，不回原值 */
-    has_token: !!conf.token,
+    /**
+     * 只说明有没有配，不回原值；内联在地址里的也算配了
+     *
+     * 不看运行时那层的内联标志：停用的连接根本不展开（expand.ts 里
+     * `conf.enable === false` 直接 return），零条运行时连接时那个标志恒为 false，
+     * 而配置里的凭据仍在 —— 那样这里会对一条配过 token 的连接报「没配 token」。
+     */
+    has_token: !!conf.token || inlineToken(conf.url) !== null,
     reconnect_interval: Number(conf.reconnect_interval) || 5,
     // 字段缺失时回默认次数而不是 0：面板上那个数字就是运行时真正用的值
     // （GsCoreClient.scheduleReconnect 同样 ?? 默认值），回 0 会显示成「无限重连」
     max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
+    accounts,
+    conflicts,
     bind_bots: bindBots(conf),
     runtime: views,
     // 逻辑连接的状态是聚合值：任一账号连上就算这个核心通了，
     // 不让某一条的状态盖掉其他账号（明细在 runtime 里逐条给）
-    status: views.some(v => v.status === 1) ? 1 : (views[0]?.status ?? 0),
+    status: lead?.status ?? 0,
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
-    status_text: !enabled
-      ? "已停用"
-      : ((views.find(v => v.status === 1) ?? views[0])?.status_text ?? "未启动"),
+    status_text: !enabled ? "已停用" : (lead?.status_text ?? "未启动"),
+    // 各账号里最差的那个重连次数。与 status 同时看会显得矛盾（A 已连接、B 在重连时
+    // 是「已连接 + 重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
+    // 逐账号的准确值在 runtime 里
     retry: views.reduce((n, v) => Math.max(n, v.retry), 0),
     up: views.reduce((n, v) => n + v.up, 0),
     down: views.reduce((n, v) => n + v.down, 0),
@@ -198,7 +277,13 @@ function payload(): Payload {
   const list = getWsConnections()
   // 展开只做一次：expandConnections 是全局裁决（路由冲突先到先得），
   // 每条连接各展开一次既拿不到全局上下文，也会把同一批错误重复算 n 遍
-  const { runtime } = expandConnections(list)
+  //
+  // errors 必须一起回：一条启用中的连接派生不出任何运行时连接时（路由冲突、地址
+  // 解析失败、没有有效账号……），面板上它只是一直停在「未启动」，原因过去只有
+  // 控制台日志能看到（lifecycle.ts 的 startSource 把 errors 打成 error 日志）。
+  // 这些话术里只有连接名、来源序号与 pathname，没有完整地址（expand.ts 的
+  // errors.push 各处），所以可以直接回给前端。
+  const { runtime, errors } = expandConnections(list)
   const connections = list.map((c, i) =>
     connView(
       c,
@@ -224,6 +309,7 @@ function payload(): Payload {
       },
     },
     connections,
+    errors,
     totals: {
       logical: connections.length,
       runtime: flat.length,
@@ -334,7 +420,9 @@ function addConnection(body: PanelBody) {
   if (existing) {
     if (findDuplicate([existing], url, bind))
       throw new Error(
-        `这个核心已经加过了（${existing.name}），绑定：${
+        // label() 而不是裸 name：没起名字的连接 name 是空的，原来这句会显示成
+        // 「这个核心已经加过了（）」；label 退回地址且过 redactUrl，不会把凭据带出去
+        `这个核心已经加过了（${label(existing)}），绑定：${
           existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
         }`,
       )
@@ -370,7 +458,9 @@ function addConnection(body: PanelBody) {
     })
     stopSource(idx, existing.name || existing.url)
     if (enabled()) startSource(idx)
-    return getWsConnections()[idx]?.name || existing.name || existing.url
+    // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据。
+    // 上一行 stopSource 收的仍是原值 —— 那是与 client.name 比较的键，不是给人看的串
+    return getWsConnections()[idx]?.name || label(existing)
   }
 
   let name = String(body.name || "").trim() || `core${list.length + 1}`
@@ -414,9 +504,24 @@ function editConnection(body: PanelBody) {
 
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
-  if (body.url !== undefined) patch.url = requireWsUrl(String(body.url))
-  else {
-    // 顺手把老配置里的账号路径收回核心 origin：改都改了，别把不规范的地址留着
+  if (body.url !== undefined) {
+    const next = requireWsUrl(String(body.url))
+    // 面板看到的地址是脱敏过的（connView 的 url 过了 redactUrl），编辑弹层又会把
+    // 它原样回填、原样提交（webui/main.tsx 的 Modal 只跳过 token）。要判断用户是不是
+    // 真动了这一栏，得把「我们显示给他的那个串」按同一套规则规范化，再与他提交回来的
+    // 比 —— requireWsUrl 内部就是 normalizeEndpoint。
+    // 只比 redactUrl(conf.url) 不够：规范化还会补协议、把主机小写、去掉默认端口
+    // （normalizeEndpoint 走 new URL().toString()），于是 `h:8765/ws/X`、
+    // `ws://HOST:8765/...`、`ws://h:80/...` 这些配置即便一个字没动也「看起来变了」，
+    // 白写一次 patch.url —— 而写 url 就会丢查询串里的凭据（下面那段搬运是兜底）
+    if (next !== normalizeEndpoint(redactUrl(hit.conf.url))) patch.url = next
+  } else {
+    // normalizeEndpoint 只做两件事：补 ws:// 协议、把根路径收成 origin
+    // （utils/url.ts:43-58）。**不收**非根路径 —— 老配置里的 `/ws/Yunzai-123`、
+    // `/ws/Yunzai` 会原样留下。要不要把这类旧路径一并收回 origin 是全局决定
+    // （apps/admin.ts 的编辑分支同样只调 normalizeEndpoint），不在这条改动里单独换掉。
+    // 但这一支同样可能产出 patch.url：非根路径虽不被收成 origin，仍会经
+    // new URL().toString() 重新序列化，主机小写、默认端口消失
     const normalized = normalizeEndpoint(String(hit.conf.url || ""))
     if (normalized !== hit.conf.url) patch.url = normalized
   }
@@ -426,6 +531,23 @@ function editConnection(body: PanelBody) {
   // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
   if (body.token) patch.token = String(body.token)
   if (body.clear_token) patch.token = ""
+  /**
+   * 覆写 url 时把内联凭据搬进 token 字段
+   * ------
+   * 上面那个「没动这一栏就不写」只挡住了「真没动」。用户确实改了地址时 patch.url
+   * 必须写，而面板回填的是脱敏地址、提交回来的新地址不带查询串 —— 只存在于
+   * `?token=` 里的凭据就跟着消失了。而且面板没有任何字段能把它填回来：token 输入框
+   * 留空表示「不改」，has_token 会从「已配」翻成「没配」，下一次握手直接无凭据，
+   * 全程不报错。改 url 前是能连的、改完连不上，症状和地址本身毫无关系。
+   *
+   * 搬而不是把查询串留着：凭据本来就该待在 token 字段，运行时也是这么摆的
+   * （expand.ts 的 detachInlineToken 把它摘出来，运行时地址不带凭据），顺手收正。
+   * body 自己带了 token（改密）或显式 clear_token（清空）时不搬 —— 那是用户的意图。
+   */
+  if (patch.url !== undefined && patch.token === undefined) {
+    const carried = inlineToken(hit.conf.url)
+    if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
+  }
   if (body.enable !== undefined) patch.enable = bool(body.enable, true)
   for (const k of ["reconnect_interval", "max_reconnect_attempts"] as const) {
     if (body[k] === undefined) continue
@@ -469,7 +591,10 @@ function editConnection(body: PanelBody) {
   stopSource(hit.index, oldName)
   const next = getWsConnections()[hit.index]
   if (enabled()) startSource(hit.index)
-  return next?.name || oldName
+  // 回包话术里的名字过 label()（脱敏，见 addConnection 处的说明），并且看**改完之后**
+  // 的那份配置：这次编辑可能刚好改了 name 或 url，报旧值等于告诉用户「改的是另一条」。
+  // stopSource 收的仍是 oldName —— 那是与 client.name 比较的键，必须是改之前的
+  return label(next || hit.conf)
 }
 
 /** 删一条 */
@@ -483,7 +608,7 @@ function delConnection(body: PanelBody) {
   // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移，
   // 否则下一次停用第 3 条，停掉的是原来第 4 条派生的连接
   shiftSourceIndex(hit.index)
-  return name
+  return label(hit.conf)
 }
 
 /** 开关一条 */
@@ -498,7 +623,7 @@ function toggleConnection(body: PanelBody) {
   // （lifecycle.ts:33），不停就起的话「重复开启」什么也起不来
   stopSource(hit.index, name)
   if (on && enabled()) startSource(hit.index)
-  return name
+  return label(hit.conf)
 }
 
 /**
@@ -543,9 +668,31 @@ function bindConnection(body: PanelBody): string {
     on ? writeAccountBotId(doc, id, accountPlatform(id)) : undefined,
   )
 
-  const name = hit.conf.name || hit.conf.url
-  stopSource(hit.index, name)
-  if (enabled()) startSource(hit.index)
+  const name = label(hit.conf)
+
+  // 只动这一个账号的运行时连接
+  // ------
+  // stopSource 是按 sourceIndex 全停（lifecycle.ts:53-64），拨一个开关就会把这条
+  // 核心上已经连上的其他账号一起断掉再连回来 —— 而这个动作存在的理由正是「一个
+  // 开关只表达一个账号的意图」。自动端点上一个账号一条 ws、各自 bind 收窄成单账号
+  // （expand.ts 里 `bind: [account]`），改一个号不影响别的号：
+  //   开 → 只调 startSource，已在跑的同名客户端被 startClient 的同名去重挡掉
+  //        （lifecycle.ts:33），实际只新建了这个账号那一条
+  //   关 → 按名字停掉这个账号那一条。名字必须与展开器拼的一模一样，所以用
+  //        accountRuntimeName + sourceLabel 现算，而不是在这儿手拼字符串
+  //
+  // 非根路径的兼容连接走不通这条精确路径：它只有一条运行时连接，bind 在那条连接上
+  // 是转发过滤器（GsCoreClient.accept 读 conf.bind），改了 bind 必须重建那条连接才
+  // 生效，而按账号名去停又找不到人（它的运行时名字就是 label，不带 [账号]）。
+  // 好在它本来就只有一条，全停全起没有连带损失。
+  if (!isAutomaticEndpoint(hit.conf)) {
+    stopSource(hit.index, hit.conf.name || hit.conf.url)
+    if (enabled()) startSource(hit.index)
+  } else if (on) {
+    if (enabled()) startSource(hit.index)
+  } else {
+    stopClient(accountRuntimeName(sourceLabel(hit.conf, hit.index), id))
+  }
   return `${name} ${on ? "已绑定" : "已取消绑定"} ${id}`
 }
 

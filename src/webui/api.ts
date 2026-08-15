@@ -64,27 +64,57 @@ export interface ConnView {
   /** 在 client.connections 里的下标，改/删/开关都用它定位 */
   index: number
   name: string
+  /**
+   * 已脱敏的连接地址：查询串、fragment 与 userinfo 都被砍掉
+   *
+   * 非根路径的地址可能把凭据内联成 `?token=`，而配置的 token 字段是空的
+   * （`normalizeEndpoint` 只收根路径），所以这一栏不是配置原值。
+   */
   url: string
   enable: boolean
-  /** 只说明配没配，不回原值 */
+  /** 只说明配没配，不回原值；内联在地址查询串里的也算配了 */
   has_token: boolean
   reconnect_interval: number
   max_reconnect_attempts: number
   bind: (string | number)[]
   exclude: (string | number)[]
   /**
+   * 真正会派生出运行时连接的账号：bind 减掉 exclude 之后的那批
+   *
+   * 这是「最终生效集合」，给「这条核心到底会连哪些号」这类判断用，**不是开关状态**。
+   * 开关的开合看 {@link bind} —— 它表达用户的绑定意图，拨开就是绑上。「绑了但不会连」
+   * 由 {@link conflicts} 单独标注，那个号仍要显示出来，否则它会从列表里整条消失，
+   * 用户会以为自己没绑过它。
+   */
+  accounts: string[]
+  /**
+   * bind 与 exclude 都写了的账号
+   *
+   * 手写配置或整份提交 bind 数组时可以造出这种组合（写入路径只拦「一个有效账号都
+   * 没有」）。面板要把它与普通已绑定账号区分开显示 —— 它既在 bind 里，又不会连。
+   */
+  conflicts: string[]
+  /**
    * 这条连接的绑定候选：在线的全部机器人 + 本连接已绑定的账号（含离线）
    *
    * 不是 `bind` 的一一对应视图 —— 面板要为每个候选画一个开关，只回已绑定的
    * 就没法在面板上绑一个新号；只回在线的又没法解绑一个已离线的号。
    * 开关的开合状态看 {@link bind}，这里只提供可选项与档案。
+   * 被 exclude 排除的账号仍在候选里：面板要留一个能把它放回来的入口，
+   * 那一行另挂 {@link conflicts} 的标记说明它绑了但不会连。
    */
   bind_bots: BotProfile[]
   /** 展开出的账号级运行时连接，逐条带自己的状态与计数 */
   runtime: RuntimeConnView[]
-  /** 0 未连接 1 已连接 2 连接中 3 断线待重连；由 runtime 聚合：任一已连接即 1 */
+  /**
+   * 0 未连接 1 已连接 2 连接中 3 断线待重连
+   *
+   * 由 runtime 聚合，按 1 > 2 > 3 > 0 取：一个账号已连接就算这条核心通了，
+   * 都没连上时正在握手的（2）优先于待重连（3）、待重连优先于停着的（0）。
+   */
   status: 0 | 1 | 2 | 3
   status_text: string
+  /** 各账号里最大的重连次数（最坏值）。逐账号的准确值在 {@link runtime} 里 */
   retry: number
   /** 上行条数（含 meta 事件），runtime 各条之和 */
   up: number
@@ -119,6 +149,21 @@ export interface Payload {
   plugin: { name: string; version: string; configFile: string }
   config: PayloadConfig
   connections: ConnView[]
+  /**
+   * 展开时跳过了什么、为什么
+   *
+   * 一条启用中的连接可能一条运行时连接都派生不出来：路由冲突、地址无法解析、
+   * 账号编码失败、没有可用的绑定账号、以及共享 `/ws/Yunzai` 的警告。这些原因只在
+   * 展开那一刻存在，面板上那条连接看起来只是一直停在「未启动」，所以整包带一份。
+   *
+   * 是整包级而不是逐条挂在 {@link ConnView} 上：话术里自带「连接 <名字>」与
+   * 「来源 #<序号>」，读的人能对上是哪一条。
+   *
+   * 里头不含完整地址 —— 各条话术只用连接名、来源序号与 pathname
+   * （modules/client/expand.ts 的 errors.push 各处），连接名本身也不会退化成 url
+   * （`sourceLabel` 没名字时用 `连接 #n`）。
+   */
+  errors: string[]
   /** 连接总览：逻辑配置数、运行时连接数、其中已连接数 */
   totals: { logical: number; runtime: number; connected: number }
   /** 当前在线的机器人，供「添加绑定」候选 */
