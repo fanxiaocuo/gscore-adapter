@@ -138,23 +138,49 @@ export function requireAccounts(conf: WsConnection): string | null {
   )
 }
 
+/**
+ * 展开时跳过或降级一条连接的原因，带上是**哪一条**出的问题
+ *
+ * 带 sourceIndex 是给「只重启一条」的调用点用的：面板每个开关都会走
+ * lifecycle 的 startSource(i)，而展开必须喂完整列表（路由冲突是全局裁决）。
+ * 只有一串字符串的话它没法分辨哪条错误属于自己，于是把**全部**错误按 error
+ * 级重打一遍 —— 用户点一下与本次操作无关的开关，控制台就再刷一遍别条连接的
+ * 冲突报错，看着像刚出的新故障。
+ *
+ * 路由冲突记在**被跳过**那条的名下（不是留下的那条）：它才是启动不起来的那个。
+ */
+export interface ExpandError {
+  /** 出问题的连接在配置列表里的下标，与 {@link RuntimeWsConnection.sourceIndex} 同源 */
+  sourceIndex: number
+  /**
+   * 给人看的原因
+   *
+   * 只含连接名、来源序号与 pathname，不含完整地址 —— 这些话术会经面板整包回到
+   * 前端，也会进日志，而地址里可能内联着凭据。
+   */
+  message: string
+}
+
 export function expandConnections(list: WsConnection[]): {
   runtime: RuntimeWsConnection[]
-  errors: string[]
+  errors: ExpandError[]
 } {
   const runtime: RuntimeWsConnection[] = []
-  const errors: string[] = []
+  const errors: ExpandError[] = []
   const taken = new Map<string, Pick<RuntimeWsConnection, "runtimeName" | "sourceIndex">>()
 
   const claim = (conn: RuntimeWsConnection) => {
     const key = routeKey(conn.runtimeUrl)
     const prev = taken.get(key)
     if (prev) {
-      errors.push(
-        `连接路径冲突，已保留 ${prev.runtimeName}（来源 #${prev.sourceIndex + 1}），` +
+      errors.push({
+        // 记在被跳过的那条名下：留下的那条好好地跑着，起不来的是这一条
+        sourceIndex: conn.sourceIndex,
+        message:
+          `连接路径冲突，已保留 ${prev.runtimeName}（来源 #${prev.sourceIndex + 1}），` +
           `跳过 ${conn.runtimeName}（来源 #${conn.sourceIndex + 1}）。` +
           `核心侧后连上的会顶掉先连上的，请检查绑定账号或自定义路径。`,
-      )
+      })
       return
     }
     taken.set(key, { runtimeName: conn.runtimeName, sourceIndex: conn.sourceIndex })
@@ -165,21 +191,22 @@ export function expandConnections(list: WsConnection[]): {
     if (conf.enable === false) return
 
     const label = sourceLabel(conf, sourceIndex)
+    const fail = (message: string) => errors.push({ sourceIndex, message })
     const url = normalizeEndpoint(conf.url)
     if (!url) {
-      errors.push(`连接 ${label} 缺少 url，已跳过`)
+      fail(`连接 ${label} 缺少 url，已跳过`)
       return
     }
 
     const parsed = parseEndpoint(url)
     if (!parsed) {
-      errors.push(`连接 ${label} 的 url 无法解析或不是 WebSocket 地址，已跳过`)
+      fail(`连接 ${label} 的 url 无法解析或不是 WebSocket 地址，已跳过`)
       return
     }
 
     const { accounts, conflicts } = effectiveAccounts(conf)
     if (conflicts.length) {
-      errors.push(
+      fail(
         `连接 ${label} 的账号 ${conflicts.join("、")} 同时出现在 bind 与 exclude，按 exclude 处理`,
       )
     }
@@ -187,7 +214,7 @@ export function expandConnections(list: WsConnection[]): {
     // 自定义路径与旧 Yunzai 路径只起一条兼容连接，路径原样不动。
     if (!isRootEndpoint(parsed)) {
       if (isAutoYunzaiPath(parsed.pathname) && !accounts.length) {
-        errors.push(
+        fail(
           `连接 ${label} 仍使用共享路径 ${parsed.pathname}，多个机器人会互相顶掉。` +
             `请改为只填 host:port 并补上绑定账号。`,
         )
@@ -207,7 +234,7 @@ export function expandConnections(list: WsConnection[]): {
     }
 
     if (!accounts.length) {
-      errors.push(`连接 ${label} 没有可用的绑定账号，已跳过。请至少绑定一个机器人账号。`)
+      fail(`连接 ${label} 没有可用的绑定账号，已跳过。请至少绑定一个机器人账号。`)
       return
     }
 
@@ -228,7 +255,7 @@ export function expandConnections(list: WsConnection[]): {
       try {
         runtimeUrl = materializeAccountUrl(endpoint, account)
       } catch {
-        errors.push(`连接 ${label} 的账号编码失败，已跳过`)
+        fail(`连接 ${label} 的账号编码失败，已跳过`)
         continue
       }
       claim({

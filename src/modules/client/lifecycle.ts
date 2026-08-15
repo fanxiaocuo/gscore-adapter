@@ -84,7 +84,12 @@ export function startSource(sourceIndex: number) {
 
   // 必须展开完整列表：来源序号与全局「前项优先」冲突语义都依赖原始上下文。
   const { runtime, errors } = expandConnections(list)
-  for (const error of errors) makeLog("error", error, "GsCore")
+  // 只打属于这一条的错误。面板每个开关都走这里，而展开必须喂完整列表，早先是把
+  // 全部错误按 error 级重打一遍：点一下与本次操作无关的开关，控制台就再刷一遍别条
+  // 连接的冲突报错，看着像刚出的新故障。别条的错误在启动时（下面 startClients）
+  // 与面板整包里都给了，不靠这里重复。
+  for (const error of errors)
+    if (error.sourceIndex === sourceIndex) makeLog("error", error.message, "GsCore")
 
   let started = 0
   for (const conf of runtime) {
@@ -124,7 +129,7 @@ export function startClients() {
 
   if (wsEnabled()) {
     const { runtime, errors } = expandConnections(getWsConnections())
-    for (const error of errors) makeLog("error", error, "GsCore")
+    for (const error of errors) makeLog("error", error.message, "GsCore")
     for (const conf of runtime) startClient(conf)
   }
 

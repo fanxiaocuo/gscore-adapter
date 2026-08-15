@@ -46,6 +46,11 @@ export function findRouteConflict(
   // 自己一条都派生不出来（被别人顶掉），或别人本来能起的变少了（被自己顶掉）
   const stolen = [...had].some(([i, n]) => i !== index && (has.get(i) ?? 0) < n)
   if (has.get(index) && !stolen) return null
-  const seen = new Set(base.errors)
-  return after.errors.find(e => !seen.has(e)) ?? "修改后会与另一条连接落到同一条路由上"
+  // 按**话术**去重，不是按对象：ExpandError 是每次展开新建的对象，用它本身做 Set
+  // 成员的话「新出现的错误」永远等于 after 的第一条 —— 连不致命的告警都会被当成
+  // 冲突理由，把「只改个名字」也拦掉
+  const seen = new Set(base.errors.map(e => e.message))
+  return (
+    after.errors.find(e => !seen.has(e.message))?.message ?? "修改后会与另一条连接落到同一条路由上"
+  )
 }

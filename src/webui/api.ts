@@ -183,10 +183,12 @@ export interface Payload {
    * 展开那一刻存在，面板上那条连接看起来只是一直停在「未启动」，所以整包带一份。
    *
    * 是整包级而不是逐条挂在 {@link ConnView} 上：话术里自带「连接 <名字>」与
-   * 「来源 #<序号>」，读的人能对上是哪一条。
+   * 「来源 #<序号>」，读的人能对上是哪一条。服务端的 `ExpandError` 其实带着
+   * `sourceIndex`（lifecycle 靠它只打属于自己那条的日志），这里只上话术 ——
+   * 前端把错误统一列在顶部一个块里，真要改成逐卡显示再把下标带上来。
    *
    * 里头不含完整地址 —— 各条话术只用连接名、来源序号与 pathname
-   * （modules/client/expand.ts 的 errors.push 各处），连接名本身也不会退化成 url
+   * （modules/client/expand.ts 的 ExpandError 各处），连接名本身也不会退化成 url
    * （`sourceLabel` 没名字时用 `连接 #n`）。
    */
   errors: string[]

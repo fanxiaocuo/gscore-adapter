@@ -299,7 +299,9 @@ function payload(): Payload {
       },
     },
     connections,
-    errors,
+    // 只把话术上线：ExpandError 的 sourceIndex 是给 lifecycle 挑「属于我这条」用的，
+    // 前端目前把错误统一列在顶部一个块里，不逐卡显示，多一个下标只是没人读的字段
+    errors: errors.map(e => e.message),
     totals: {
       logical: connections.length,
       runtime: flat.length,
