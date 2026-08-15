@@ -855,8 +855,13 @@ function App() {
           {errors.length > 0 && (
             <div className="rounded-[10px] border border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
               <div className="mb-[4px] font-semibold">有连接没能启动</div>
-              {errors.map(e => (
-                <p className="whitespace-pre-line text-[12px]" key={e}>
+              {/*
+               * key 用下标而不是话术本身：两条连接同名（配置允许）且坏在同一处时
+               * 话术逐字相同，撞 key 会让 React 只渲一条。这个列表整包重取、不排序
+               * 也不局部增删，下标就是稳定身份
+               */}
+              {errors.map((e, i) => (
+                <p className="whitespace-pre-line text-[12px]" key={i}>
                   {e}
                 </p>
               ))}
