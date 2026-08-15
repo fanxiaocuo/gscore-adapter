@@ -5,10 +5,11 @@
  * 单独一层是为了让 apps/*.ts 只写一行调用，也方便未来加新页面。
  */
 import { accountPlatform, config, getWsConnections, enabled } from "@/config"
-import { type WsConnection } from "@/types"
+import { type RuntimeWsConnection, type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
+import { expandConnections } from "@/modules/client/expand.js"
 import { botProfile } from "@/utils/bots.js"
-import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
 import { fileServerEnabled, pendingFiles } from "@/utils/fileServer.js"
@@ -70,7 +71,80 @@ function tone(status: number, enabled: boolean): ConnRow["tone"] {
 }
 
 /**
+ * 收发量求和
+ *
+ * 计数按**运行时**名字存（stats 的 count() 收的就是 client.name），所以一条逻辑
+ * 连接要把它派生出的每条运行时连接逐个取出来再加。拿逻辑名去问的话，账号级连接
+ * 一条都对不上，这张图上永远是 ↑0 ↓0。
+ *
+ * 计数活得比客户端长：clients 会被 #早柚重载 整个重建，而计数按名字存在模块级，
+ * 所以这里查的是名字，不问客户端还在不在。
+ */
+function sumCounters(names: string[]): { up: number; down: number } {
+  let up = 0
+  let down = 0
+  for (const name of names) {
+    const n = forName(name)
+    // 上行把消息与事件合并成一个数：这一行只回答「有没有东西发上去」
+    up += n.up + n.event
+    down += n.down
+  }
+  return { up, down }
+}
+
+/**
+ * 一条账号级运行时连接的子行
+ *
+ * @param enabled 逻辑连接的开关。停用的连接不会展开出运行时连接，所以正常走不到
+ *   这里；仍然传进来是为了让子行的措辞与卡片主行同源，不出现「主行已停用、
+ *   子行未启动」这种自相矛盾
+ * @param detail 与 {@link collect} 同义：只有 #早柚状态 才把收发计数摆进来
+ */
+function runtimeRow(
+  rt: RuntimeWsConnection,
+  enabled: boolean,
+  detail: boolean,
+): NonNullable<ConnRow["runtime"]>[number] {
+  const live = clients.find(x => x.name === rt.runtimeName)
+  const status = live?.status ?? 0
+
+  const meta: string[] = []
+  if (live?.retry) meta.push(`重连 ${live.retry} 次`)
+  if (detail) {
+    const n = sumCounters([rt.runtimeName])
+    meta.push(`↑${n.up} ↓${n.down}`)
+    // 与主行同一条判据：不发 ping 时 lastPong 停在建连那一刻，显示出来会被
+    // 误读成「卡了很久」
+    if (status === 1 && live?.lastPong && Number(config.client?.heartbeat) > 0)
+      meta.push(`心跳 ${Math.round((Date.now() - live.lastPong) / 1000)}s 前`)
+  }
+
+  return {
+    // 显示账号而不是 runtimeName：后者是 `${连接名} [${账号}]`，连接名就在卡片顶上
+    // 那一行，每条子行再重复一遍只会把这一列撑宽。兼容连接（account 为 null）
+    // 只派生一条、走不到子行，回退只是为了不出现空名字
+    name: rt.account || rt.runtimeName,
+    // 只取 pathname，与面板 RuntimeConnView.path 同一个来源。runtimeUrl 本身已经
+    // 净化过（expand 的 detachInlineToken 把 ?token= 摘回配置字段），但仍不取整串：
+    // 这张图会发进群里，哪天上游又把鉴权参数放回地址，它就直接印在截图上了。
+    // 更不能用 client.target / client.url —— 后者的 getter 会把 token 拼进查询串
+    path: new URL(rt.runtimeUrl).pathname || "/",
+    state: !enabled ? "已停用" : live ? STATUS_TEXT[status] || String(status) : "未启动",
+    tone: tone(status, enabled),
+    meta,
+  }
+}
+
+/**
  * 汇总连接的运行状态
+ *
+ * 为什么要先展开一遍
+ * ----------------
+ * 配置里一条「核心地址 + 绑定账号」在运行时是 N 条 ws（一个账号一条），
+ * 而客户端的名字是 `${连接名} [${账号}]`（expand.ts 的 accountRuntimeName）。
+ * 拿逻辑 name 去比 client.name 永远配不上 —— 于是每条自动连接在这张图上都显示
+ * 「未启动」、收发计数恒为 0，而它其实连着并且在转发。所以这里必须走同一套展开，
+ * 用运行时名字去找客户端与计数。
  *
  * @param detail 是否往 meta 里加运行时明细（收发计数、心跳年龄）。
  *   只有 #早柚状态 要；#早柚连接列表 与 #早柚帮助 问的是「配了哪些连接」，
@@ -78,18 +152,43 @@ function tone(status: number, enabled: boolean): ConnRow["tone"] {
  */
 function collect(detail = false) {
   const list = getWsConnections()
+  // 展开只做一次：expandConnections 是全局裁决（路由冲突先到先得），逐条各展开一次
+  // 既拿不到全局上下文，也会把同一批错误重复算 n 遍。它是纯函数（errors 只是返回值，
+  // 函数体内不打任何日志），渲染路径调它没有副作用 —— 也正因如此这里刻意**不**把
+  // errors 打进日志：启停那条路径（lifecycle 的 startSource）已经报过一次了，
+  // 出图再报一次只是重复噪音。要看原因去 Web 面板，那边整包带着 errors
+  const { runtime } = expandConnections(list)
+
   const rows: ConnRow[] = list.map((c, i) => {
-    const live = clients.find(x => x.name === c.name)
+    // 按来源序号收本条派生出的运行时连接。sourceIndex 只有走运行时连接构造的客户端
+    // 才是 >= 0（直接拿逻辑连接 new GsCoreClient 会退化成 -1），所以这一层过滤
+    // 顺带保证了不会把一个来路不明的客户端错认成某条来源
+    const views = runtime.filter(r => r.sourceIndex === i)
+    // 反过来从 clients 里筛而不是逐条 find：展开出来的连接与活着的客户端未必一一
+    // 对应（#早柚重载 会整个重建 clients，某个账号也可能被单独停掉），从 clients
+    // 出发得到的就是「此刻真的在跑的那些」，顺序也是启动顺序
+    const live = clients.filter(x => views.some(r => r.runtimeName === x.name))
     const enabled = c.enable !== false
-    const status = live?.status ?? 0
-    const state = !enabled ? "已停用" : live ? STATUS_TEXT[status] || String(status) : "未启动"
+    // 状态是聚合值：任一账号连上就算这个核心通了。规则与 Web 面板共用一份
+    // （constants 的 pickByStatus），否则会出现「面板说通了、状态图说没连上」
+    const lead = pickByStatus(live)
+    const status = lead?.status ?? 0
+    const state = !enabled
+      ? "已停用"
+      : live.length
+        ? STATUS_TEXT[status] || String(status)
+        : "未启动"
+    // 各账号里最差的那个重连次数。与 state 同时看会显得矛盾（A 已连接、B 在重连时
+    // 是「已连接 + 已重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
+    // 逐账号的准确值在下面的子行里
+    const retry = live.reduce((n, x) => Math.max(n, x.retry), 0)
 
     const meta: string[] = []
     // 内联在地址里的凭据也算配过：非根路径的地址（`ws://h:8765/ws/Custom?token=x`）
     // 规范化时会把查询串一起留下，那种配置的 c.token 是空的。只看 c.token 的话，
     // 排查时这张图会对一条其实配了凭据的连接说「没设 token」，把人引向错误方向
     if (c.token || inlineToken(c.url) !== null) meta.push("token 已设置")
-    if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
+    if (retry) meta.push(`已重连 ${retry} 次`)
     // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
     // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
     // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图可出
@@ -110,19 +209,27 @@ function collect(detail = false) {
     // 连上的连接没有意义，只会挤占位置。bind 胶囊也算内容
     if (meta.length === 0 && !bots) {
       if (!enabled) meta.push(`用 #早柚启用连接 ${c.name || i + 1} 恢复`)
-      else if (!live) meta.push("尚未建立连接，可用 #早柚重载 重试")
+      else if (!live.length) meta.push("尚未建立连接，可用 #早柚重载 重试")
       else meta.push("未配置 token / bind / exclude，按默认规则中转")
     }
 
     if (detail) {
-      // 用连接名取计数：clients 会被 #早柚重载 整个重建，计数按名字存在模块级
-      const n = forName(c.name || String(c.url || ""))
-      meta.push(`↑${n.up + n.event} ↓${n.down}`)
+      // 一条运行时连接都没有时退回逻辑名：停用的连接根本不展开（expand.ts 里
+      // `conf.enable === false` 直接 return），但它今天转过的量仍记在自己名下，
+      // 报 0 等于对着一条刚被停用的连接说「它什么都没干过」
+      const n = sumCounters(
+        views.length ? views.map(r => r.runtimeName) : [c.name || String(c.url || "")],
+      )
+      meta.push(`↑${n.up} ↓${n.down}`)
       // 心跳年龄：lastPong 只在收到 pong 时刷新，而 pong 只因我们发 ping 而来。
       // 关掉 heartbeat 时它永远停在连接建立那一刻，显示出来会被误读成「卡了很久」，
       // 所以只在真的在 ping 时才给这一项。
-      if (live?.status === 1 && live.lastPong && Number(config.client?.heartbeat) > 0)
-        meta.push(`心跳 ${Math.round((Date.now() - live.lastPong) / 1000)}s 前`)
+      //
+      // 多账号时这是**代表账号**（pickByStatus 选出的那条）的心跳，不是全部账号的
+      // ——心跳本来只对单条 ws 说得通，取最大/最小都会让人以为是整条连接的值。
+      // 逐账号的准确值在下面的子行里
+      if (lead?.status === 1 && lead.lastPong && Number(config.client?.heartbeat) > 0)
+        meta.push(`心跳 ${Math.round((Date.now() - lead.lastPong) / 1000)}s 前`)
     }
 
     return {
@@ -137,6 +244,9 @@ function collect(detail = false) {
       tone: tone(status, enabled),
       meta,
       bots,
+      // 只派生出一条时不给子行：卡片右侧那个胶囊就是它，重复渲染只是噪音
+      // （与面板 webui/main.tsx 的 runtime.length > 1 同一条判断）
+      runtime: views.length > 1 ? views.map(r => runtimeRow(r, enabled, detail)) : undefined,
     }
   })
 

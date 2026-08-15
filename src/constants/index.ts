@@ -7,6 +7,37 @@ export const STATUS_TEXT = {
 }
 
 /**
+ * 聚合状态的取值顺序：已连接 > 连接中 > 断线待重连 > 未连接
+ *
+ * 一条逻辑连接的多个账号各有状态，对外只显示一个。原来只特判「已连接」、其余按
+ * 第一条取，于是账号 A 重连耗尽停在 0、账号 B 正在握手（2）时会说整条连接
+ * 「未连接」—— 而 B 其实正连着。
+ *
+ * 注意这不是 WebSocket 的 readyState，是本插件自己的状态码
+ * （见 {@link STATUS_TEXT}：0 未连接 / 1 已连接 / 2 连接中 / 3 断线重连中），
+ * 所以 [1,2,3,0] 这个顺序不能按 readyState 的语义去「修正」。
+ */
+export const STATUS_ORDER: (0 | 1 | 2 | 3)[] = [1, 2, 3, 0]
+
+/**
+ * 按 {@link STATUS_ORDER} 挑出代表整条逻辑连接的那一项
+ *
+ * 放在 constants 而不是各模块自己写一遍：Web 面板（modules/webadapter）与状态图
+ * （modules/render）都要回答「这条核心通不通」，规则各存一份就会漂 —— 面板说这条
+ * 通了、状态图说没连上，而两处读的是同一批客户端。泛型是因为两边喂进来的东西不同
+ * （面板是已序列化的运行时视图，状态图是 GsCoreClient 本身），共同点只有 status。
+ *
+ * 同名次内保持入参顺序（find 取首个），也就是展开顺序、亦即 bind 的书写顺序。
+ */
+export function pickByStatus<T extends { status: 0 | 1 | 2 | 3 }>(items: T[]): T | undefined {
+  for (const status of STATUS_ORDER) {
+    const hit = items.find(item => item.status === status)
+    if (hit) return hit
+  }
+  return undefined
+}
+
+/**
  * 默认最大重连次数
  *
  * 原来是 0（无限重连）。指数退避封顶在 interval*12（默认 60s），所以核心真的

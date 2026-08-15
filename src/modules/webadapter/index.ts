@@ -67,7 +67,7 @@ import {
 } from "@/utils/url"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
-import { DEFAULT_MAX_RECONNECT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
@@ -157,25 +157,6 @@ function label(conf: WsConnection): string {
 }
 
 /**
- * 聚合状态的取值顺序：已连接 > 连接中 > 断线待重连 > 未连接
- *
- * 一条逻辑连接的多个账号各有状态，面板顶行只能显示一个。原来只特判「已连接」、
- * 其余按 views[0] 取，于是账号 A 重连耗尽停在 0、账号 B 正在握手（2）时，
- * 面板说整条连接「未连接」—— 而 B 其实正连着。同名次内保持出现顺序（find 取首个），
- * 与展开顺序（也就是 bind 的书写顺序）一致。
- */
-const STATUS_ORDER: (0 | 1 | 2 | 3)[] = [1, 2, 3, 0]
-
-/** 按 {@link STATUS_ORDER} 挑出代表整条连接的那一条运行时视图 */
-function pickView(views: RuntimeConnView[]): RuntimeConnView | undefined {
-  for (const status of STATUS_ORDER) {
-    const hit = views.find(v => v.status === status)
-    if (hit) return hit
-  }
-  return undefined
-}
-
-/**
  * 一条连接的绑定候选
  *
  * 面板要为每个候选画一个开关，所以候选集是「在线的全部机器人 ∪ 本连接已绑定的
@@ -231,8 +212,10 @@ function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[])
   // 与「哪些账号真会连」不是一回事：两边都写了的号留在 bind 里却永远派生不出运行时
   // 连接。前端只看 bind 的话会把它画成一个绿着却不连的开关，所以两个集合都回。
   const { accounts, conflicts } = effectiveAccounts(conf)
-  // 顶行只能显示一个状态，按 STATUS_ORDER 挑代表：不让一条 0 盖掉另一条正在连的 2
-  const lead = pickView(views)
+  // 顶行只能显示一个状态，按 STATUS_ORDER 挑代表：不让一条 0 盖掉另一条正在连的 2。
+  // 规则与状态图（render/pages.ts 的 collect）共用 —— 两处各写一遍就会出现
+  // 「面板说这条核心通了、状态图说没连上」
+  const lead = pickByStatus(views)
   return {
     index: i,
     name: label(conf),

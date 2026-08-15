@@ -23,6 +23,14 @@ export interface ConnRow {
    * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
    */
   bots?: { id: string; name: string; avatar: string; platform?: string }[]
+  /**
+   * 账号级运行时连接，一条一行
+   *
+   * 一条逻辑连接在运行时是 N 条 ws（一个绑定账号一条），卡片右侧那个胶囊是聚合值，
+   * 看不出是哪个账号没连上。派生出多条时才给（pages.ts 判），只有一条时那个胶囊
+   * 就是它，重复渲染只是噪音 —— 与面板 webui/main.tsx 的 `runtime.length > 1` 一致。
+   */
+  runtime?: { name: string; path: string; state: string; tone: ConnRow["tone"]; meta: string[] }[]
 }
 
 /**
@@ -76,6 +84,15 @@ function toneColor(p: Palette, tone: ConnRow["tone"]) {
   if (tone === "err") return p.danger
   return p.muted
 }
+
+/**
+ * 账号级子行最多列几条
+ *
+ * 一条核心绑十几个号是可能的（QQBot 多实例），逐条列出会把这张卡片拉成半页、
+ * 把下面的分组明细挤到第二屏。前 3 条足够看出「是不是有账号掉线」，其余折叠成
+ * 一句 +N；要逐个核对有 Web 面板和 #早柚连接列表。
+ */
+const RUNTIME_LIMIT = 3
 
 export function Status(data: StatusData) {
   const p = data.palette
@@ -157,6 +174,51 @@ export function Status(data: StatusData) {
                             )}
                           </span>
                         ))}
+                      </div>
+                    )}
+                    {/*
+                     * 账号级子行：一个绑定账号一条 ws，各自的状态与计数
+                     *
+                     * 刻意不再造一套卡片 —— 这是主信息列里的一小组紧凑行，靠一层
+                     * bg-inset 与卡片区分。右侧那个大胶囊是聚合值（任一账号连上就算
+                     * 这个核心通了），只有这里能看出是哪个号没连上。
+                     */}
+                    {row.runtime && row.runtime.length > 0 && (
+                      <div className="mt-[6px] flex flex-col gap-[8px] rounded-[18px] bg-inset px-[18px] py-[12px]">
+                        {row.runtime.slice(0, RUNTIME_LIMIT).map(r => {
+                          const rc = toneColor(p, r.tone)
+                          return (
+                            <div className="flex items-center gap-[12px]" key={r.name}>
+                              <span
+                                className="size-[10px] flex-none rounded-[9999px]"
+                                style={{ background: rc }}
+                              />
+                              <span className="flex-none font-mono text-[21px] font-bold leading-none">
+                                {r.name}
+                              </span>
+                              {/* 只到 pathname —— 完整地址可能带 token，而这张图会发进群里 */}
+                              <span className="min-w-0 flex-1 break-all font-mono text-[19px] leading-[1.4] text-muted">
+                                {r.path}
+                              </span>
+                              {r.meta.length > 0 && (
+                                <span className="flex-none font-mono text-[19px] leading-none text-muted">
+                                  {r.meta.join(" · ")}
+                                </span>
+                              )}
+                              <span
+                                className="flex-none text-[20px] font-bold leading-none"
+                                style={{ color: rc }}
+                              >
+                                {r.state}
+                              </span>
+                            </div>
+                          )
+                        })}
+                        {row.runtime.length > RUNTIME_LIMIT && (
+                          <div className="font-mono text-[19px] leading-none text-muted">
+                            +{row.runtime.length - RUNTIME_LIMIT} 个账号未显示
+                          </div>
+                        )}
                       </div>
                     )}
                     {row.meta.length > 0 && (
