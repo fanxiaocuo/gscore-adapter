@@ -250,7 +250,7 @@ function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[])
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
     status_text: !enabled ? "已停用" : (lead?.status_text ?? "未启动"),
     // 各账号里最差的那个重连次数。与 status 同时看会显得矛盾（A 已连接、B 在重连时
-    // 是「已连接 + 重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
+    // 是「已连接 + 已重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
     // 逐账号的准确值在 runtime 里
     retry: views.reduce((n, v) => Math.max(n, v.retry), 0),
     up: views.reduce((n, v) => n + v.up, 0),
@@ -501,7 +501,7 @@ function editConnection(body: PanelBody) {
     // 真动了这一栏，得把「我们显示给他的那个串」按同一套规则规范化，再与他提交回来的
     // 比 —— requireWsUrl 内部就是 normalizeEndpoint。
     // 只比 redactUrl(conf.url) 不够：规范化还会补协议、把主机小写、去掉默认端口
-    // （normalizeEndpoint 走 new URL().toString()），于是 `h:8765/ws/X`、
+    // （normalizeEndpoint 经 new URL() 重新序列化），于是 `h:8765/ws/X`、
     // `ws://HOST:8765/...`、`ws://h:80/...` 这些配置即便一个字没动也「看起来变了」，
     // 白写一次 patch.url —— 而写 url 就会丢查询串里的凭据（下面那段搬运是兜底）
     if (next !== normalizeEndpoint(redactUrl(hit.conf.url))) patch.url = next
@@ -509,8 +509,8 @@ function editConnection(body: PanelBody) {
   } else {
     // normalizeEndpoint 做的是：没写协议就补 ws://、砍掉 fragment、经 new URL()
     // 重新序列化（主机小写、默认端口消失）。**不改写用户写的路径** —— 老配置里的
-    // `/ws/Yunzai-123`、`/ws/Yunzai` 原样留下；只有干净的根路径才收成 origin，
-    // 根路径带查询串时也留着（凭据可能就在里面，见 utils/url.ts 的 normalizeEndpoint）。
+    // `/ws/Yunzai-123`、`/ws/Yunzai` 原样留下；干净的根路径收成 origin，带查询串时
+    // 把查询串接回去（凭据可能就在里面，见 utils/url.ts 的 normalizeEndpoint）。
     // 所以这一支同样可能产出 patch.url：路径没动，序列化结果也可能与原值不同字
     const normalized = normalizeEndpoint(String(hit.conf.url || ""))
     if (normalized !== hit.conf.url) patch.url = normalized

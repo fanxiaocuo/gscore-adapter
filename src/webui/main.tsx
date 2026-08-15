@@ -396,7 +396,7 @@ function Conn({
                 {r.path}
               </span>
               <span className={TAG}>{r.status_text}</span>
-              {r.retry > 0 && <span className={TAG}>重连 {r.retry} 次</span>}
+              {r.retry > 0 && <span className={TAG}>已重连 {r.retry} 次</span>}
               <span className={TAG}>
                 ↑{r.up} ↓{r.down}
               </span>
