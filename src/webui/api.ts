@@ -53,6 +53,13 @@ export interface RuntimeConnView {
   /** 只到 pathname，绝不含 token 查询参数 */
   path: string
   status: 0 | 1 | 2 | 3
+  /**
+   * 只有状态名（`已连接` / `断线重连中` …），或 `已停用` / `未启动`
+   *
+   * 不含重连次数 —— 那在 {@link retry} 里，前端单独渲一个标签。别改回
+   * `client.statusText`：那个 getter 为文字指令服务，把次数拼进了括号，用它就成了
+   * 同一行里把同一个数写两遍（还曾经是两种措辞）。
+   */
   status_text: string
   retry: number
   up: number
@@ -131,6 +138,7 @@ export interface ConnView {
    * 都没连上时正在握手的（2）优先于待重连（3）、待重连优先于停着的（0）。
    */
   status: 0 | 1 | 2 | 3
+  /** 代表账号的状态名，或 `已停用` / `未启动`。同样不含次数，见 {@link RuntimeConnView.status_text} */
   status_text: string
   /** 各账号里最大的重连次数（最坏值）。逐账号的准确值在 {@link runtime} 里 */
   retry: number
