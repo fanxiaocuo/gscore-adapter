@@ -15,7 +15,13 @@ import { expandConnections, readIds, requireAccounts } from "@/modules/client/ex
 import { findRouteConflict } from "@/modules/client/conflict"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
-import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
+import {
+  findDuplicate,
+  findSameCore,
+  inlineToken,
+  normalizeEndpoint,
+  requireWsUrl,
+} from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
@@ -457,6 +463,13 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.url || nextUrl !== hit.conf.url) patch.url = nextUrl
     if (kv.name) patch.name = kv.name
     if (kv.token !== undefined) patch.token = kv.token || null
+    // 只改地址时把内联凭据搬进 token 字段：`url=10.0.0.5:8765` 写的是裸地址，
+    // 而旧地址的凭据只存在于 `?token=` 里，跟着地址一起没了。改完不报错、
+    // 下次握手直接无凭据，症状和地址毫无关系。用户自己写了 token= 时不搬——那是改密。
+    if (patch.url !== undefined && patch.token === undefined) {
+      const carried = inlineToken(hit.conf.url)
+      if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
+    }
     // 显式 id= 按 bind 账号写入 bot_id_map；任何改动都顺手清掉连接上的旧字段
     if (kv.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
     if (kv.enable !== undefined) {
