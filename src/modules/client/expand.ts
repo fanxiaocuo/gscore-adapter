@@ -40,9 +40,9 @@ export function effectiveAccounts(
 /**
  * 这条逻辑连接在日志、错误话术与运行时名字里的显示名
  *
- * 没起名字时用来源序号而不是 url：地址可能内联着 `?token=`（normalizeEndpoint 对
- * 非根路径原样保留查询串，utils/url.ts:53-54），而这些话术既进日志，也随面板整包
- * 回给前端（webui/api.ts 的 Payload.errors）。
+ * 没起名字时用来源序号而不是 url：地址可能内联着 `?token=`（normalizeEndpoint 只砍
+ * fragment，查询串一路留着），而这些话术既进日志，也随面板整包回给前端
+ * （webui/api.ts 的 Payload.errors）。
  */
 export function sourceLabel(conf: WsConnection, sourceIndex: number): string {
   return conf.name || `连接 #${sourceIndex + 1}`
@@ -70,8 +70,9 @@ function parseEndpoint(url: string): URL | null {
 }
 
 /**
- * 兼容地址中的鉴权参数归回配置字段，运行时目标本身不携带凭据。
+ * 地址里的鉴权参数归回配置字段，运行时目标本身不携带凭据。
  *
+ * 根端点与自定义路径两条分支都要过这一步，否则同一份凭据换个写法就会被丢掉。
  * URLSearchParams.get() 读取首个精确名称匹配；delete() 清除全部同名项。
  * 若地址与配置都提供鉴权值，地址中的值优先，保持现有客户端 getter 的语义。
  */
@@ -195,6 +196,12 @@ export function expandConnections(list: WsConnection[]): {
       return
     }
 
+    // 根端点的内联凭据同样要摘进 token 字段。materializeAccountUrl 会清空 search，
+    // 不摘就等于在这一步把 `ws://h:8765/?token=x` 的凭据丢掉：握手不带凭据、核心拒连，
+    // 而这个分支原来压根不调 detachInlineToken（只有非根那支调），于是同一份配置
+    // 写成自定义路径能连、写成核心地址连不上。
+    const { token: rootToken, inlineToken: hasRootToken } = detachInlineToken(parsed)
+
     for (const account of accounts) {
       let runtimeUrl: string
       try {
@@ -205,6 +212,7 @@ export function expandConnections(list: WsConnection[]): {
       }
       claim({
         ...conf,
+        ...(hasRootToken ? { token: rootToken, inlineToken: true } : {}),
         sourceIndex,
         account,
         runtimeName: accountRuntimeName(label, account),

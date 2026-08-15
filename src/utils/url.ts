@@ -25,6 +25,13 @@ export function isAutoYunzaiPath(pathname: string): boolean {
  *
  * 只补协议、去掉根路径，**不再**补 `/ws/Yunzai` —— 路由段现在由 bind 账号在
  * 建连时生成（materializeAccountUrl），配置里不该再出现派生信息。
+ *
+ * 根路径的查询串必须留下
+ * ------------------
+ * 原来这一支直接回 `u.origin`，于是 `ws://h:8765/?token=x` 的凭据在规范化时就没了：
+ * 握手不带 token 被核心拒掉，而 token 字段本来是空的、{@link inlineToken} 走同一套
+ * 规范化也看不见它 —— 面板与状态图一致地报「未配 token」，用户对着配置里明明写着的
+ * token 无从下手。fragment 是唯一确定用不上的（不会发给服务端），只砍它。
  */
 export function normalizeEndpoint(url: string | null | undefined): string {
   if (!url) return ""
@@ -36,7 +43,11 @@ export function normalizeEndpoint(url: string | null | undefined): string {
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `ws://${url}`
   try {
     const u = new URL(url)
-    if (u.pathname === "/" || u.pathname === "") return u.origin
+    if (u.pathname === "/" || u.pathname === "") {
+      if (!u.search) return u.origin
+      u.hash = ""
+      return u.toString()
+    }
     return u.toString()
   } catch {
     return url
@@ -51,11 +62,10 @@ export function normalizeEndpoint(url: string | null | undefined): string {
  * （`h:8765/ws/X`），直接 `new URL` 会抛，而 expand 那边是规范化之后才解析的。
  * 两边判据一旦不一致，就会出现「运行时确实取到了凭据，面板与状态图却说没配 token」。
  *
- * 根路径地址（`ws://h:8765/?token=x`）这里回 null，而且这是对的：normalizeEndpoint
- * 对根路径回 `u.origin`、查询串在那一步就没了（:53），expand 的根路径分支也压根不调
- * detachInlineToken（它只在非根分支上，:178），派生地址还会被 materializeAccountUrl
- * 显式清空 search。也就是说那种配置的凭据运行时根本用不上 —— 回 null 与运行时一致。
- * 「写进配置的凭据被静默丢掉」是 normalizeEndpoint 自己的问题，要治在那儿治。
+ * 根路径地址（`ws://h:8765/?token=x`）同样报得出来：{@link normalizeEndpoint} 留住了
+ * 根路径的查询串，expand 的根路径分支也先过 detachInlineToken 把凭据摘进 token 字段，
+ * 派生地址再由 {@link materializeAccountUrl} 清空 search。三处判据一致，面板与状态图
+ * 说的「已配 token」才等于运行时真正带上的那份凭据。
  */
 export function inlineToken(url: string | null | undefined): string | null {
   try {
@@ -179,8 +189,8 @@ export function coreKey(url?: string) {
  * 显示路径（导出的原因）
  * ------
  * 面板视图（modules/webadapter 的 connView）与状态图（modules/render/pages.ts 的
- * collect）显示的是配置里的原始地址，而 {@link normalizeEndpoint} 只把根路径收成
- * origin，非根路径是 `u.toString()`、连查询串一起留下（:53-54）。于是
+ * collect）显示的是配置里的原始地址，而 {@link normalizeEndpoint} 只砍 fragment、
+ * 查询串一路留着（根路径也留 —— 凭据允许内联在那儿）。于是
  * `ws://host:port/ws/Custom?token=xxx` 这种配置的凭据只存在于 url 字段里、
  * `token` 字段是空的 —— 原样回给前端等于把凭据发进浏览器，落进截图更是永久留痕。
  * 所以这个函数不只守抛错话术，也守所有对外显示的地址。
