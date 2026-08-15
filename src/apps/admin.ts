@@ -7,10 +7,11 @@ import {
   updateConnection,
   removeConnection,
   enabled,
+  wsEnabled,
   type ConnectionPatch,
 } from "@/config"
 import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
-import { expandConnections, requireAccounts } from "@/modules/client/expand"
+import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
@@ -24,6 +25,19 @@ import type { WsConnection, YunzaiEvent } from "@/types"
 /** 关闭状态下不热启动连接 */
 function clientMode() {
   return enabled()
+}
+
+/**
+ * 「起了 0 条」时补一句成因
+ *
+ * clientMode() 只查总开关 enable，而 startSource 还要求 client.enable_ws。
+ * 后者关着时各处回复只会剩一个 0，既没错也没用 —— 用户看不出该去改哪个开关。
+ *
+ * 只查 enable_ws：三个调用点都已经在 clientMode() 里面，enable 必然是开的，
+ * 再判一次就是永远走不到的死分支。返回空串表示「没有额外要说的」，直接拼进回复。
+ */
+function idleReason(): string {
+  return wsEnabled() ? "" : "\nclient.enable_ws 为 false，ws 客户端整体没启用"
 }
 
 function errorMessage(err: unknown): string {
@@ -277,7 +291,21 @@ export default class GsCoreAdmin extends plugin<"message"> {
       const prevBind = Array.isArray(existing.bind) ? existing.bind.map(String) : []
       const nextBind = [...new Set([...prevBind, ...bind])]
       const nextUrl = normalizeEndpoint(existing.url || url)
+
+      // 明确要绑的账号必须从 existing.exclude 里放出来
+      // ------
+      // 上面那次 requireAccounts 看的是指令里的 exclude（没写就是空），而合并只改
+      // bind、existing.exclude 原样留着 —— 于是落盘的组合是「谁都没校验过」的那份。
+      // 老 core1 是 bind:[A] exclude:[B] 时，`bind=B` 会回一句「当前绑定：A、B」，
+      // 而 exclude 优先级更高，B 永远派生不出运行时连接，只在日志里留一行 conflict。
+      //
+      // 放出来而不是报错：用户刚刚明确说了要绑这个号，那就是最新意图。这也与面板
+      // 的绑定开关同一套语义（开关拨开就等于绑上，不能绿着却不连）。
+      const freed = bind.filter(id => readIds(existing.exclude).includes(id))
+      const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
+
       const patch: ConnectionPatch = { bind: nextBind }
+      if (freed.length) patch.exclude = nextExclude.length ? nextExclude : null
       if (nextUrl !== existing.url) patch.url = nextUrl
       if (existing.bot_id) patch.bot_id = null
       const explicit = kv.bot_id || ""
@@ -304,9 +332,13 @@ export default class GsCoreAdmin extends plugin<"message"> {
         `已把账号 ${bind.join("、")} 绑到连接 ${existing.name}\n` +
           `核心地址：${safeUrl(nextUrl)}\n` +
           `当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}\n` +
+          // 悄悄改掉 exclude 会让用户下次看配置时莫名其妙，这里明说一句
+          (freed.length ? `已从排除名单移出：${freed.join("、")}\n` : "") +
           (mapped.length ? `平台标识：${mapped.join("、")}\n` : "") +
           (clientMode()
-            ? `运行时连接：${startedMerge} 条，稍后可用 #早柚状态 查看`
+            ? `运行时连接：${startedMerge} 条，稍后可用 #早柚状态 查看${
+                startedMerge ? "" : idleReason()
+              }`
             : "配置已保存"),
       )
     }
@@ -361,7 +393,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         (startedNew
           ? `运行时连接：${startedNew} 条，稍后可用 #早柚状态 查看`
           : clientMode()
-            ? "配置已保存，可用 #早柚重连 启动"
+            ? `配置已保存，可用 #早柚重连 启动${idleReason()}`
             : "适配器当前已禁用（enable: false）。发 #早柚设置适配器开启 即可启用"),
     )
   }
@@ -466,7 +498,10 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const runningNow = willRun
       ? startSource(hit.index)
       : next
-        ? expandConnections([next]).runtime.length
+        ? // 用 enable:true 展开：expandConnections 对 enable === false 直接短路，
+          // 照原样传进去，「停用了几个账号的连接」永远算出 0 条 —— 而这句话
+          // 想说的正是「重新启用后会变成几条」
+          expandConnections([{ ...next, enable: true }]).runtime.length
         : 0
 
     const lines = [
@@ -568,11 +603,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
         return e.reply(
           `已启用连接 ${hit.conf.name}\n但适配器本体已禁用（enable: false），客户端未运行`,
         )
+      // 先停后起，和 add/edit 两处一致
+      // ------
+      // 不停就起的话，本来就在跑的连接会被 startClient 的同名去重挡掉
+      // （lifecycle.ts 那句 `clients.some(c => c.name === name)`），startSource 回 0，
+      // 于是「重复开启一条已连上的连接」会被报成「没有可起的运行时连接，请检查绑定
+      // 账号」—— 绑定明明是好的，把人打发去查一个不存在的问题
+      stopSource(hit.index, hit.conf.name || hit.conf.url)
       const started = startSource(hit.index)
+      if (started) return e.reply(`已启用连接 ${hit.conf.name}，正在连接 ${started} 条`)
+      // 真的 0 条：要么没有效账号，要么 ws 总开关关着，两者的下一步动作不一样
       return e.reply(
-        started
-          ? `已启用连接 ${hit.conf.name}，正在连接 ${started} 条`
-          : `已启用连接 ${hit.conf.name}，但没有可起的运行时连接，请检查绑定账号`,
+        `已启用连接 ${hit.conf.name}，但没有可起的运行时连接` +
+          (idleReason() || "\n请检查绑定账号（#早柚连接列表 可看）"),
       )
     }
     const stopped = stopSource(hit.index, hit.conf.name || hit.conf.url)

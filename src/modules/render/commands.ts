@@ -46,18 +46,18 @@ export const HELP_GROUPS: HelpGroup[] = [
     items: [
       {
         cmd: "#早柚添加连接 <地址>",
-        dsc: "新增一个早柚核心连接（ws:// / wss://）。\n只填 host:port 即可，自动补 /ws/Yunzai\n默认只绑定收到这条指令的机器人账号\n其他号再发一次会并进同一条连接，不会新开 ws",
+        dsc: "新增一个早柚核心连接（ws:// / wss://）。\n只填 host:port 即可，路由段按绑定账号在连接时生成\n默认只绑定收到这条指令的机器人账号\n其他号再发一次会并进同一条连接，不会新开 ws",
         eg: "#早柚添加连接 127.0.0.1:8765    或    wss://域名:8765 n=主核心 t=abc",
         icon: "plus",
         master: true,
-        // 说明三行 + 长示例。挤在半栏里 `ws://` 与 `/ws/Yunzai` 都会被折断，
+        // 说明三行 + 长示例。挤在半栏里 `ws://` 与 `wss://域名:8765` 都会被折断，
         // 且比同行邻居高出近一倍，所以独占整行
         wide: true,
       },
       {
         cmd: "#早柚修改连接 <名字|序号> <key=value>",
-        dsc: "改已有连接，最常用的是给同一个核心再绑一个机器人：\nbind+=<账号> 追加，bind-=<账号> 移除\nbind=账号1+账号2 整体替换，bind=all 表示不限账号\nurl / token / enable / interval / retry 也可改；id= 按账号写入平台映射",
-        eg: "#早柚修改连接 1 bind+=2463381624    或    #早柚修改连接 主核心 bind=all",
+        dsc: "改已有连接，最常用的是给同一个核心再绑一个机器人：\nbind+=<账号> 追加，bind-=<账号> 移除\nbind=账号1+账号2 整体替换（至少留一个账号）\nurl / token / enable / interval / retry 也可改；id= 按账号写入平台映射",
+        eg: "#早柚修改连接 1 bind+=2463381624    或    #早柚修改连接 主核心 bind=2463381624",
         icon: "settings",
         master: true,
         // 四行说明 + 长示例，挤在半栏里会折断，同 #早柚添加连接
@@ -98,7 +98,7 @@ export const HELP_GROUPS: HelpGroup[] = [
           },
           {
             cmd: "bind",
-            dsc: "只转发哪个机器人账号的消息。\n添加时默认为发指令的账号，all 表示不限；\n改已有连接用 #早柚修改连接 的 bind+= / bind-=",
+            dsc: "转发哪些机器人账号的消息，每个账号各起一条 ws。\n添加时默认为发指令的账号，必须至少绑一个；\n改已有连接用 #早柚修改连接 的 bind+= / bind-=",
             icon: "dot",
           },
           {

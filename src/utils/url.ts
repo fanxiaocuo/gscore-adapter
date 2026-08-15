@@ -158,6 +158,25 @@ export function coreKey(url?: string) {
 }
 
 /**
+ * 回显前脱敏：砍掉查询串、fragment 与 userinfo
+ *
+ * 这两条错误话术会被指令层原样回进群里（apps/admin.ts 的 add/edit 两个 catch），
+ * 而抛错时的输入恰好最可能是从旧模型复制粘贴过来的完整地址 —— 那种地址里
+ * `?token=` 是常态。成功路径由 admin 的 safeUrl() 把守，失败路径只能在这里守：
+ * 抛出去之后调用方看到的就只是一句话，没法再按 URL 结构过滤。
+ *
+ * 不走 new URL()：这个函数最主要的调用点就是「URL 解析失败」那一支，
+ * 能解析的话也就不需要它了。所以按字符切，宁可粗一点也不能漏。
+ */
+function redactUrl(value: string | null | undefined): string {
+  const s = String(value ?? "").trim()
+  if (!s) return "(空)"
+  // 先砍 ? 与 #，再砍 userinfo。顺序要紧：查询串里也可能出现 @
+  const cut = s.split(/[?#]/)[0]
+  return cut.replace(/^([a-z][a-z0-9+.-]*:\/\/)?[^/@]*@/i, "$1")
+}
+
+/**
  * 校验并规范化，非法时抛错
  *
  * 两个添加入口（apps/admin 的 add、webadapter 的 addConnection）都只走这一个门，
@@ -179,12 +198,17 @@ export function requireWsUrl(url: string | null | undefined): string {
   try {
     u = new URL(s)
   } catch {
-    throw new Error(`连接地址无法解析：${url}`)
+    throw new Error(`连接地址无法解析：${redactUrl(url)}`)
   }
-  if (u.protocol === "http:" || u.protocol === "https:")
+  if (u.protocol === "http:" || u.protocol === "https:") {
+    const suggest = redactUrl(s).replace(/^http/i, "ws")
     throw new Error(
-      `不支持 http://，早柚核心只能用 WebSocket 连。请改用：${s.replace(/^http/i, "ws")}`,
+      `不支持 http://，早柚核心只能用 WebSocket 连。请改用：${suggest}\n` +
+        // 建议里的查询串已被 redactUrl 砍掉，所以顺带说清 token 该写哪儿，
+        // 否则用户照抄这条建议会丢掉原来内联在地址里的凭据
+        "token 请用 t=<token> 单独给，不要写在地址里",
     )
+  }
   if (!["ws:", "wss:"].includes(u.protocol)) throw new Error("连接地址仅支持 ws:// / wss://")
   return s
 }
