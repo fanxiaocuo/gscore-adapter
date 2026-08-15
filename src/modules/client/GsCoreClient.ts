@@ -441,7 +441,7 @@ export class GsCoreClient {
             ? bot.pickFriend?.(Number(data.target_id) || data.target_id)
             : bot.pickGroup?.(Number(data.target_id) || data.target_id)
         const fn = target?.recallMsg || bot.recallMsg
-        if (!fn) return this.log("warn", "当前适配器不支持撤回消息"), true
+        if (!fn) return (this.log("warn", "当前适配器不支持撤回消息"), true)
         await fn.call(target?.recallMsg ? target : bot, id)
         this.log("info", `已撤回消息 ${id}`)
       } catch (err) {
@@ -455,9 +455,12 @@ export class GsCoreClient {
       const duration = Number(d.duration) || 0
       try {
         const group: SendTarget | undefined = bot.pickGroup?.(Number(d.group_id) || d.group_id)
-        if (!group?.muteMember) return this.log("warn", "当前适配器不支持禁言"), true
+        if (!group?.muteMember) return (this.log("warn", "当前适配器不支持禁言"), true)
         await group.muteMember(Number(d.user_id) || d.user_id, duration)
-        this.log("info", `${duration ? `禁言 ${duration}s` : "解除禁言"}：${d.user_id}@${d.group_id}`)
+        this.log(
+          "info",
+          `${duration ? `禁言 ${duration}s` : "解除禁言"}：${d.user_id}@${d.group_id}`,
+        )
       } catch (err) {
         this.log("error", ["禁言操作失败", err])
       }

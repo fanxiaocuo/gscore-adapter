@@ -6,7 +6,12 @@
  * 自定义与旧路径则保持兼容：只生成一条连接，不擅自派生账号路径。
  */
 import type { RuntimeWsConnection, WsConnection } from "@/types"
-import { isAutoYunzaiPath, materializeAccountUrl, normalizeEndpoint, routeKey } from "@/utils/url.js"
+import {
+  isAutoYunzaiPath,
+  materializeAccountUrl,
+  normalizeEndpoint,
+  routeKey,
+} from "@/utils/url.js"
 
 /** 配置账号列表归一化：字符串化、去空白、丢空项、去重且保留首次顺序 */
 export function readIds(v: unknown): string[] {
@@ -22,9 +27,7 @@ export function readIds(v: unknown): string[] {
 }
 
 /** bind 去重保序 - exclude，并报出两边都写了的账号 */
-export function effectiveAccounts(
-  conf: WsConnection,
-): { accounts: string[]; conflicts: string[] } {
+export function effectiveAccounts(conf: WsConnection): { accounts: string[]; conflicts: string[] } {
   const bind = readIds(conf.bind)
   const excluded = new Set(readIds(conf.exclude))
   const accounts: string[] = []

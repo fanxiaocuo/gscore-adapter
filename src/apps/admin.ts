@@ -132,7 +132,14 @@ function parseKV(text: string): ParsedKV {
 
 /** bind / exclude 的多个账号用不与 key=value 分片冲突的符号分隔 */
 function splitIds(value: string): string[] {
-  return [...new Set(value.split(/[+|;；、]+/).map(x => x.trim()).filter(Boolean))]
+  return [
+    ...new Set(
+      value
+        .split(/[+|;；、]+/)
+        .map(x => x.trim())
+        .filter(Boolean),
+    ),
+  ]
 }
 
 /** bind 不再接受 all；null 表示需要给用户明确报错 */
@@ -511,8 +518,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         if (kv.bot_id) {
           for (const id of ids) writeAccountBotId(doc, id, kv.bot_id, undefined, true)
         } else {
-          if (hit.conf.bot_id)
-            for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
+          if (hit.conf.bot_id) for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
           if (kv.bind !== undefined) writeAccountBotIds(doc, ids, config.bot_id_map)
         }
       })

@@ -34,7 +34,12 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
       <div className="pointer-events-none absolute inset-0 z-0 opacity-[.04]">
         <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
           <filter id="n" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.3" numOctaves={1} stitchTiles="stitch" />
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.3"
+              numOctaves={1}
+              stitchTiles="stitch"
+            />
             <feColorMatrix type="saturate" values="0" />
           </filter>
           <rect width="100%" height="100%" filter="url(#n)" />
@@ -195,7 +200,9 @@ export function Empty({ title, tip }: { title: string; tip: string }) {
     <div className="flex flex-col items-center justify-center gap-[16px] rounded-[32px] border border-dashed border-border bg-surface px-[80px] py-[96px] text-center">
       <div className="text-[44px] font-black leading-[1.2]">{title}</div>
       {/* break-keep：提示里嵌着 #早柚设置适配器开启 这类指令，不能在字间劈开 */}
-      <div className="text-[26px] leading-[1.7] whitespace-pre-line break-words break-keep text-muted">{tip}</div>
+      <div className="text-[26px] leading-[1.7] whitespace-pre-line break-words break-keep text-muted">
+        {tip}
+      </div>
     </div>
   )
 }
@@ -503,7 +510,6 @@ export function Footer({
     </div>
   )
 }
-
 
 /** 一整页 */
 export function Page({

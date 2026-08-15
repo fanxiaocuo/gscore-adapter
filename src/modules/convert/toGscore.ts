@@ -91,8 +91,7 @@ export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]>
         // 协议禁止 node 嵌套，这里拍平
         const arr: Exclude<MessageSegment, { type: "node" }>[] = []
         for (const n of Array.isArray(i.data) ? i.data : []) {
-          for (const s of await msgToGscore(n?.message ?? n))
-            if (s.type !== "node") arr.push(s)
+          for (const s of await msgToGscore(n?.message ?? n)) if (s.type !== "node") arr.push(s)
         }
         out.push({ type: "node", data: arr })
         break

@@ -78,8 +78,7 @@ export const clientSchemas = [
         {
           field: "bind",
           label: "仅转发",
-          bottomHelpMessage:
-            "要接入早柚核心的机器人账号，至少填一个。每个账号会生成一条独立连接",
+          bottomHelpMessage: "要接入早柚核心的机器人账号，至少填一个。每个账号会生成一条独立连接",
           component: "GTags",
           componentProps: { allowAdd: true, allowDel: true },
         },

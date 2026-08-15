@@ -4,7 +4,6 @@
  * 对应 resources/config/default_config.yaml
  */
 
-
 /** WebSocket 连接配置 */
 export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */

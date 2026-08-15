@@ -40,7 +40,9 @@ export function findRouteConflict(
 ): string | null {
   if (!next.enable) return null
   const base = expandConnections(list)
-  const after = expandConnections(list.map((conf, i) => (i === index ? { ...conf, ...next } : conf)))
+  const after = expandConnections(
+    list.map((conf, i) => (i === index ? { ...conf, ...next } : conf)),
+  )
   const had = tally(base.runtime)
   const has = tally(after.runtime)
   // 自己一条都派生不出来（被别人顶掉），或别人本来能起的变少了（被自己顶掉）

@@ -183,8 +183,7 @@ function cssFileFor(palette: Palette, scale: number): string {
  * 否则「预览里对、出图错」这类问题会没人发现。
  */
 export function buildHtml(title: string, cssPath: string, body: string): string {
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   const wrapper = new HtmlWrapper({
     cssPath,
     headExtra: `<title>${esc(title)}</title>`,

@@ -125,9 +125,7 @@ function readIdList(item: YAMLMap, key: string): string[] {
   if (!YAML.isSeq(node)) return []
   return [
     ...new Set(
-      node.items
-        .map(n => (YAML.isScalar(n) ? String(n.value ?? "").trim() : ""))
-        .filter(Boolean),
+      node.items.map(n => (YAML.isScalar(n) ? String(n.value ?? "").trim() : "")).filter(Boolean),
     ),
   ]
 }

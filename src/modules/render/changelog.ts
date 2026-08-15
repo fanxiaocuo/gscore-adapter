@@ -45,13 +45,15 @@ export interface Release {
  *   3. 其余 [文本](链接) 形式的行内链接，只留文本
  */
 function clean(line: string): string {
-  return line
-    // 先摘掉末尾的 ([hash](url))，它总在行尾
-    .replace(/\s*\(\[[0-9a-f]+\]\([^)]*\)\)\s*$/i, "")
-    // 再把剩下的行内链接压成纯文本
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\*\*/g, "")
-    .trim()
+  return (
+    line
+      // 先摘掉末尾的 ([hash](url))，它总在行尾
+      .replace(/\s*\(\[[0-9a-f]+\]\([^)]*\)\)\s*$/i, "")
+      // 再把剩下的行内链接压成纯文本
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\*\*/g, "")
+      .trim()
+  )
 }
 
 /**

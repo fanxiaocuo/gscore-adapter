@@ -222,7 +222,11 @@ export function Status(data: StatusData) {
                           >
                             <span className="grid size-[34px] flex-none place-items-center overflow-hidden rounded-[9999px] border border-border bg-surface text-[17px] font-bold text-muted">
                               {b.avatar ? (
-                                <img className="block size-full object-cover" src={b.avatar} alt="" />
+                                <img
+                                  className="block size-full object-cover"
+                                  src={b.avatar}
+                                  alt=""
+                                />
                               ) : (
                                 (b.name || b.id).slice(0, 1)
                               )}

@@ -150,12 +150,7 @@ export async function onYunzaiNotice(e: AdapterEvent) {
     const meta = noticeToMeta(e, selfId)
     if (!meta) {
       // 群禁言、群头衔、消息撤回等大量事件都会走到这里，用 debug 免得刷屏
-      return makeLog(
-        "debug",
-        `未映射的事件：${e.notice_type}.${e.sub_type}`,
-        "GsCore",
-        true,
-      )
+      return makeLog("debug", `未映射的事件：${e.notice_type}.${e.sub_type}`, "GsCore", true)
     }
 
     // 不传 e：这里判定的是事件涉及的用户（meta.data.user_id），

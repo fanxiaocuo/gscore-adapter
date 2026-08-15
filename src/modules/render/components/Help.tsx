@@ -93,7 +93,7 @@ function keepAtoms(cmd: string) {
       <span key={i} className="whitespace-nowrap">
         {part}
       </span>
-    )
+    ),
   )
 }
 
@@ -262,8 +262,7 @@ function spanMap(items: { wide?: boolean }[]): boolean[] {
 }
 
 function Group({ group, color }: { group: HelpGroup; color: string }) {
-  const total =
-    group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
+  const total = group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
   /** 整组都要主人权限时在标题上标一次，替代原先每条卡片各标一个 */
   const allMaster = group.items.length > 0 && group.items.every(i => i.master)
   const spans = spanMap(group.items)
@@ -272,7 +271,10 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
     <div className="mb-[88px] last:mb-0">
       {/* 色条与标题都用 leading-none + items-center，色条才会正对标题的视觉中线 */}
       <div className="mb-[44px] flex items-center gap-[24px]">
-        <div className="h-[56px] w-[12px] flex-none rounded-[9999px]" style={{ background: color }} />
+        <div
+          className="h-[56px] w-[12px] flex-none rounded-[9999px]"
+          style={{ background: color }}
+        />
         <h2 className="flex-none text-[64px] font-black leading-none tracking-[-.03em]">
           {group.title}
         </h2>

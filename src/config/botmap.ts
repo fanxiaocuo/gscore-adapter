@@ -58,8 +58,7 @@ export function writeAccountBotId(
   if (!sid) return ""
   if (!force && existingMap?.[sid]) return ""
   if (!force && mapValue(doc, sid)) return ""
-  const guessed =
-    (platform && String(platform).trim()) || guessPlatform(sid, getBot(sid))
+  const guessed = (platform && String(platform).trim()) || guessPlatform(sid, getBot(sid))
   if (!guessed) return ""
   doc.setIn(["bot_id_map", mapKey(doc, sid)], guessed)
   return guessed
@@ -84,9 +83,7 @@ function readIdList(item: YAMLMap, key: string): string[] {
   if (!YAML.isSeq(node)) return []
   return [
     ...new Set(
-      node.items
-        .map(n => (YAML.isScalar(n) ? String(n.value ?? "").trim() : ""))
-        .filter(Boolean),
+      node.items.map(n => (YAML.isScalar(n) ? String(n.value ?? "").trim() : "")).filter(Boolean),
     ),
   ]
 }

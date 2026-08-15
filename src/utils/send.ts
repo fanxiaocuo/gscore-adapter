@@ -80,7 +80,10 @@ export function sendMessageId(ret: any): string | string[] | null {
   if (ret == null || typeof ret !== "object") return null
 
   if (Array.isArray(ret)) {
-    const ids = ret.map(i => sendMessageId(i)).flat().filter(Boolean) as string[]
+    const ids = ret
+      .map(i => sendMessageId(i))
+      .flat()
+      .filter(Boolean) as string[]
     return ids.length ? (ids.length === 1 ? ids[0] : ids) : null
   }
 

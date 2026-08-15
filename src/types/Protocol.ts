@@ -384,4 +384,3 @@ export interface Event extends MessageReceive {
   file_name?: string
   file?: string
 }
-

@@ -73,7 +73,11 @@ function tailwind(): string {
     twCache = fs.readFileSync(join(ResPath, "template", "css", "tailwind.css"), "utf8")
   } catch {
     twCache = ""
-    makeLog("warn", "未找到 Tailwind 产物（resources/template/css/tailwind.css），请先 pnpm build", "GsCore")
+    makeLog(
+      "warn",
+      "未找到 Tailwind 产物（resources/template/css/tailwind.css），请先 pnpm build",
+      "GsCore",
+    )
   }
   return twCache
 }

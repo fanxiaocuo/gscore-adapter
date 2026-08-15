@@ -44,11 +44,7 @@ try {
   cfg = (await import(url)).default as unknown as typeof cfg
   cfgLoaded = true
 } catch (err) {
-  makeLog(
-    "error",
-    ["读取框架配置失败，主人识别将失效（早柚核心侧主人命令不可用）", err],
-    "GsCore",
-  )
+  makeLog("error", ["读取框架配置失败，主人识别将失效（早柚核心侧主人命令不可用）", err], "GsCore")
 }
 
 /**

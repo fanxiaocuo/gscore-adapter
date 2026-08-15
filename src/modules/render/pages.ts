@@ -18,11 +18,7 @@ import { forName, snapshot } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { Help } from "./components/Help.js"
 import { Status, type ConnRow, type StatusPanel } from "./components/Status.js"
-import {
-  Settings,
-  type SettingFacts,
-  type SettingGroup,
-} from "./components/Settings.js"
+import { Settings, type SettingFacts, type SettingGroup } from "./components/Settings.js"
 import { Changelog } from "./components/Changelog.js"
 import { About } from "./components/About.js"
 import type { Commit, UpdateInfo } from "@/modules/update/git.js"
@@ -428,8 +424,14 @@ function statusPanels(): StatusPanel[] {
         },
         { k: "仅响应 @", v: onOff(f.only_reply_at) },
         { k: "触发前缀", v: countOf(f.prefix, "无") },
-        { k: "屏蔽前缀 / 关键词", v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0}` },
-        { k: "群白名单 / 黑名单", v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项` },
+        {
+          k: "屏蔽前缀 / 关键词",
+          v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0}`,
+        },
+        {
+          k: "群白名单 / 黑名单",
+          v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项`,
+        },
         { k: "用户黑名单", v: countOf(f.black_user, "无") },
       ],
     },
@@ -449,9 +451,7 @@ function statusPanels(): StatusPanel[] {
         { k: "合并转发", v: fwdLabel() },
         // QQBot 被动回复：记着多少个会话能让回复挂到用户那条消息上。
         // 只在真的有记录时显示 —— 没装 QQBot 的用户看到这一行会莫名其妙
-        ...(passiveCount() > 0
-          ? [{ k: "被动回复窗口", v: `${passiveCount()} 个会话可用` }]
-          : []),
+        ...(passiveCount() > 0 ? [{ k: "被动回复窗口", v: `${passiveCount()} 个会话可用` }] : []),
       ],
     },
     {
@@ -584,13 +584,22 @@ function settingFacts(): SettingFacts[] {
       title: "连接与过滤",
       key: "LINKS",
       items: [
-        { k: "连接数", v: `${conns.length} 条 · ${conns.filter(c => c.enable !== false).length} 条启用` },
+        {
+          k: "连接数",
+          v: `${conns.length} 条 · ${conns.filter(c => c.enable !== false).length} 条启用`,
+        },
         { k: "心跳 / 超时", v: hb ? `${hb}s / ${to ? `${to}s` : "关"}` : "关" },
         // 默认重连次数不再是无限，这页要说清楚——否则「连接自己停了」会被当成 bug
         { k: "重连", v: reconnectLabel(conns) },
         { k: "触发前缀", v: countOf(f.prefix, "无") },
-        { k: "屏蔽前缀 / 关键词", v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0} 项` },
-        { k: "群白名单 / 黑名单", v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项` },
+        {
+          k: "屏蔽前缀 / 关键词",
+          v: `${f.block_prefix?.length || 0} / ${f.block_include?.length || 0} 项`,
+        },
+        {
+          k: "群白名单 / 黑名单",
+          v: `${countOf(f.white_group)} / ${f.black_group?.length || 0} 项`,
+        },
       ],
     },
     {
@@ -604,7 +613,10 @@ function settingFacts(): SettingFacts[] {
           v: srv.enable === false ? "关" : `开 · 端口 ${srv.port || "自动"}`,
         },
         { k: "自定义图床", v: config.upload_hook ? "已配置" : "未配置" },
-        { k: "检查间隔 / 首检", v: `${Math.max(Number(u.interval) || 180, 30)} 分 / ${Number(u.delay) || 5} 分` },
+        {
+          k: "检查间隔 / 首检",
+          v: `${Math.max(Number(u.interval) || 180, 30)} 分 / ${Number(u.delay) || 5} 分`,
+        },
         { k: "日志截断 base64", v: onOff(config.log_truncate !== false) },
       ],
     },
@@ -829,9 +841,7 @@ export async function renderAbout() {
             key: "运行状态",
             value: enabled() ? "已启用" : "已禁用",
             mono: true,
-            sub: enabled()
-              ? "云崽作为 ws 客户端主动连接核心"
-              : "用 #早柚设置适配器开启 启用",
+            sub: enabled() ? "云崽作为 ws 客户端主动连接核心" : "用 #早柚设置适配器开启 启用",
           },
           {
             key: "处理器",

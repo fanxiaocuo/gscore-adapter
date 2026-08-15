@@ -65,10 +65,7 @@ export function supportGuoba() {
        * @param Result 锅巴自己的返回结果类，由它注入 —— 插件不 import 它
        *               （锅巴不装时这个模块整个不会被执行），只标类型
        */
-      setConfigData(
-        data: Record<string, unknown>,
-        { Result }: { Result: typeof guoba.Result },
-      ) {
+      setConfigData(data: Record<string, unknown>, { Result }: { Result: typeof guoba.Result }) {
         // enable 由 index.ts 的 onConfigReload 热起停，client.* 靠 reloadClients，
         // 两者都不需要重启，所以这里只有成功/失败两种提示
         let touchedClient = false
