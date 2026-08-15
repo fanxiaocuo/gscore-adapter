@@ -53,6 +53,14 @@
    */
   --switch-off: #e5e5ea;
   --switch-on: #34c759;
+  /*
+   * 开关的边界描边，深浅必须分开给（实测值，见 test/switch-contrast.mjs）
+   *
+   * 关态轨道对卡片底只有 1.26:1（浅）/ 2.69:1（深），控件几乎看不见，所以补一圈描边。
+   * 但同一个黑色描边在深色下是**反效果**：压在 #636366 上再对 #1e2127 比只有 1.69:1，
+   * 比不描边还糟。浅色压黑、深色提白，两边才都过 3:1（SC 1.4.11 的非文本对比度）。
+   */
+  --switch-edge: rgb(0 0 0 / 40%);
   /* 平台标签（QQBot / onebot…）：淡蓝底深蓝字，不用 --primary —— 那是按钮色 */
   --chip: #edf4ff;
   --chip-fg: #1663bd;
@@ -68,6 +76,7 @@
     --shadow: none;
     --switch-off: #636366;
     --switch-on: #30d158;
+    --switch-edge: rgb(255 255 255 / 22%);
     --chip: #12345b;
     --chip-fg: #6eb4ff;
   }
@@ -146,9 +155,10 @@ body {
    *
    * 浅色下 --switch-off(#e5e5ea) 对 --surface(#fff) 只有 1.26:1，白滑块对轨道同样是
    * 1.26:1 —— 整个控件几乎只靠滑块那点投影才看得出来。这圈内描边给的是「组件边界」
-   * 而不是填充色对比，开态一起留着（绿底上很淡，不影响观感）。
+   * 而不是填充色对比，开态一起留着（两态都要能看见边界）。颜色按主题取，理由见
+   * --switch-edge；实测脚本 test/switch-contrast.mjs。
    */
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 30%);
+  box-shadow: inset 0 0 0 1px var(--switch-edge);
   transition: background-color 0.18s ease;
 }
 
