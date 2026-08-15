@@ -13,7 +13,7 @@ import {
 import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
 import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
 import { findRouteConflict } from "@/modules/client/conflict"
-import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import {
   findDuplicate,
@@ -380,8 +380,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
-    const routes = expandConnections([conf]).runtime.map(r => safeUrl(r.runtimeUrl))
-    const startedNew = clientMode() ? startSource(getWsConnections().length - 1) : 0
+    // 按**全局**展开再筛自己那条，不是 expandConnections([conf])。孤立展开看不到
+    // 路由冲突（全局前项优先），会把已经被别人占掉、实际不会连的地址也列进
+    // 「将连接：」—— 用户照着这行去核心侧找，那个客户端根本不存在。
+    // 新连接刚 append 完，就在列表末尾（下一行的 startSource 用的也是这个下标）
+    const addedIndex = getWsConnections().length - 1
+    const expanded = expandConnections(getWsConnections())
+    const routes = expanded.runtime
+      .filter(r => r.sourceIndex === addedIndex)
+      .map(r => safeUrl(r.runtimeUrl))
+    // 一条都没派生出来时把原因带上：这行以前只是消失，用户看到「已添加连接」
+    // 加一个再也不出现的连接，无处可查
+    const skipped = expanded.errors.filter(x => x.sourceIndex === addedIndex).map(x => x.message)
+    const startedNew = clientMode() ? startSource(addedIndex) : 0
     const mappedNow = bind
       .map(id => {
         const p = explicit || config.bot_id_map?.[id]
@@ -392,6 +403,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
       `已添加连接 ${name}\n核心地址：${safeUrl(url)}\n` +
         `绑定账号：${bind.join("、") || "（无）"}\n` +
         (routes.length ? `将连接：${routes.join("\n　　　　")}\n` : "") +
+        (skipped.length ? `未生效：${skipped.join("\n　　　　")}\n` : "") +
         (mappedNow.length
           ? `平台标识：${mappedNow.join("、")}（按账号记入 bot_id_map）\n`
           : bind.length
@@ -574,19 +586,32 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const msg = [`早柚核心连接（共 ${list.length} 个）  ${enabled() ? "已启用" : "已禁用"}`]
     list.forEach((c, i) => {
       // 一条配置会按绑定账号派生多条运行时连接，状态必须按来源聚合：
-      // 只要有一条连上就算这条核心通了，全没连上才报第一条的具体状态
+      // 规则走 constants 的 pickByStatus，与出图、面板共用一份 —— 这里原来自己写了
+      // 一套「有一条 status===1 就报已连接」，那正是 pickByStatus 被抽出来要消除的漂移
       const live = clients.filter(x => x.sourceIndex === i)
+      const lead = pickByStatus(live)
+      // 各账号里最坏的那个重连次数。聚合状态报「已连接」时原来把它整个丢了 ——
+      // 非根路径的兼容连接尤其明显：它只有一条运行时连接，account 为 null，
+      // 下面的账号明细又按 account 筛，于是重连次数一处也不剩
+      const retry = live.reduce((n, x) => Math.max(n, x.retry), 0)
+      const unconnected = live.filter(x => x.status !== 1).length
+      // 「已连接」但有账号没连上时要说出来：那恰恰是要人动手的情况，而聚合把它藏了
+      const notes: string[] = []
+      if (lead?.status === 1 && unconnected) notes.push(`${unconnected} 个账号未连接`)
+      if (retry) notes.push(`已重连 ${retry} 次`)
       const state =
         c.enable === false
           ? "已停用"
-          : live.some(x => x.status === 1)
-            ? STATUS_TEXT[1]
-            : live[0]?.statusText || "未启动"
+          : !lead
+            ? "未启动"
+            : STATUS_TEXT[lead.status] + (notes.length ? `（${notes.join("、")}）` : "")
       const accounts = (c.bind ?? []).map(id => {
         const p = accountPlatform(id)
         return p ? `${id}(${p})` : String(id)
       })
-      // 账号级明细：哪个号连上了、哪个号还在重连，聚合状态看不出来
+      // 账号级明细：哪个号连上了、哪个号还在重连，聚合状态看不出来。
+      // 只列账号级连接（account 非 null）—— 兼容连接只派生一条，它的状态就是上面那个
+      // 聚合值，再列一遍是同一句话；它的重连次数现在由 state 的 notes 带出去
       const detail = live
         .filter(x => x.account)
         .map(x => `\n     ${x.account}: ${x.statusText}`)
