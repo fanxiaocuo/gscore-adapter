@@ -58,25 +58,33 @@ export function normalizeEndpoint(url: string | null | undefined): string {
 }
 
 /**
- * 地址里内联的 `?token=` 值；没写内联凭据回 null（写了空值 `?token=` 算配过，回 `""`）
+ * 地址里内联的凭据；没内联、或内联的是空写的 `?token=`，都回 null
  *
- * 判据与 modules/client/expand.ts 的 detachInlineToken 对齐：`searchParams.has`，
- * 空值也算配过。并且先过 {@link normalizeEndpoint} —— 配置里允许不写协议
- * （`h:8765/ws/X`），直接 `new URL` 会抛，而 expand 那边是规范化之后才解析的。
- * 两边判据一旦不一致，就会出现「运行时确实取到了凭据，面板与状态图却说没配 token」。
+ * 先过 {@link normalizeEndpoint} —— 配置里允许不写协议（`h:8765/ws/X`），直接
+ * `new URL` 会抛，而 expand 那边是规范化之后才解析的。两边判据一旦不一致，就会出现
+ * 「运行时确实取到了凭据，面板与状态图却说没配 token」。
  *
  * 根路径地址（`ws://h:8765/?token=x`）同样报得出来：{@link normalizeEndpoint} 留住了
  * 根路径的查询串，expand 的根路径分支也先过 detachInlineToken 把凭据摘进 token 字段，
  * 派生地址再由 {@link materializeAccountUrl} 清空 search。
  *
- * 「已配 token」说的就是运行时会发出去的那一份：内联写了值时是内联那份（它优先），
- * 内联空写时是 token 字段那份（空写不顶掉真凭据，见 expand 的 detachInlineToken）。
- * 两处判据一旦各说各话，就会出现「面板说已配、握手却什么也没带」这种查无从查起的病。
+ * 空写的 `?token=` 回 null，与 detachInlineToken 的 `searchParams.has` 有意分开
+ * ------
+ * 两个函数问的不是一件事：detachInlineToken 问「这条地址里有没有一个 token 参数要我
+ * 搬走、并在运行时照原样复现」——那是**形状**问题，空参数也得复现；这个函数问「有没有
+ * 一份凭据」，四个调用点（面板 has_token、状态图那一行、指令与面板改地址时的搬运）
+ * 要的都是后者。
+ *
+ * 空值算「配过」的话，`?token=` 空写且 token 字段也空的配置会让面板和状态图一起说
+ * 「已配 token」，而握手带出去的是个空参数 —— 正是这段注释原本警告的那个病，只是方向
+ * 反了：用户什么也没配，被告知配好了，然后连不上，且没有一处话术指得到那个空参数上。
+ * expand 的 detachInlineToken 早已认定空写不算提供凭据（空写不顶掉 token 字段里那份
+ * 真的），这里跟上，四处话术才一致。
  */
 export function inlineToken(url: string | null | undefined): string | null {
   try {
     const u = new URL(normalizeEndpoint(String(url ?? "")))
-    return u.searchParams.has("token") ? u.searchParams.get("token") || "" : null
+    return u.searchParams.get("token") || null
   } catch {
     return null
   }

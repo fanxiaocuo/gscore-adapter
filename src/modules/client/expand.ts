@@ -79,12 +79,14 @@ function parseEndpoint(url: string): URL | null {
  * ------
  * 地址里**有值**的鉴权参数优先于 token 字段，保持现有客户端 getter 的语义。但空写的
  * `?token=` 不能顶掉 token 字段里那份真的：顶掉之后运行时拿空值去握手、核心拒连，
- * 而面板与状态图看的是配置（`!!conf.token`、utils/url.ts 的 inlineToken 都判「存在」），
- * 一致地回一句「已配 token」—— 用户拿着确实写了 token 的配置，收到的是「配好了」
- * 加一个连不上，而且没有一处话术指得到那个空参数上。
+ * 而面板与状态图看的是配置（`!!conf.token` 就足够为真），一致地回一句「已配 token」
+ * —— 用户拿着确实写了 token 的配置，收到的是「配好了」加一个连不上，而且没有一处
+ * 话术指得到那个空参数上。
  *
  * 只有 token 字段本身也没凭据时，空参数才照原样带上：那是用户显式写下的形状，
  * 运行时按它复现（GsCoreClient 的 url getter 凭 inlineToken 标记补回空参数）。
+ * 这里用 `searchParams.has` 是在问形状（有没有参数要搬要复现），而 utils/url.ts 的
+ * inlineToken() 问的是有没有凭据，空写回 null —— 两处有意不同，各自的注释都说了。
  */
 function detachInlineToken(
   url: URL,

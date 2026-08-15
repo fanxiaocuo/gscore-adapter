@@ -545,6 +545,7 @@ function editConnection(body: PanelBody) {
    * 搬而不是把查询串留着：凭据本来就该待在 token 字段，运行时也是这么摆的
    * （expand.ts 的 detachInlineToken 把它摘出来，运行时地址不带凭据），顺手收正。
    * body 自己带了 token（改密）或显式 clear_token（清空）时不搬 —— 那是用户的意图。
+   * 新地址里内联了凭据时同理不搬；空写的 `?token=` 两边都不算凭据（见 utils/url.ts）。
    */
   if (patch.url !== undefined && patch.token === undefined) {
     const carried = inlineToken(hit.conf.url)

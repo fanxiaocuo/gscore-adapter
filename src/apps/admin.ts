@@ -465,7 +465,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.token !== undefined) patch.token = kv.token || null
     // 只改地址时把内联凭据搬进 token 字段：`url=10.0.0.5:8765` 写的是裸地址，
     // 而旧地址的凭据只存在于 `?token=` 里，跟着地址一起没了。改完不报错、
-    // 下次握手直接无凭据，症状和地址毫无关系。用户自己写了 token= 时不搬——那是改密。
+    // 下次握手直接无凭据，症状和地址毫无关系。新地址里内联了凭据时不搬——那是改密。
+    // 空写的 `?token=` 两边都不算凭据（见 utils/url.ts 的 inlineToken）。
     if (patch.url !== undefined && patch.token === undefined) {
       const carried = inlineToken(hit.conf.url)
       if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
