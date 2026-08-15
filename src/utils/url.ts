@@ -67,8 +67,11 @@ export function normalizeEndpoint(url: string | null | undefined): string {
  *
  * 根路径地址（`ws://h:8765/?token=x`）同样报得出来：{@link normalizeEndpoint} 留住了
  * 根路径的查询串，expand 的根路径分支也先过 detachInlineToken 把凭据摘进 token 字段，
- * 派生地址再由 {@link materializeAccountUrl} 清空 search。三处判据一致，面板与状态图
- * 说的「已配 token」才等于运行时真正带上的那份凭据。
+ * 派生地址再由 {@link materializeAccountUrl} 清空 search。
+ *
+ * 「已配 token」说的就是运行时会发出去的那一份：内联写了值时是内联那份（它优先），
+ * 内联空写时是 token 字段那份（空写不顶掉真凭据，见 expand 的 detachInlineToken）。
+ * 两处判据一旦各说各话，就会出现「面板说已配、握手却什么也没带」这种查无从查起的病。
  */
 export function inlineToken(url: string | null | undefined): string | null {
   try {

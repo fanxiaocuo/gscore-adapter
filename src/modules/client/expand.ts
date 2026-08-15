@@ -74,15 +74,29 @@ function parseEndpoint(url: string): URL | null {
  *
  * 根端点与自定义路径两条分支都要过这一步，否则同一份凭据换个写法就会被丢掉。
  * URLSearchParams.get() 读取首个精确名称匹配；delete() 清除全部同名项。
- * 若地址与配置都提供鉴权值，地址中的值优先，保持现有客户端 getter 的语义。
+ *
+ * 谁盖谁：空写的 `?token=` 不算提供了凭据
+ * ------
+ * 地址里**有值**的鉴权参数优先于 token 字段，保持现有客户端 getter 的语义。但空写的
+ * `?token=` 不能顶掉 token 字段里那份真的：顶掉之后运行时拿空值去握手、核心拒连，
+ * 而面板与状态图看的是配置（`!!conf.token`、utils/url.ts 的 inlineToken 都判「存在」），
+ * 一致地回一句「已配 token」—— 用户拿着确实写了 token 的配置，收到的是「配好了」
+ * 加一个连不上，而且没有一处话术指得到那个空参数上。
+ *
+ * 只有 token 字段本身也没凭据时，空参数才照原样带上：那是用户显式写下的形状，
+ * 运行时按它复现（GsCoreClient 的 url getter 凭 inlineToken 标记补回空参数）。
  */
-function detachInlineToken(url: URL): { runtimeUrl: string; token?: string; inlineToken?: boolean } {
-  const hasInlineToken = url.searchParams.has("token")
-  const inlineToken = url.searchParams.get("token")
+function detachInlineToken(
+  url: URL,
+  configured: unknown,
+): { runtimeUrl: string; token?: string; inlineToken?: boolean } {
+  const present = url.searchParams.has("token")
+  const inline = url.searchParams.get("token") || ""
   url.searchParams.delete("token")
+  const wins = present && (!!inline || !String(configured ?? ""))
   return {
     runtimeUrl: url.toString(),
-    ...(hasInlineToken ? { token: inlineToken || "", inlineToken: true } : {}),
+    ...(wins ? { token: inline, inlineToken: true } : {}),
   }
 }
 
@@ -176,11 +190,10 @@ export function expandConnections(list: WsConnection[]): {
             `请改为只填 host:port 并补上绑定账号。`,
         )
       }
-      const { runtimeUrl, token: inlineToken, inlineToken: hasInlineToken } =
-        detachInlineToken(parsed)
+      const { runtimeUrl, ...auth } = detachInlineToken(parsed, conf.token)
       claim({
         ...conf,
-        ...(hasInlineToken ? { token: inlineToken, inlineToken: true } : {}),
+        ...auth,
         sourceIndex,
         account: null,
         runtimeName: label,
@@ -200,19 +213,25 @@ export function expandConnections(list: WsConnection[]): {
     // 不摘就等于在这一步把 `ws://h:8765/?token=x` 的凭据丢掉：握手不带凭据、核心拒连，
     // 而这个分支原来压根不调 detachInlineToken（只有非根那支调），于是同一份配置
     // 写成自定义路径能连、写成核心地址连不上。
-    const { token: rootToken, inlineToken: hasRootToken } = detachInlineToken(parsed)
+    //
+    // 派生地址从摘干净的 endpoint 上长出来，而不是再拿原串 url 走一遍：那样「凭据不进
+    // runtimeUrl」就得靠 materializeAccountUrl 也清一次 search 才成立 —— 两处各扫一遍、
+    // 谁也不知道对方在扫。它哪天改成保留无害查询参数（自定义路径那支本来就留 mode=
+    // 这类），凭据立刻跟着进 runtimeUrl，而 runtimeUrl 会进面板的 path 字段、也随状态图
+    // 发进群。摘一次、后面全用摘过的那个串，这条不变式就只依赖这一行。
+    const { runtimeUrl: endpoint, ...auth } = detachInlineToken(parsed, conf.token)
 
     for (const account of accounts) {
       let runtimeUrl: string
       try {
-        runtimeUrl = materializeAccountUrl(url, account)
+        runtimeUrl = materializeAccountUrl(endpoint, account)
       } catch {
         errors.push(`连接 ${label} 的账号编码失败，已跳过`)
         continue
       }
       claim({
         ...conf,
-        ...(hasRootToken ? { token: rootToken, inlineToken: true } : {}),
+        ...auth,
         sourceIndex,
         account,
         runtimeName: accountRuntimeName(label, account),
