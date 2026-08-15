@@ -12,6 +12,7 @@ import {
 } from "@/config"
 import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
 import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
+import { findRouteConflict } from "@/modules/client/conflict"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
@@ -436,16 +437,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
     } catch (err) {
       return e.reply(errorMessage(err))
     }
-    const duplicate = findDuplicate(
-      getWsConnections().filter((_, i) => i !== hit.index),
-      nextUrl,
-      nextBind,
-    )
-    if (duplicate)
-      return e.reply(`修改后会与连接 ${duplicate.name} 的核心地址和绑定账号重复，已取消保存`)
-
     const bindErr = requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
     if (bindErr) return e.reply(bindErr)
+
+    // 改完之后会不会有连接哑掉。判据与「为什么不是 findDuplicate」见 findRouteConflict：
+    // 这里原先也用它，同一核心上另有一条自定义路径的连接时会误判成重复，连改个名字都存不了
+    const conflict = findRouteConflict(getWsConnections(), hit.index, {
+      url: nextUrl,
+      bind: nextBind,
+      exclude: nextExclude,
+      enable:
+        kv.enable !== undefined ? kv.enable.toLowerCase() === "true" : hit.conf.enable !== false,
+    })
+    if (conflict) return e.reply(`${conflict}，已取消保存`)
 
     // 字段校验都在写盘之前做完：报错要作为一句话回给用户，不能等 updateConnection
     // 写到一半才抛。patch 的键序即回复里「xx 已更新」的顺序

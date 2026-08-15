@@ -54,6 +54,7 @@ import {
   requireAccounts,
   sourceLabel,
 } from "@/modules/client/expand"
+import { findRouteConflict } from "@/modules/client/conflict"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
@@ -144,10 +145,9 @@ function withPlatform(p: BotProfile): BotProfile {
  * 面板与回包话术里显示的连接名
  *
  * 没起名字的连接只能拿地址当名字，而**凭据可能只存在于地址里**：normalizeEndpoint
- * 只把根路径收成 origin，非根路径是 `u.toString()`、查询串一起留着
- * （utils/url.ts:53-54），所以 `ws://host:port/ws/Custom?token=xxx` 这种配置的
- * conf.token 是空的。这个串会进面板卡片、也会进 POST 回包的 message，
- * 所以一律先过 redactUrl。
+ * 只砍 fragment，查询串一律留着（根路径也留，否则 `ws://h:8765/?token=x` 的凭据
+ * 在规范化时就丢了），所以 `?token=xxx` 写在地址里的连接 conf.token 是空的。
+ * 这个串会进面板卡片、也会进 POST 回包的 message，所以一律先过 redactUrl。
  *
  * locate() 定位比的是配置里的原值（`c.name || c.url`），与这里的显示串是两条路径；
  * 面板发的动作都带 index（webui/main.tsx 一律 `key: c.index`）。
@@ -491,6 +491,9 @@ function editConnection(body: PanelBody) {
 
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
+  // 判重要用「改完之后的地址」，而 patch.url 只在真动过时才写，拿不到它。
+  // 两个分支各自算出的那个规范化地址在这儿收敛成一个变量
+  let nextUrl: string
   if (body.url !== undefined) {
     const next = requireWsUrl(String(body.url))
     // 面板看到的地址是脱敏过的（connView 的 url 过了 redactUrl），编辑弹层又会把
@@ -502,17 +505,29 @@ function editConnection(body: PanelBody) {
     // `ws://HOST:8765/...`、`ws://h:80/...` 这些配置即便一个字没动也「看起来变了」，
     // 白写一次 patch.url —— 而写 url 就会丢查询串里的凭据（下面那段搬运是兜底）
     if (next !== normalizeEndpoint(redactUrl(hit.conf.url))) patch.url = next
+    nextUrl = next
   } else {
-    // normalizeEndpoint 只做两件事：补 ws:// 协议、把根路径收成 origin
-    // （utils/url.ts:43-58）。**不收**非根路径 —— 老配置里的 `/ws/Yunzai-123`、
-    // `/ws/Yunzai` 会原样留下。要不要把这类旧路径一并收回 origin 是全局决定
-    // （apps/admin.ts 的编辑分支同样只调 normalizeEndpoint），不在这条改动里单独换掉。
-    // 但这一支同样可能产出 patch.url：非根路径虽不被收成 origin，仍会经
-    // new URL().toString() 重新序列化，主机小写、默认端口消失
+    // normalizeEndpoint 做的是：没写协议就补 ws://、砍掉 fragment、经 new URL()
+    // 重新序列化（主机小写、默认端口消失）。**不改写用户写的路径** —— 老配置里的
+    // `/ws/Yunzai-123`、`/ws/Yunzai` 原样留下；只有干净的根路径才收成 origin，
+    // 根路径带查询串时也留着（凭据可能就在里面，见 utils/url.ts 的 normalizeEndpoint）。
+    // 所以这一支同样可能产出 patch.url：路径没动，序列化结果也可能与原值不同字
     const normalized = normalizeEndpoint(String(hit.conf.url || ""))
     if (normalized !== hit.conf.url) patch.url = normalized
+    nextUrl = normalized
   }
-  if (body.name !== undefined) patch.name = String(body.name).trim()
+  /**
+   * 未命名连接：别把它的地址落成名字
+   * ------
+   * 卡片标题走 label()（`conf.name || redactUrl(conf.url)`），未命名时显示的就是脱敏
+   * 地址；编辑弹层把标题当 name 回填、原样提交回来。照收就等于替用户取了个名字，
+   * 而这个名字是**旧地址** —— 之后改地址，标题会一直停在改之前的那个地址上。
+   * 判据与上面 url 那一栏同理：把「我们显示给他的那个串」比一次，相同就当没动过。
+   */
+  if (body.name !== undefined) {
+    const submitted = String(body.name).trim()
+    if (hit.conf.name || submitted !== label(hit.conf)) patch.name = submitted
+  }
   if (body.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
   // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
   // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
@@ -566,6 +581,21 @@ function editConnection(body: PanelBody) {
     exclude: nextExclude,
   })
   if (err) throw new Error(err)
+
+  /**
+   * 别让这次编辑把哪条连接弄哑
+   * ------
+   * 指令侧编辑拦过这一道，面板这边原先没有：两条连接落到同一条路由时不报错，只会被
+   * 仲裁掉，用户看到「保存成功」之后某条连接一直停在未启动。判据与理由见 findRouteConflict。
+   */
+  const conflict = findRouteConflict(getWsConnections(), hit.index, {
+    url: nextUrl,
+    bind: nextBind,
+    exclude: nextExclude,
+    // 传改完之后的启用状态：「把停用的一条打开」最容易撞上别人，不能跳过检查
+    enable: patch.enable !== undefined ? patch.enable : hit.conf.enable !== false,
+  })
+  if (conflict) throw new Error(`${conflict}\n保存已取消。`)
 
   updateConnection(hit.index, patch, doc => {
     if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
