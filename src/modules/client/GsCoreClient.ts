@@ -2,6 +2,7 @@ import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT } from "@/constants"
 import { logStr, sendError, sendMessageId } from "@/utils"
+import { redactUrl } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
@@ -111,7 +112,8 @@ export class GsCoreClient {
     this.conf = conf
     const rt = conf as Partial<RuntimeWsConnection>
     // 运行时连接自带唯一名称与最终地址；直接传逻辑连接时退回旧行为。
-    this.name = rt.runtimeName || conf.name || String(conf.url || "")
+    // 退路里的地址过 redactUrl：name 会进日志，而逻辑连接的地址可能内联着 ?token=
+    this.name = rt.runtimeName || conf.name || redactUrl(conf.url)
     this.target = rt.runtimeUrl || String(conf.url || "")
     this.sourceIndex = typeof rt.sourceIndex === "number" ? rt.sourceIndex : -1
     this.account = rt.account ?? null
