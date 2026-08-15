@@ -76,14 +76,17 @@ function tone(status: number, enabled = true): ConnRow["tone"] {
 }
 
 /**
- * 收发量求和
+ * 收发量求和（**累计**，不是今日）
  *
  * 计数按**运行时**名字存（stats 的 count() 收的就是 client.name），所以一条逻辑
  * 连接要把它派生出的每条运行时连接逐个取出来再加。拿逻辑名去问的话，账号级连接
  * 一条都对不上，这张图上永远是 ↑0 ↓0。
  *
  * 计数活得比客户端长：clients 会被 #早柚重载 整个重建，而计数按名字存在模块级，
- * 所以这里查的是名字，不问客户端还在不在。
+ * 所以这里查的是名字，不问客户端还在不在。stats 的 forName() 回的是累计值，还跨
+ * 重启（落盘），所以卡片上那个 `↑N ↓N` 与状态图「中转情况」里的**累计**那一半
+ * 同源，与「今日」那一半不是一件事 —— 两个数摆在同一张图上，别把它读成今天的量。
+ * 面板与 #早柚状态 文字版（apps/status.ts）取的也是累计，三处一致。
  */
 function sumCounters(names: string[]): { up: number; down: number } {
   let up = 0
@@ -138,7 +141,7 @@ function runtimeRow(
     path: new URL(rt.runtimeUrl).pathname || "/",
     // 组件折叠子行时要按状态挑，光给文案和色调排不出名次
     status,
-    state: live ? STATUS_TEXT[status] || String(status) : "未启动",
+    state: live ? STATUS_TEXT[status] : "未启动",
     tone: tone(status),
     meta,
   }
@@ -203,11 +206,7 @@ function collect(detail = false) {
     // （constants 的 pickByStatus），否则会出现「面板说通了、状态图说没连上」
     const lead = pickByStatus(live)
     const status = lead?.status ?? 0
-    const state = !enabled
-      ? "已停用"
-      : live.length
-        ? STATUS_TEXT[status] || String(status)
-        : "未启动"
+    const state = !enabled ? "已停用" : live.length ? STATUS_TEXT[status] : "未启动"
     // 各账号里最差的那个重连次数。与 state 同时看会显得矛盾（A 已连接、B 在重连时
     // 是「已连接 + 已重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
     // 逐账号的准确值在下面的子行里
@@ -256,7 +255,7 @@ function collect(detail = false) {
 
     if (detail) {
       // 一条运行时连接都没有时用「本该有」的那些名字（见上面的 wouldBe）：
-      // 停用的行取不到活着的运行时名字，但它今天转过的量确实记在那些名字下。
+      // 停用的行取不到活着的运行时名字，但它转过的量确实记在那些名字下。
       // 两者互斥地取，不会重复累加
       const n = sumCounters(views.length ? views.map(r => r.runtimeName) : wouldBe.get(i) || [])
       meta.push(`↑${n.up} ↓${n.down}`)
@@ -291,6 +290,14 @@ function collect(detail = false) {
     }
   })
 
+  // online / off / total 三个数同一个基数：**逻辑连接**（配置里的条目），不是账号。
+  // 一条核心绑 5 个号、其中 3 个连上，这里算 1 —— tone 是 pickByStatus 聚合出来的
+  // 「这条核心通不通」。配文案也按这个基数走（TOTAL 是「连接总数」、ONLINE 是
+  // 「已连接」，都在数连接），而子行数的是账号，单位不同一眼看得出。
+  //
+  // 别改成「连上的账号数」：分子换成账号、分母还是连接的话，`online/total` 会出现
+  // 3/1 这种读不通的比值。面板那边要的是账号级基数，它自己给全 totals 三个数
+  // （logical / runtime / connected，webadapter/index.ts:300），不从这里拿。
   const online = rows.filter(r => r.tone === "on").length
   const off = rows.filter(r => r.tone === "off").length
   return { rows, online, off, total: rows.length }
