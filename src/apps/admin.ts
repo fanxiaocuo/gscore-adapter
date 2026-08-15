@@ -9,10 +9,11 @@ import {
   enabled,
   type ConnectionPatch,
 } from "@/config"
-import { clients, startClient, stopClient } from "@/modules/client"
+import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
+import { expandConnections, requireAccounts } from "@/modules/client/expand"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT } from "@/constants"
 import { makeLog } from "@/utils/compat"
-import { findDuplicate, findSameCore, requireWsUrl, stripAccountPath } from "@/utils/url"
+import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
@@ -35,7 +36,7 @@ const CONNECTION_KEYS = [
   "url",
   "token",
   "bot_id",
-  // 账号白名单。添加时 bind=<账号> 或 bind=all；修改时还支持 bind+=<账号>
+  // 账号白名单。添加时 bind=<账号>；修改时还支持 bind+=<账号>
   // 追加、bind-=<账号> 移除，多个账号可用 + / | / ; / 、分隔。
   "bind",
   // 账号黑名单（优先级高于 bind），语法与 bind 相同。
@@ -113,10 +114,21 @@ function splitIds(value: string): string[] {
   return [...new Set(value.split(/[+|;；、]+/).map(x => x.trim()).filter(Boolean))]
 }
 
-/** bind 额外认 all（不限账号 = 空数组）；exclude 没有这个语义，直接用 splitIds */
-function parseBind(value: string): string[] {
-  if (value.toLowerCase() === "all") return []
+/** bind 不再接受 all；null 表示需要给用户明确报错 */
+function parseBind(value: string): string[] | null {
+  if (value.trim().toLowerCase() === "all") return null
   return splitIds(value)
+}
+
+/** 只显示协议、主机、端口与路径，避免把 URL 查询凭据回显给用户 */
+function safeUrl(value: string | null | undefined): string {
+  try {
+    const u = new URL(String(value || ""))
+    // 配置里现在存的就是 origin，补个 "/" 只会让回复看起来像还带着路径
+    return `${u.protocol}//${u.host}${u.pathname === "/" ? "" : u.pathname}`
+  } catch {
+    return "(地址不可显示)"
+  }
 }
 
 /**
@@ -208,7 +220,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         "用法：#早柚添加连接 127.0.0.1:8765\n" +
           "只填 host:port 即可，其余留空取默认。\n" +
           "可选：n=名字 t=token id=平台标识\n" +
-          "bind=账号1+账号2 指定转发哪些机器人，bind=all 不限\n详见 #早柚帮助",
+          "bind=账号1+账号2 指定接入账号（至少一个）\n详见 #早柚帮助",
       )
 
     const kv = parseKV(raw)
@@ -217,26 +229,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
 
     const list = getWsConnections()
 
-    // 默认把连接绑到「收到这条指令的那个机器人」
-    // ------
-    // bind 是 self_id 白名单（GsCoreClient.accept），空数组表示所有 Bot 都往这条
-    // 连接上报。多 Bot 共存时那个默认值意味着：管理员在 A 号上加的连接，B 号的
-    // 消息也会跟着进同一个核心，而 bind 只能事后手动补 —— 指令里根本没有这个字段。
-    // ws-plugin 同样的位置是把 e.self_id 推进 i.uin（apps/admin.js:310）。
-    //
-    // 注意别拿 bot_id 当这个用：那是发给核心的**平台**标识（onebot / qqgroup），
-    // 与账号不是一回事，见 config/resolveBotId。
-    //
-    // resolveSelfId 而不是裸 e.self_id：后者可能为 null（见 utils/message.ts），
-    // 那时 String(null) 会把 "null" 当账号写进白名单，这条连接就再也收不到消息。
-    // 解析不出账号时留空数组 —— 宁可退回「不限账号」的旧行为，也不写一个错的。
-    //
-    // parseBind 而不是整串塞进数组：bind=123+456 是两个账号，原来会被存成
-    // 一个叫 "123+456" 的账号，哪个 Bot 都匹配不上；"all"/"ALL" 的大小写也归一了。
-    const selfId = resolveSelfId(e)
-    const bind = kv.bind ? parseBind(kv.bind) : selfId ? [selfId] : []
-
-    // 走 requireWsUrl 而不是裸 normalizeUrl：协议校验只有那一处（见该函数），
+    // 先校验/规范化地址，再按端点类型检查账号。自动端点没有明确账号不能落盘。
+    // 走 requireWsUrl 而不是裸 normalizeEndpoint：协议校验只有那一处（见该函数），
     // http:// 会带着换算好的 ws 地址抛出来，直接把话回给用户就是可用的建议
     let url: string
     try {
@@ -247,24 +241,42 @@ export default class GsCoreAdmin extends plugin<"message"> {
       )
     }
 
-    // 同一个核心已经有连接时，把新账号并进 bind，而不是再开一条 ws。
+    // 账号解析放在地址之后：自动端点（只填 host:port）的核心侧身份就是
+    // /ws/Yunzai-<账号>，没有明确账号就没有可用的运行时连接，因此必须先知道
+    // 端点形状再决定要不要拦。
+    //
+    // resolveSelfId 而不是裸 e.self_id：后者可能为 null（见 utils/message.ts），
+    // 那时 String(null) 会把 "null" 当账号写进白名单。
+    //
+    // parseBind 而不是整串塞进数组：bind=123+456 是两个账号，原来会被存成
+    // 一个叫 "123+456" 的账号，哪个 Bot 都匹配不上。
+    const selfId = resolveSelfId(e)
+    let bind: string[]
+    if (kv.bind !== undefined) {
+      const ids = parseBind(kv.bind)
+      if (ids === null) return e.reply("bind=all 已不再支持：请写明要接入的账号")
+      bind = ids
+    } else bind = selfId ? [selfId] : []
+    const exclude = kv.exclude ? splitIds(kv.exclude) : []
+
+    const bindErr = requireAccounts({ url, bind, exclude })
+    if (bindErr) return e.reply(bindErr)
+
     // 每个账号的平台标识单独记进 bot_id_map。
     const existing = findSameCore(list, url)
     if (existing) {
       if (findDuplicate([existing], url, bind)) {
-        const had = existing.bind?.length ? existing.bind.join("、") : "不限账号"
+        const had = existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
         return e.reply(
           `这个核心已经加过了：${existing.name}\n` +
             `已绑定：${had}\n` +
-            (bind.length
-              ? `本次要绑 ${bind.join("、")}，与它重复。`
-              : `本次是「不限账号」，会与它重复上报。\n想按账号分开，用 bind=<账号> 指定。`),
+            `本次要绑 ${bind.join("、") || "（无账号）"}，与它重复。`,
         )
       }
       const idx = list.indexOf(existing)
       const prevBind = Array.isArray(existing.bind) ? existing.bind.map(String) : []
       const nextBind = [...new Set([...prevBind, ...bind])]
-      const nextUrl = stripAccountPath(existing.url || url)
+      const nextUrl = normalizeEndpoint(existing.url || url)
       const patch: ConnectionPatch = { bind: nextBind }
       if (nextUrl !== existing.url) patch.url = nextUrl
       if (existing.bot_id) patch.bot_id = null
@@ -283,18 +295,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
         makeLog("error", ["写入配置失败", err], "GsCore")
         return e.reply(`保存失败：${errorMessage(err)}`)
       }
-      stopClient(existing.name || existing.url)
-      const next = getWsConnections()[idx]
-      if (next?.enable !== false && clientMode()) startClient(next)
+      stopSource(idx, existing.name || existing.url)
+      const startedMerge = clientMode() ? startSource(idx) : 0
       const mapped = nextBind
         .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
         .filter(Boolean)
       return e.reply(
-        `已把账号 ${bind.join("、") || "（不限）"} 绑到连接 ${existing.name}\n` +
-          `地址：${nextUrl}\n` +
-          `当前绑定：${nextBind.length ? nextBind.join("、") : "不限账号"}\n` +
+        `已把账号 ${bind.join("、")} 绑到连接 ${existing.name}\n` +
+          `核心地址：${safeUrl(nextUrl)}\n` +
+          `当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}\n` +
           (mapped.length ? `平台标识：${mapped.join("、")}\n` : "") +
-          (clientMode() ? "已开始连接，稍后可用 #早柚状态 查看" : "配置已保存"),
+          (clientMode()
+            ? `运行时连接：${startedMerge} 条，稍后可用 #早柚状态 查看`
+            : "配置已保存"),
       )
     }
 
@@ -315,7 +328,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         ? Number(kv.max_reconnect_attempts)
         : DEFAULT_MAX_RECONNECT,
       bind,
-      exclude: kv.exclude ? splitIds(kv.exclude) : [],
+      exclude,
     }
 
     const explicit = kv.bot_id || ""
@@ -328,7 +341,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
-    const started = clientMode() ? startClient(conf) : null
+    const routes = expandConnections([conf]).runtime.map(r => safeUrl(r.runtimeUrl))
+    const startedNew = clientMode() ? startSource(getWsConnections().length - 1) : 0
     const mappedNow = bind
       .map(id => {
         const p = explicit || config.bot_id_map?.[id]
@@ -336,15 +350,16 @@ export default class GsCoreAdmin extends plugin<"message"> {
       })
       .filter(Boolean)
     return e.reply(
-      `已添加连接 ${name}\n地址：${url}\n` +
-        (bind.length ? `绑定账号：${bind.join("、")}（bind=all 可改为不限）\n` : "账号：不限\n") +
+      `已添加连接 ${name}\n核心地址：${safeUrl(url)}\n` +
+        `绑定账号：${bind.join("、") || "（无）"}\n` +
+        (routes.length ? `将连接：${routes.join("\n　　　　")}\n` : "") +
         (mappedNow.length
           ? `平台标识：${mappedNow.join("、")}（按账号记入 bot_id_map）\n`
           : bind.length
             ? "平台标识：未识别，上报时按 bot_id_map 推断\n"
             : "") +
-        (started
-          ? "已开始连接，稍后可用 #早柚状态 查看"
+        (startedNew
+          ? `运行时连接：${startedNew} 条，稍后可用 #早柚状态 查看`
           : clientMode()
             ? "配置已保存，可用 #早柚重连 启动"
             : "适配器当前已禁用（enable: false）。发 #早柚设置适配器开启 即可启用"),
@@ -358,7 +373,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (!target || !Object.keys(kv).some(k => CONNECTION_KEYS.includes(k)))
       return e.reply(
         "用法：#早柚修改连接 <名字|序号> bind+=<账号>\n" +
-          "bind=账号1+账号2 替换，bind+=账号 追加，bind-=账号 移除，bind=all 表示不限账号\n" +
+          "bind=账号1+账号2 替换（至少留一个账号），bind+=账号 追加，bind-=账号 移除\n" +
           "exclude 同语法（排除账号，优先级高于 bind）\n" +
           "也可修改 url、token、enable、interval、retry；id= 按账号写入 bot_id_map",
       )
@@ -368,8 +383,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
     let nextBind = Array.isArray(hit.conf.bind) ? hit.conf.bind.map(String) : []
     if (kv.bind !== undefined) {
       const ids = parseBind(kv.bind)
-      if (kv.bind_op === "add" && !ids.length)
-        return e.reply("bind+= 需要填写至少一个账号；不限账号请用 bind=all")
+      if (ids === null) return e.reply("bind=all 已不再支持：请写明要接入的账号")
+      if (kv.bind_op === "add" && !ids.length) return e.reply("bind+= 需要填写至少一个账号")
       if (kv.bind_op === "remove" && !ids.length) return e.reply("bind-= 需要填写要移除的账号")
       nextBind = applyListOp(nextBind, ids, kv.bind_op)
     }
@@ -385,7 +400,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 抛出去就是一条框架级异常日志而不是回给用户的话
     let nextUrl: string
     try {
-      nextUrl = kv.url ? requireWsUrl(kv.url) : stripAccountPath(String(hit.conf.url || ""))
+      nextUrl = kv.url ? requireWsUrl(kv.url) : normalizeEndpoint(String(hit.conf.url || ""))
     } catch (err) {
       return e.reply(errorMessage(err))
     }
@@ -396,6 +411,9 @@ export default class GsCoreAdmin extends plugin<"message"> {
     )
     if (duplicate)
       return e.reply(`修改后会与连接 ${duplicate.name} 的核心地址和绑定账号重复，已取消保存`)
+
+    const bindErr = requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
+    if (bindErr) return e.reply(bindErr)
 
     // 字段校验都在写盘之前做完：报错要作为一句话回给用户，不能等 updateConnection
     // 写到一半才抛。patch 的键序即回复里「xx 已更新」的顺序
@@ -424,10 +442,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.exclude !== undefined) patch.exclude = nextExclude
 
     const ids = (kv.bind !== undefined ? nextBind : hit.conf.bind || []).map(String)
-    if (kv.bot_id && !ids.length)
-      return e.reply(
-        "当前连接不限账号，id= 无法写入 bot_id_map。请先 bind=<账号> 再设平台",
-      )
+    if (kv.bot_id && !ids.length) return e.reply("请先 bind=<账号> 再设平台")
 
     try {
       updateConnection(hit.index, patch, doc => {
@@ -444,19 +459,24 @@ export default class GsCoreAdmin extends plugin<"message"> {
     }
     const changed = Object.keys(patch)
 
-    stopClient(hit.conf.name || hit.conf.url)
+    stopSource(hit.index, hit.conf.name || hit.conf.url)
     const next = getWsConnections()[hit.index]
-    if (next?.enable !== false && clientMode()) startClient(next)
+    // 真起得来才报「运行时连接」；停用或适配器关着时只能说会展开成几条
+    const willRun = next?.enable !== false && clientMode()
+    const runningNow = willRun
+      ? startSource(hit.index)
+      : next
+        ? expandConnections([next]).runtime.length
+        : 0
 
     const lines = [
       `已修改连接 ${next?.name || hit.conf.name}`,
       changed.map(k => `${k} 已更新`).join("，"),
+      willRun ? `运行时连接：${runningNow} 条` : `将展开 ${runningNow} 条运行时连接（当前未启动）`,
     ]
     if (kv.bind !== undefined) {
       // 改完把最终绑定念出来：bind+=/-= 是增量操作，用户看不到合并后的全貌
-      lines.push(`当前绑定：${nextBind.length ? nextBind.join("、") : "不限账号"}`)
-      if (!nextBind.length && kv.bind_op === "remove")
-        lines.push("绑定已清空，本连接现在转发所有机器人的消息；如非本意请用 bind+= 加回")
+      lines.push(`当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}`)
     }
     if (kv.bot_id)
       lines.push(
@@ -479,8 +499,10 @@ export default class GsCoreAdmin extends plugin<"message"> {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
-    stopClient(hit.conf.name)
-    return e.reply(`已删除连接 ${hit.conf.name}（${hit.conf.url}）`)
+    stopSource(hit.index, hit.conf.name || hit.conf.url)
+    // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移
+    shiftSourceIndex(hit.index)
+    return e.reply(`已删除连接 ${hit.conf.name}（${safeUrl(hit.conf.url)}）`)
   }
 
   async list(e: YunzaiEvent) {
@@ -493,21 +515,30 @@ export default class GsCoreAdmin extends plugin<"message"> {
 
     const msg = [`早柚核心连接（共 ${list.length} 个）  ${enabled() ? "已启用" : "已禁用"}`]
     list.forEach((c, i) => {
-      const live = clients.find(x => x.name === c.name)
-      const state = c.enable === false ? "已停用" : STATUS_TEXT[live?.status ?? 0] || "未启动"
+      // 一条配置会按绑定账号派生多条运行时连接，状态必须按来源聚合：
+      // 只要有一条连上就算这条核心通了，全没连上才报第一条的具体状态
+      const live = clients.filter(x => x.sourceIndex === i)
+      const state =
+        c.enable === false
+          ? "已停用"
+          : live.some(x => x.status === 1)
+            ? STATUS_TEXT[1]
+            : live[0]?.statusText || "未启动"
+      const accounts = (c.bind ?? []).map(id => {
+        const p = accountPlatform(id)
+        return p ? `${id}(${p})` : String(id)
+      })
+      // 账号级明细：哪个号连上了、哪个号还在重连，聚合状态看不出来
+      const detail = live
+        .filter(x => x.account)
+        .map(x => `\n     ${x.account}: ${x.statusText}`)
+        .join("")
       msg.push(
         `\n\n${i + 1}. ${c.name}  [${state}]` +
-          `\n   ${c.url}` +
+          `\n   ${safeUrl(c.url)}` +
           (c.token ? "\n   token: 已设置" : "") +
-          (c.bind?.length
-            ? `\n   bind: ${c.bind
-                .map(id => {
-                  const p = accountPlatform(id)
-                  return p ? `${id}(${p})` : String(id)
-                })
-                .join("、")}`
-            : "") +
-          (live?.retry ? `\n   已重连 ${live.retry} 次` : ""),
+          `\n   bind: ${accounts.length ? accounts.join("、") : "未绑定账号"}` +
+          detail,
       )
     })
     return e.reply(msg.join(""))
@@ -537,11 +568,15 @@ export default class GsCoreAdmin extends plugin<"message"> {
         return e.reply(
           `已启用连接 ${hit.conf.name}\n但适配器本体已禁用（enable: false），客户端未运行`,
         )
-      startClient({ ...hit.conf, enable: true })
-      return e.reply(`已启用连接 ${hit.conf.name}，正在连接`)
+      const started = startSource(hit.index)
+      return e.reply(
+        started
+          ? `已启用连接 ${hit.conf.name}，正在连接 ${started} 条`
+          : `已启用连接 ${hit.conf.name}，但没有可起的运行时连接，请检查绑定账号`,
+      )
     }
-    stopClient(hit.conf.name)
-    return e.reply(`已停用连接 ${hit.conf.name}`)
+    const stopped = stopSource(hit.index, hit.conf.name || hit.conf.url)
+    return e.reply(`已停用连接 ${hit.conf.name}${stopped ? `，断开 ${stopped} 条` : ""}`)
   }
 
   async set(e: YunzaiEvent) {

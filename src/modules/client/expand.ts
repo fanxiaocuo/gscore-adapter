@@ -63,9 +63,26 @@ function detachInlineToken(url: URL): { runtimeUrl: string; token?: string; inli
   }
 }
 
-/** 自动端点仅指 pathname 为空或根路径；旧 Yunzai 路径留给后续迁移任务 */
+/** 自动端点仅指 pathname 为空或根路径；显式非根路径按自定义兼容连接处理 */
 function isRootEndpoint(url: URL): boolean {
   return url.pathname === "" || url.pathname === "/"
+}
+
+/**
+ * 自动端点必须至少有一个有效账号；通过返回 null，不通过返回给用户看的话术。
+ * 指令与面板共用这一入口，避免 bind/exclude 的有效账号规则漂移。
+ */
+export function requireAccounts(conf: WsConnection): string | null {
+  const url = normalizeEndpoint(conf.url)
+  if (!url) return "缺少核心地址"
+  const parsed = parseEndpoint(url)
+  if (!parsed) return "核心地址无法解析或不是 WebSocket 地址"
+  if (!isRootEndpoint(parsed)) return null
+  if (effectiveAccounts(conf).accounts.length) return null
+  return (
+    "自动连接至少要绑定一个机器人账号：核心侧的客户端标识就是 /ws/Yunzai-<账号>。\n" +
+    "请用 bind=<账号> 指定；不想连了请停用或删除整条连接"
+  )
 }
 
 export function expandConnections(list: WsConnection[]): {

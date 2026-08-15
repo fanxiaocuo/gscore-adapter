@@ -63,6 +63,17 @@ export function stopSource(sourceIndex: number, name?: string) {
   return stopped
 }
 
+/**
+ * 配置里删掉一条之后，把后面各条的来源序号前移，与配置重新对齐
+ *
+ * sourceIndex 是「运行时连接属于哪条配置」的唯一凭据：面板聚合、状态图、
+ * stopSource/startSource 全靠它。删除会让后面的配置项下标整体 -1，不跟着移
+ * 就会错位 —— 下一次停用第 3 条，停掉的是原来第 4 条派生的连接。
+ */
+export function shiftSourceIndex(removedIndex: number) {
+  for (const client of clients) if (client.sourceIndex > removedIndex) client.sourceIndex--
+}
+
 /** 按当前配置展开并启动一条逻辑连接派生的全部运行时客户端 */
 export function startSource(sourceIndex: number) {
   if (!enabled() || !wsEnabled()) return 0
