@@ -20,6 +20,35 @@ import type {
 import { getBot } from "@/utils/bots.js"
 import { echoKey, markSent } from "./echo.js"
 
+/**
+ * 段类型摘要，例如 "image×1,text×1"
+ *
+ * 只统计类型与个数。下行日志里绝不能出现媒体正文或鉴权信息：图片走 base64
+ * 时一条消息就是几十万字符，外链形态又可能带查询参数形式的凭据。
+ * 而排查「图片没发出去」真正需要的只是「这条消息里有没有 image 段」。
+ */
+function segSummary(message: any[]): string {
+  const n = new Map<string, number>()
+  for (const s of message) {
+    const t = typeof s === "string" ? "text" : String(s?.type || "unknown")
+    n.set(t, (n.get(t) || 0) + 1)
+  }
+  return [...n].map(([t, c]) => `${t}×${c}`).join(",")
+}
+
+/**
+ * 被动发送要的是「完整的会话上下文」
+ *
+ * QQBot-Plugin 的 sendGroupMsg/sendFriendMsg 直接从 target 上取 self_id / bot /
+ * group_id|user_id，缺一项就会在插件内部抛出来 —— 那时异常信息指向 QQBot-Plugin，
+ * 很难看出是这边 pick 出来的对象不完整。
+ */
+function passiveReady(target: SendTarget, type: "direct" | "group"): boolean {
+  const t = target as Record<string, unknown>
+  if (!t.self_id || !t.bot) return false
+  return type === "direct" ? !!t.user_id : !!t.group_id
+}
+
 export class GsCoreClient {
   conf: WsConnection | RuntimeWsConnection
   name: string
@@ -412,30 +441,39 @@ export class GsCoreClient {
     data: MessageSend,
     targetId: string,
   ) {
-    if (!isQQBot(bot)) return await target.sendMsg(message)
-
+    // 摘要在三条路径上共用：走了哪条、有没有回退，日后只看日志就能复盘
+    const summary = segSummary(message)
     const type = data.target_type === "direct" ? "direct" : "group"
+    const brief = `${this.name} => ${data.bot_self_id}, ${type} ${targetId}, ${summary}`
 
-    // 先确认有能收 event 的发送函数，再去 take —— take 会记一次使用次数，
-    // 顺序反了会在「这条路径不支持被动回复」时白白耗掉一次额度
+    if (!isQQBot(bot)) {
+      this.log("debug", `下行发送：${brief}`)
+      return await target.sendMsg(message)
+    }
+
+    // 先确认有能收 event 的发送函数、且目标带齐上下文，再去 take —— take 会记一次
+    // 使用次数（同一个 id 只能带 5 次），顺序反了会在「这条路径走不通」时白耗额度，
+    // 后面那几段本来还能挂到原消息上的回复反而掉出引用形态
     const fn = this.passiveSender(bot.adapter, type, targetId)
-    if (!fn) return await target.sendMsg(message)
-
-    const msgId = take(data.bot_self_id, type, targetId)
-    if (!msgId) return await target.sendMsg(message)
+    const msgId = fn && passiveReady(target, type) ? take(data.bot_self_id, type, targetId) : ""
+    if (!fn || !msgId) {
+      this.log("debug", `下行发送（无被动窗口）：${brief}`)
+      return await target.sendMsg(message)
+    }
 
     try {
       const ret = await fn(target, message, { id: msgId })
       // 返回派的失败（Milky/OneBot 那种不抛错的）在外层统一判，这里只看抛没抛，
       // 以及返回值里是否已经明确失败 —— 后者要回退，不能当成功
       if (!sendError(ret)) {
-        this.log("debug", "已按被动回复发送（挂到原消息上）")
+        this.log("debug", `下行发送（被动回复）：${brief}`)
         return ret
       }
-      this.log("debug", "被动回复失败，改为不带 id 发送")
+      this.log("debug", `被动回复失败，改为不带 id 发送：${brief}`)
     } catch (err) {
-      this.log("debug", ["被动回复异常，改为不带 id 发送", err])
+      this.log("debug", [`被动回复异常，改为不带 id 发送：${brief}`, err])
     }
+    // 回退用同一个 message 引用：两条路径都不得就地删改 image 段
     return await target.sendMsg(message)
   }
 
@@ -564,7 +602,9 @@ export class GsCoreClient {
       // 而「连着但不通」恰是这个计数该抓到的情况。判定见 utils/send.ts。
       const err = sendError(ret)
       if (err) {
-        this.log("error", `发送失败：${err}`)
+        // 带上段类型摘要：「发送失败」最常见的成因是某类段被平台拒收（图片尤甚），
+        // 有摘要才分得清是整条没发出去还是某种段不被接受
+        this.log("error", `发送失败：${err}（${segSummary(message)}）`)
         // 不计数，但仍要走 finally 里的回执 —— 漏回会被核心 latch 成「不支持撤回」
         return
       }
