@@ -76,14 +76,23 @@ export interface ConnView {
   has_token: boolean
   reconnect_interval: number
   max_reconnect_attempts: number
+  /**
+   * 用户写下的绑定意图，原样回（YAML 里写成数字就是数字）
+   *
+   * **不是开关状态** —— 一个号可以同时出现在这里和 {@link exclude} 里，那时它绑了
+   * 却不会连。开关读 {@link accounts}，见那一项的说明。
+   */
   bind: (string | number)[]
   exclude: (string | number)[]
   /**
    * 真正会派生出运行时连接的账号：bind 减掉 exclude 之后的那批
    *
-   * 这是「最终生效集合」，给「这条核心到底会连哪些号」这类判断用，**不是开关状态**。
-   * 开关的开合看 {@link bind} —— 它表达用户的绑定意图，拨开就是绑上。「绑了但不会连」
-   * 由 {@link conflicts} 单独标注，那个号仍要显示出来，否则它会从列表里整条消失，
+   * **这就是开关的开合判据**（等价于 `id ∈ bind && id ∉ exclude`）。不看 {@link bind}：
+   * 那样被 exclude 排除的号会显示成一个绿着却不转发的开关，同一行还挂着「已被排除，
+   * 不会转发」，自相矛盾。灰着才是实话，而拨开它本来就会把这个号从 exclude 里放出来
+   * （webadapter 的 bindConnection 的 freed 分支），一步自愈。
+   *
+   * {@link conflicts} 只做标记：那个号仍要显示在列表里，否则它会整条消失，
    * 用户会以为自己没绑过它。
    */
   accounts: string[]
@@ -99,11 +108,20 @@ export interface ConnView {
    *
    * 不是 `bind` 的一一对应视图 —— 面板要为每个候选画一个开关，只回已绑定的
    * 就没法在面板上绑一个新号；只回在线的又没法解绑一个已离线的号。
-   * 开关的开合状态看 {@link bind}，这里只提供可选项与档案。
+   * 开关的开合状态看 {@link accounts}，这里只提供可选项与档案。
    * 被 exclude 排除的账号仍在候选里：面板要留一个能把它放回来的入口，
    * 那一行另挂 {@link conflicts} 的标记说明它绑了但不会连。
    */
   bind_bots: BotProfile[]
+  /**
+   * 是不是「自动端点」：地址的 pathname 为空或根，运行时按账号逐条派生 ws
+   *
+   * 前端靠它分辨两种连接上「关掉最后一个开关」的后果：自动端点会被后端
+   * requireAccounts 拒（零有效账号等于这条连接不存在），所以最后一个开关直接
+   * 禁用并说明；非根路径的兼容连接只有一条 ws，bind 在它上头是转发过滤器，
+   * 清空确实等于「不限账号」，那种连接才该弹确认。
+   */
+  automatic: boolean
   /** 展开出的账号级运行时连接，逐条带自己的状态与计数 */
   runtime: RuntimeConnView[]
   /**

@@ -256,6 +256,10 @@ function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[])
     accounts,
     conflicts,
     bind_bots: bindBots(conf),
+    // 自动端点与兼容连接在「关掉最后一个绑定」上的后果完全不同（前者被
+    // requireAccounts 拒、后者变成不限账号），前端要能分辨，所以这个判定跟着视图回。
+    // 不让前端自己看 url 猜：那等于把 normalizeEndpoint 的规则抄一份到浏览器里
+    automatic: isAutomaticEndpoint(conf),
     runtime: views,
     // 逻辑连接的状态是聚合值：任一账号连上就算这个核心通了，
     // 不让某一条的状态盖掉其他账号（明细在 runtime 里逐条给）

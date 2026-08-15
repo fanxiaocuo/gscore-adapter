@@ -15,6 +15,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
 import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api.js"
+import { Avatar } from "./components/Avatar.js"
+import { BotSwitchList } from "./components/BotSwitchList.js"
+import { Switch } from "./components/Switch.js"
 import "./styles.css"
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
@@ -73,13 +76,18 @@ const FIELDS = [
 /**
  * 连接弹层的字段表
  *
- * type: "list" 的两项在后端是数组（GsCoreClient.accept 按 self_id 比对），
- * 这里用逗号分隔的单行文本收，提交时切成数组 —— 面板上给每个账号一个输入框
- * 收益不大，而多账号本身是少数场景。
+ * type: "list" 的两项在后端是数组。绑定账号在弹层里另有一组开关（BotSwitchList），
+ * 两者读写的是**同一个** form.bind —— 这个输入框是手填入口（离线且从没绑过的账号
+ * 不会出现在开关列表里，只能手写），开关是常规入口，不存在两份状态。
  */
 const CFIELDS = [
   { k: "name", label: "连接名", ph: "gsuid_core" },
-  { k: "url", label: "地址", ph: "127.0.0.1:8765（自动补 /ws/Yunzai）" },
+  {
+    k: "url",
+    label: "核心地址",
+    ph: "127.0.0.1:8765",
+    hint: "只填 host:port，运行时按绑定账号生成 /ws/Yunzai-<账号>",
+  },
   { k: "token", label: "token", ph: "留空则不修改", type: "password" },
   { k: "reconnect_interval", label: "重连间隔（秒）", type: "number" },
   {
@@ -91,9 +99,9 @@ const CFIELDS = [
   {
     k: "bind",
     label: "绑定账号",
-    ph: "留空为不限，多个用逗号分隔",
+    ph: "至少一个账号，多个用逗号分隔",
     type: "list",
-    hint: "只有这些机器人账号的消息进核心",
+    hint: "与下方开关同一份数据，离线账号可以手填",
   },
   {
     k: "exclude",
@@ -144,10 +152,27 @@ const FHINT = "text-[11px] text-muted"
 const TAG = "rounded-[999px] border border-border px-[8px] py-[1px] text-[11px] text-muted"
 const FIELD = "flex flex-col gap-[4px]"
 const GRID = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-[12px]"
+const MONO = "font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace]"
 const PANEL =
   "mb-[16px] rounded-[12px] border border-border bg-surface p-[16px] shadow-[var(--shadow)]"
 /* 面板头的「靠右」变体：margin 上 12 下 0，与常规 phead 的下 12 相反 */
 const PHEAD_END = "mt-[12px] flex items-center justify-end gap-[12px]"
+
+/*
+ * 设置项一行：标题 | 说明 | 控件
+ *
+ * 系统设置那种观感靠的是列宽固定（标题列 190px），多行之间对得齐；分隔线用
+ * border-t + first:border-t-0，不必给每行套一个卡片。720px 以下收成两列：
+ * 说明挪到标题下面一行，控件跨两行钉在行尾（与 BotSwitchList 的行同一套做法）。
+ */
+const ROW =
+  "grid min-h-[54px] grid-cols-[190px_minmax(0,1fr)_auto] items-center gap-x-[16px] gap-y-[2px] border-t border-border px-[16px] first:border-t-0 max-[720px]:grid-cols-[minmax(0,1fr)_auto] max-[720px]:px-[4px]"
+const ROW_TITLE = "text-[13px] max-[720px]:col-start-1 max-[720px]:row-start-1"
+/* overflow-wrap:anywhere 是页面级横向滚动的真正解法：容器可收缩 + 长串就地断行 */
+const ROW_HINT =
+  "min-w-0 text-[12px] text-muted [overflow-wrap:anywhere] max-[720px]:col-start-1 max-[720px]:row-start-2"
+const ROW_CTRL =
+  "flex justify-end max-[720px]:col-start-2 max-[720px]:row-span-2 max-[720px]:row-start-1"
 
 function Stat({ k, v, sub }: { k: string; v: string; sub: string }) {
   return (
@@ -186,135 +211,31 @@ interface ConnAction {
 }
 
 /**
- * 机器人头像，加载失败回退成首字圆
+ * 弹层里判断「用户正在填的这个地址是不是自动端点」
  *
- * 头像 URL 可能取自 qlogo 的按号猜测（离线账号），号不存在时图挂掉，
- * 不能让页面上顶着一个碎图标。
- */
-function Avatar({ p, size = 26 }: { p: BotProfile; size?: number }) {
-  const [err, setErr] = useState(false)
-  return (
-    <span
-      className="inline-flex flex-none items-center justify-center overflow-hidden rounded-[50%] border border-border bg-bg text-[12px] font-bold text-muted"
-      style={{ width: size, height: size }}
-    >
-      {p.avatar && !err ? (
-        <img className="size-full object-cover" src={p.avatar} alt="" onError={() => setErr(true)} />
-      ) : (
-        (p.name || p.id).slice(0, 1)
-      )}
-    </span>
-  )
-}
-
-/**
- * 绑定账号管理（连接卡片的折叠区）
+ * 已保存的连接不走这里 —— 它们直接读后端算好的 `ConnView.automatic`
+ * （webadapter 的 connView 调 isAutomaticEndpoint）。但新增/编辑弹层里的地址还没
+ * 落盘，浏览器隔着 JSON 拿不到后端那个函数，只能就地判一次「pathname 是不是空或根」。
  *
- * 已绑定的账号逐行列出（头像 + 昵称 + 账号 + 在线状态），每行一个移除键；
- * 下方是「在线但未绑定」的机器人，点一下即追加进 bind。两种操作都直接走
- * 后端已有的 edit 动作（只带 bind 字段），改完自动重连该连接生效。
+ * 判错的唯一后果是提交按钮的可用性：真正的拦截仍在后端 requireAccounts，
+ * 所以这里刻意只做最粗的形状判断，不去复刻 normalizeEndpoint 的其余规则。
  */
-function BindManager({
-  c,
-  bots,
-  onAct,
-}: {
-  c: ConnView
-  bots: BotProfile[]
-  onAct: (body: ConnAction) => void
-}) {
-  const bindBots = c.bind_bots || []
-  const bound = (c.bind || []).map(String)
-  // 「绑了但被排除」由后端算好回在 conflicts 里（exclude 优先级更高），不在这儿把
-  // bind 与 exclude 再交一次 —— 那等于把 effectiveAccounts 的规则抄第二份，
-  // 两边跑偏时面板会显示成另一套语义
-  const conflicts = (c.conflicts || []).map(String)
-  /**
-   * 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
-   *
-   * 不用 edit + 整份 bind 数组：edit 会把这条核心上所有账号的运行时连接全停再全起
-   * （webadapter 的 editConnection 走 stopSource/startSource），拨一个开关就把已经连着的
-   * 其他账号一起断一次；bind 动作只停这一个账号那条 ws。整份数组回传还有并发覆盖问题
-   * —— 两个开关几乎同时拨，后一个请求带的是它自己看到的旧数组，会把前一个的结果抹掉。
-   */
-  const toggleBind = (id: string, on: boolean) => onAct({ action: "bind", key: c.index, id, on })
-  const candidates = bots.filter(b => !bound.includes(b.id))
-
-  return (
-    <div className="mt-[10px] flex flex-col gap-[8px] rounded-[10px] border border-border bg-bg p-[12px]">
-      {bindBots.length === 0 ? (
-        <p className={FHINT}>
-          当前不限账号：所有机器人的消息都会转发到这个核心。绑定任意一个后，只转发绑定的账号。
-        </p>
-      ) : (
-        bindBots.map(b => (
-          <div className="flex items-center gap-[10px]" key={b.id}>
-            <Avatar p={b} />
-            <span className="text-[13px] font-semibold">{b.name !== b.id ? b.name : "未知昵称"}</span>
-            <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
-              {b.id}
-            </span>
-            {b.platform && <span className={TAG}>{b.platform}</span>}
-            <span className={TAG}>{b.online ? "在线" : "离线"}</span>
-            {/* 排除名单优先级高于绑定，两边同时有这个号等于白绑，必须标出来 */}
-            {conflicts.includes(b.id) && (
-              <span className={`${TAG} text-danger`}>已被排除，不会转发</span>
-            )}
-            <button
-              className={`${BTN_DANGER} ml-auto`}
-              onClick={() => {
-                const next = bound.filter(x => x !== b.id)
-                if (
-                  next.length ||
-                  confirm("移除最后一个绑定后将变为「不限账号」，所有机器人的消息都会转发。继续？")
-                )
-                  toggleBind(b.id, false)
-              }}
-            >
-              移除
-            </button>
-          </div>
-        ))
-      )}
-      {candidates.length > 0 && (
-        <>
-          <div className={FHINT}>在线机器人（点击绑定到本连接）</div>
-          <div className="flex flex-wrap gap-[8px]">
-            {candidates.map(b => (
-              <button
-                className={`${BTN} flex items-center gap-[8px]`}
-                key={b.id}
-                onClick={() => toggleBind(b.id, true)}
-              >
-                <Avatar p={b} size={20} />
-                <span>{b.name !== b.id ? b.name : b.id}</span>
-                <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[11px] text-muted">
-                  {b.id}
-                </span>
-                {b.platform && (
-                  <span className="font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[11px] text-muted">
-                    {b.platform}
-                  </span>
-                )}
-                <span className="font-bold text-primary">＋</span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  )
+function looksAutomatic(url: string): boolean {
+  const rest = url
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .split(/[?#]/)[0]
+  const i = rest.indexOf("/")
+  return i < 0 || !rest.slice(i + 1).trim()
 }
 
 function Conn({
   c,
-  bots,
   onAct,
   onEdit,
 }: {
   c: ConnView
-  bots: BotProfile[]
-  onAct: (body: ConnAction) => void
+  onAct: (body: ConnAction) => Promise<void>
   onEdit: (conn: ConnView) => void
 }) {
   /**
@@ -322,34 +243,86 @@ function Conn({
    * 但 Conn 按 index 作 key，同位实例复用，开合状态在刷新间存活。
    */
   const [open, setOpen] = useState(false)
+  /** 正在保存的账号，请求期间整组开关禁用（理由见 toggle） */
+  const [saving, setSaving] = useState<string | null>(null)
   const bindBots = c.bind_bots || []
+  // 开着的账号 = 有效账号（bind 减 exclude），后端算好回在 accounts 里
+  const on = c.accounts || []
+  const runtime = c.runtime || []
+  /**
+   * 非根路径的兼容连接，bind 清空确实等于「不限账号」
+   *
+   * 那种连接只有一条 ws，bind 在它上头是转发过滤器；自动端点的 bind 决定派生出几条
+   * ws，清空等于这条连接不存在，后端 requireAccounts 会拒（所以它不会走到这个分支）。
+   */
+  const unlimited = !c.automatic && !(c.bind || []).length
+
+  /**
+   * 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
+   *
+   * 不用 edit + 整份 bind 数组：edit 会把这条核心上所有账号的运行时连接全停再全起
+   * （webadapter 的 editConnection 走 stopSource/startSource），拨一个开关就把已经连着的
+   * 其他账号一起断一次；bind 动作只停这一个账号那条 ws。整份数组回传还有并发覆盖问题
+   * —— 两个开关几乎同时拨，后一个请求带的是它自己看到的旧数组，会把前一个的结果抹掉。
+   * 保存期间整组禁用也是为这个：连点会造出同样的交叉覆盖。
+   */
+  const toggle = async (id: string, next: boolean) => {
+    // 只有兼容连接会走到「关掉最后一个」，语义会从白名单变成不限，值得确认一次。
+    // 自动端点在 BotSwitchList 里最后一个开关就是禁用的，不必在这儿重复判断
+    if (
+      !next &&
+      !c.automatic &&
+      on.length === 1 &&
+      !confirm(
+        `移除最后一个绑定后，连接「${c.name}」将变为不限账号，所有机器人的消息都会转发。继续？`,
+      )
+    )
+      return
+    setSaving(id)
+    try {
+      await onAct({ action: "bind", key: c.index, id, on: next })
+    } finally {
+      // 成功失败都要解锁：失败时整包 state 没动，开关自己回到原位
+      setSaving(null)
+    }
+  }
 
   return (
     <div className="rounded-[10px] border border-border p-[12px]">
-      <div className="flex items-center gap-[12px]">
+      {/* flex-wrap + 按钮组窄屏占满一行：390px 下三个按钮与状态点挤在一行会溢出 */}
+      <div className="flex flex-wrap items-center gap-[12px]">
         <span
           className={`size-[10px] flex-none rounded-[50%] ${DOT[c.enable ? c.status : "off"] ?? "bg-muted"}`}
         />
         <div className="min-w-0 flex-1">
           <div className="font-semibold">{c.name}</div>
           {/* 字体栈与 Tailwind 的 font-mono 略有出入，按原样式表逐项写死 */}
-          <div className="truncate font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace] text-[12px] text-muted">
-            {c.url}
-          </div>
+          <div className={`truncate text-[12px] text-muted ${MONO}`}>{c.url}</div>
           <div className="mt-[6px] flex flex-wrap items-center gap-[6px]">
             <span className={TAG}>{c.status_text}</span>
             {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
             {c.has_token && <span className={TAG}>已配 token</span>}
-            {/* 绑定标签升级成折叠开关：缩起时预览前几个头像，点开进管理区 */}
+            {/* 绑定标签升级成折叠开关：缩起时预览前几个已开的头像，点开进管理区 */}
             <button
               className={`${TAG} flex cursor-pointer items-center gap-[5px] hover:border-primary`}
               onClick={() => setOpen(o => !o)}
+              aria-expanded={open}
               title="展开绑定账号管理"
             >
-              {bindBots.slice(0, 3).map(b => (
-                <Avatar key={b.id} p={b} size={16} />
-              ))}
-              <span>绑定 {c.bind?.length ? `${c.bind.length} 个账号` : "不限"}</span>
+              {/* 叠放靠负外边距，描边用 ring（border 会与 Avatar 自己的边框打架） */}
+              {bindBots
+                .filter(b => on.includes(b.id))
+                .slice(0, 3)
+                .map((b, i) => (
+                  <Avatar
+                    key={b.id}
+                    p={b}
+                    size={18}
+                    className={i ? "-ml-[6px] ring-2 ring-surface" : ""}
+                  />
+                ))}
+              {/* X/Y = 开着的 / 候选总数（在线的 + 本连接绑过的），后者才是这排开关的行数 */}
+              <span>{unlimited ? "不限账号" : `绑定 ${on.length}/${bindBots.length} 个账号`}</span>
               <span className="text-[9px]">{open ? "▲" : "▼"}</span>
             </button>
             {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
@@ -358,8 +331,11 @@ function Conn({
             </span>
           </div>
         </div>
-        <div className="flex flex-none gap-[6px]">
-          <button className={BTN} onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}>
+        <div className="flex flex-none gap-[6px] max-[720px]:w-full max-[720px]:justify-end">
+          <button
+            className={BTN}
+            onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}
+          >
             {c.enable ? "停用" : "启用"}
           </button>
           <button className={BTN} onClick={() => onEdit(c)}>
@@ -375,7 +351,44 @@ function Conn({
           </button>
         </div>
       </div>
-      {open && <BindManager c={c} bots={bots} onAct={onAct} />}
+      {open && (
+        <BotSwitchList
+          bots={bindBots}
+          checked={on}
+          conflicts={c.conflicts || []}
+          automatic={c.automatic}
+          saving={saving}
+          onToggle={toggle}
+          empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
+        />
+      )}
+      {/*
+       * 逐条运行时连接
+       *
+       * 只在展开或多于一条时列：一条时头部那行状态就是它，重复显示只是噪音；
+       * 多条时头部是聚合值（1 > 2 > 3 > 0），必须能看出是哪个账号没连上。
+       */}
+      {runtime.length > 0 && (open || runtime.length > 1) && (
+        <div className="mt-[10px] flex flex-col gap-[6px] rounded-[10px] border border-border bg-bg p-[10px]">
+          {runtime.map(r => (
+            <div className="flex flex-wrap items-center gap-[8px]" key={r.name}>
+              <span
+                className={`size-[8px] flex-none rounded-[50%] ${DOT[c.enable ? r.status : "off"] ?? "bg-muted"}`}
+              />
+              <span className="text-[12px] font-semibold">{r.name}</span>
+              {/* 只到 pathname，地址里的 token 查询串后端已经砍掉了 */}
+              <span className={`min-w-0 flex-1 truncate text-[12px] text-muted ${MONO}`}>
+                {r.path}
+              </span>
+              <span className={TAG}>{r.status_text}</span>
+              {r.retry > 0 && <span className={TAG}>重连 {r.retry} 次</span>}
+              <span className={TAG}>
+                ↑{r.up} ↓{r.down}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -383,10 +396,13 @@ function Conn({
 /** 连接编辑弹层。conn 为 null 表示新增 */
 function Modal({
   conn,
+  bots,
   onClose,
   onSubmit,
 }: {
   conn: ConnView | null
+  /** 当前在线的机器人，与已填的账号合并成开关列表的候选 */
+  bots: BotProfile[]
   onClose: () => void
   onSubmit: (body: ConnAction) => void
 }) {
@@ -408,7 +424,45 @@ function Modal({
     return f
   })
 
+  const bind = toList(form.bind || "")
+  const exclude = toList(form.exclude || "")
+  /*
+   * 开关列表的候选与状态都从这份表单算，不存第二份 state
+   *
+   * 候选 = 在线机器人 + 已填在 bind 里的账号 + 本连接原先绑过的（编辑时可能已离线）。
+   * 手填的号在框架里查不到档案，只能造一个占位的：online false、无头像，
+   * Avatar 会回退成首字圆。开合状态与已保存连接同一个判据：在 bind 且不在 exclude。
+   */
+  const known = new Map(bots.map(b => [b.id, b]))
+  for (const b of conn?.bind_bots || []) if (!known.has(b.id)) known.set(b.id, b)
+  for (const id of bind)
+    if (!known.has(id)) known.set(id, { id, name: id, avatar: "", online: false })
+  const candidates = [...known.values()]
+  const checked = bind.filter(id => !exclude.includes(id))
+  const conflicts = bind.filter(id => exclude.includes(id))
+  const automatic = looksAutomatic(form.url || "")
+
+  const toggle = (id: string, on: boolean) => {
+    // 开一个号要顺手把它从 exclude 里放出来，否则「开着但不转发」，与后端
+    // bindConnection 的 freed 分支保持同一行为；关只动 bind，不去替用户写排除名单
+    const next = on ? [...bind.filter(x => x !== id), id] : bind.filter(x => x !== id)
+    setForm({
+      ...form,
+      bind: next.join(", "),
+      exclude: on ? exclude.filter(x => x !== id).join(", ") : form.exclude,
+    })
+  }
+
+  /*
+   * 自动端点必须至少留一个账号
+   *
+   * 后端 requireAccounts 会拒，这里提前把提交按钮灰掉。判自动端点用的是本地那个
+   * 粗略函数（见 looksAutomatic），所以只灰按钮、不做别的推断 —— 真正的把关在后端
+   */
+  const blocked = automatic && checked.length === 0
+
   const submit = () => {
+    if (blocked) return
     const body: ConnAction = { action: conn ? "edit" : "add" }
     if (conn) body.key = conn.index
     for (const x of CFIELDS) {
@@ -422,10 +476,10 @@ function Modal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px]"
+      className="fixed inset-0 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px] max-[720px]:p-[8px]"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px]">
+      <div className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px] max-[720px]:p-[14px]">
         <h2 className="mb-[16px] text-[17px] font-semibold">
           {conn ? `编辑：${conn.name}` : "添加连接"}
         </h2>
@@ -445,11 +499,38 @@ function Modal({
             </label>
           ))}
         </div>
+        <div className="mt-[16px]">
+          <div className="text-[13px] font-semibold">绑定账号</div>
+          <p className={FHINT}>
+            {automatic
+              ? "自动连接：每个开着的账号在核心侧是一条独立客户端（/ws/Yunzai-<账号>），至少留一个"
+              : "自定义路径的兼容连接：只有一条 ws，这里的账号是转发过滤器，全关等于不限账号"}
+          </p>
+          {/* 不即时保存：弹层里的改动跟其余字段一起提交，中途关掉就等于没改 */}
+          <BotSwitchList
+            bots={candidates}
+            checked={checked}
+            conflicts={conflicts}
+            automatic={automatic}
+            onToggle={toggle}
+            empty="没有机器人在线。可以在上面的「绑定账号」框里手填账号，离线号也能先绑上。"
+          />
+        </div>
+        {blocked && (
+          <p className={`${HINT} text-danger`}>
+            自动连接至少要绑定一个账号：核心侧的客户端标识就是 /ws/Yunzai-&lt;账号&gt;，
+            一个都不绑等于这条连接不存在。
+          </p>
+        )}
         <div className={PHEAD_END}>
           <button className={BTN} onClick={onClose}>
             取消
           </button>
-          <button className={BTN_PRIMARY} onClick={submit}>
+          <button
+            className={`${BTN_PRIMARY} disabled:cursor-not-allowed disabled:opacity-45`}
+            disabled={blocked}
+            onClick={submit}
+          >
             保存
           </button>
         </div>
@@ -495,30 +576,47 @@ function Settings({
 
   return (
     <>
-      <div className={GRID}>
-        {FIELDS.map(x => (
-          <label className={FIELD} key={x.k}>
-            <span className="text-[12px] text-muted">{x.label}</span>
-            {x.type === "switch" ? (
-              <input
-                className="size-[18px] accent-primary"
-                type="checkbox"
-                checked={!!form[x.k]}
-                onChange={e => setForm({ ...form, [x.k]: e.target.checked })}
-              />
-            ) : (
-              <input
-                className={INPUT}
-                type="number"
-                value={String(form[x.k] ?? 0)}
-                onChange={e => setForm({ ...form, [x.k]: e.target.value })}
-              />
-            )}
-            {/* 字节数直接看数字读不出量级，跟一行人类可读的 */}
-            {x.type === "bytes" && <span className={FHINT}>{bytes(Number(form[x.k]))}</span>}
-            {x.hint && <span className={FHINT}>{x.hint}</span>}
-          </label>
-        ))}
+      {/*
+       * 一列到底的设置行，不再用 auto-fit 多列网格
+       *
+       * 多列在窄屏上会把「标题 / 说明 / 控件」三段各自换行，读起来是一团；
+       * 单列 + 固定标题列宽才是系统设置那种一眼扫得下来的观感。
+       */}
+      <div className="overflow-hidden rounded-[10px] border border-border">
+        {FIELDS.map(x => {
+          // filter.report_private → set-filter-report_private，点号在 CSS/HTML 里都不该出现在 id 上
+          const id = `set-${x.k.replace(/\./g, "-")}`
+          // 字节数直接看数字读不出量级，把人类可读的那串并进说明列
+          const hint = [x.type === "bytes" ? bytes(Number(form[x.k])) : "", x.hint || ""]
+            .filter(Boolean)
+            .join(" · ")
+          return (
+            <div className={ROW} key={x.k}>
+              {/* htmlFor 让点标题也能切换开关，顺带把标题当成读屏的可见名字 */}
+              <label className={ROW_TITLE} htmlFor={id}>
+                {x.label}
+              </label>
+              <span className={ROW_HINT}>{hint}</span>
+              <div className={ROW_CTRL}>
+                {x.type === "switch" ? (
+                  <Switch
+                    id={id}
+                    checked={!!form[x.k]}
+                    onChange={next => setForm({ ...form, [x.k]: next })}
+                  />
+                ) : (
+                  <input
+                    className={`${INPUT} w-[110px] text-right tabular-nums`}
+                    id={id}
+                    type="number"
+                    value={String(form[x.k] ?? 0)}
+                    onChange={e => setForm({ ...form, [x.k]: e.target.value })}
+                  />
+                )}
+              </div>
+            </div>
+          )
+        })}
       </div>
       <div className={PHEAD_END}>
         <button className={BTN_PRIMARY} onClick={submit}>
@@ -541,6 +639,14 @@ function App() {
   const [modal, setModal] = useState<ConnView | null | undefined>(undefined)
   const [logoOk, setLogoOk] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  /**
+   * 在途的写请求数
+   *
+   * 轮询与写请求会抢同一份 state：拨开关时 10 秒的 /config 可能后到，把开关刷回旧位，
+   * 看起来就是「点了又弹回去」。计数而不是布尔 —— 连着拨两个开关时，先回来的那个
+   * 不该把还在途的那个也放开。用 ref 不用 state：它只在回调里读，不需要触发重渲染。
+   */
+  const inflight = useRef(0)
 
   const say = useCallback((text: string, bad?: boolean) => {
     setToast({ text, bad })
@@ -556,15 +662,21 @@ function App() {
     }
   }, [say])
 
+  /** 写请求。刻意不往外抛：调用方（开关）只关心「结束了」，错误已经弹了 toast */
   const send = useCallback(
     async (path: string, body: unknown) => {
+      inflight.current++
       try {
         const r = await api(path, body)
+        // 成功用回包整包换 state：那是服务端算完之后的真状态，比本地猜的准
         setState(r)
         setModal(undefined)
         say(r.message)
       } catch (err) {
+        // 失败不动 state，界面停在原样，用户重来一次就是
         say(errMsg(err), true)
+      } finally {
+        inflight.current--
       }
     },
     [say],
@@ -574,9 +686,9 @@ function App() {
     load()
     // 连接状态会自己变（断线重连），定时刷一下
     const id = setInterval(() => {
-      // 弹层开着时不刷，免得输入被覆盖
+      // 弹层开着时不刷，免得输入被覆盖；有写请求在途时也不刷，理由见 inflight
       setModal(m => {
-        if (m === undefined) load()
+        if (m === undefined && inflight.current === 0) load()
         return m
       })
     }, 10000)
@@ -585,14 +697,21 @@ function App() {
 
   if (!state) return <p className={HINT}>加载中…</p>
 
-  const online = state.connections.filter(c => c.status === 1).length
   const s = state.stats
+  /*
+   * 连接数看 totals：一条逻辑连接会按绑定账号展开成多条 ws
+   *
+   * 数 connections 里 status === 1 的只能得到「有几条核心通了」，看不出某条核心上
+   * 掉了一个账号。totals 由后端按运行时连接算（logical / runtime / connected）。
+   */
+  const t = state.totals || { logical: state.connections.length, runtime: 0, connected: 0 }
   // 展开阶段被跳过的连接在卡片上只显示「未启动」，原因只有这份话术说得出
   const errors = state.errors || []
 
   return (
     <>
-      <header className="mb-[16px] flex items-center justify-between gap-[16px]">
+      {/* flex-wrap：390px 下「标题 + 两个按钮」放不进一行，按钮整组换到下一行靠右 */}
+      <header className="mb-[16px] flex flex-wrap items-center justify-between gap-[16px]">
         <div className="flex min-w-0 items-center gap-[12px]">
           {/* 图标经接口取：宿主的静态白名单只放行 page.html/css/js，
               直连 resources/ 会 403。加载失败就不显示，页面其余部分不依赖它 */}
@@ -611,7 +730,7 @@ function App() {
             </p>
           </div>
         </div>
-        <div className="flex gap-[8px]">
+        <div className="flex flex-none gap-[8px] max-[720px]:w-full max-[720px]:justify-end">
           <button className={BTN} onClick={load}>
             刷新
           </button>
@@ -634,7 +753,11 @@ function App() {
       )}
 
       <section className="mb-[16px] grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-[12px]">
-        <Stat k="连接" v={`${online}/${state.connections.length}`} sub="已连接 / 总数" />
+        <Stat
+          k="连接"
+          v={`${t.connected}/${t.runtime}`}
+          sub={`已连接 / 运行时（逻辑 ${t.logical} 条）`}
+        />
         <Stat
           k="今日上行"
           v={String(s.today.up + s.today.event)}
@@ -675,7 +798,6 @@ function App() {
               <Conn
                 key={c.index}
                 c={c}
-                bots={state.bots || []}
                 onAct={b => send("/connection", b)}
                 onEdit={x => setModal(x)}
               />
@@ -693,6 +815,7 @@ function App() {
       {modal !== undefined && (
         <Modal
           conn={modal}
+          bots={state.bots || []}
           onClose={() => setModal(undefined)}
           onSubmit={b => send("/connection", b)}
         />
