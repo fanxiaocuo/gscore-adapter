@@ -7,7 +7,7 @@
 import { accountPlatform, config, getWsConnections, enabled } from "@/config"
 import { type RuntimeWsConnection, type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
-import { expandConnections } from "@/modules/client/expand.js"
+import { expandConnections, effectiveAccounts } from "@/modules/client/expand.js"
 import { botProfile } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { PluginName } from "@/dir"
@@ -62,8 +62,13 @@ function shownUrl(url?: string): string {
   return url ? redactUrl(url) : ""
 }
 
-/** 按状态码给出色调 */
-function tone(status: number, enabled: boolean): ConnRow["tone"] {
+/**
+ * 按状态码给出色调
+ *
+ * enabled 默认真：只有卡片主行有「整条连接被停用」这个状态，账号级子行没有
+ * ——停用的连接根本不展开运行时连接，一条子行都不会出现。
+ */
+function tone(status: number, enabled = true): ConnRow["tone"] {
   if (!enabled) return "off"
   if (status === 1) return "on"
   if (status === 2 || status === 3) return "warn"
@@ -95,21 +100,23 @@ function sumCounters(names: string[]): { up: number; down: number } {
 /**
  * 一条账号级运行时连接的子行
  *
- * @param enabled 逻辑连接的开关。停用的连接不会展开出运行时连接，所以正常走不到
- *   这里；仍然传进来是为了让子行的措辞与卡片主行同源，不出现「主行已停用、
- *   子行未启动」这种自相矛盾
+ * 不接「逻辑连接是否启用」：子行只由 expandConnections 的产物生成，而它对
+ * `enable === false` 的行直接 return（expand.ts:148），所以走到这里的一定是启用的。
+ * 曾经带过这个参数并为它写了「已停用」分支，那个分支永远走不到。
+ *
  * @param detail 与 {@link collect} 同义：只有 #早柚状态 才把收发计数摆进来
  */
 function runtimeRow(
   rt: RuntimeWsConnection,
-  enabled: boolean,
   detail: boolean,
 ): NonNullable<ConnRow["runtime"]>[number] {
   const live = clients.find(x => x.name === rt.runtimeName)
   const status = live?.status ?? 0
 
   const meta: string[] = []
-  if (live?.retry) meta.push(`重连 ${live.retry} 次`)
+  // 措辞与主行的聚合值同一套：两处指的是同一个数（主行取各账号里最大的那个），
+  // 一处写「重连 N 次」一处写「已重连 N 次」会让人以为是两种不同的计量
+  if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
   if (detail) {
     const n = sumCounters([rt.runtimeName])
     meta.push(`↑${n.up} ↓${n.down}`)
@@ -129,8 +136,10 @@ function runtimeRow(
     // 这张图会发进群里，哪天上游又把鉴权参数放回地址，它就直接印在截图上了。
     // 更不能用 client.target / client.url —— 后者的 getter 会把 token 拼进查询串
     path: new URL(rt.runtimeUrl).pathname || "/",
-    state: !enabled ? "已停用" : live ? STATUS_TEXT[status] || String(status) : "未启动",
-    tone: tone(status, enabled),
+    // 组件折叠子行时要按状态挑，光给文案和色调排不出名次
+    status,
+    state: live ? STATUS_TEXT[status] || String(status) : "未启动",
+    tone: tone(status),
     meta,
   }
 }
@@ -159,10 +168,31 @@ function collect(detail = false) {
   // 出图再报一次只是重复噪音。要看原因去 Web 面板，那边整包带着 errors
   const { runtime } = expandConnections(list)
 
+  // 停用的连接今天转过的量：拿它**本该有**的运行时名字去问
+  // ------
+  // 计数按运行时名字存（`早柚核心 [111]`），而停用的行根本不展开
+  // （expand.ts:148 对 `enable === false` 直接 return），于是没有任何键可查 ——
+  // 逻辑名（`早柚核心`）从来不是任何客户端的名字，问它必然是 ↑0 ↓0，等于对一条
+  // 刚被停用的连接说「它什么都没干过」。所以再展开一份「假设全部启用」的副本，
+  // 把停用行本该派生出的名字捞回来。
+  //
+  // 必须整份列表一起展开：sourceIndex 与未命名连接的 `连接 #N` 标签都按下标算，
+  // 单独展开一行会把序号错开、名字对不上。expandConnections 是纯函数（errors 只是
+  // 返回值），多跑一次没有副作用；循环外只跑一次，别搬进 map 里逐行展开。
+  // 只有 detail 用得上这些数，也只有存在停用行时才值得跑
+  const wouldBe = new Map<number, string[]>()
+  if (detail && list.some(c => c.enable === false))
+    for (const r of expandConnections(list.map(c => ({ ...c, enable: true }))).runtime) {
+      const at = wouldBe.get(r.sourceIndex)
+      if (at) at.push(r.runtimeName)
+      else wouldBe.set(r.sourceIndex, [r.runtimeName])
+    }
+
   const rows: ConnRow[] = list.map((c, i) => {
-    // 按来源序号收本条派生出的运行时连接。sourceIndex 只有走运行时连接构造的客户端
-    // 才是 >= 0（直接拿逻辑连接 new GsCoreClient 会退化成 -1），所以这一层过滤
-    // 顺带保证了不会把一个来路不明的客户端错认成某条来源
+    // 按来源序号收本条派生出的运行时连接。这一层只做「本条派生出的是哪几个」：
+    // runtime 全都出自 expandConnections，里头的 sourceIndex 无条件就是 forEach 的
+    // 下标，不会是 -1，所以它筛不掉任何「来路不明」的东西。真正把野客户端挡在外面的
+    // 是下一行 —— 按 runtimeName 去 clients 里认人，名字对不上的一概不算这条连接的
     const views = runtime.filter(r => r.sourceIndex === i)
     // 反过来从 clients 里筛而不是逐条 find：展开出来的连接与活着的客户端未必一一
     // 对应（#早柚重载 会整个重建 clients，某个账号也可能被单独停掉），从 clients
@@ -192,11 +222,19 @@ function collect(detail = false) {
     // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
     // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
     // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图可出
+    //
+    // 铺的是**原始** bind，而下面的子行来自 bind - exclude，两边条数会不一样：
+    // 所以在胶囊上标出被排除的那几个（conflicts 正是「bind 与 exclude 都写了」的
+    // 那些）。不标的话 bind 三个号只出两条子行，第三个看着像渲染丢了
+    const excluded = new Set(effectiveAccounts(c).conflicts)
     const bots = c.bind?.length
       ? c.bind.map(id => {
           const p = botProfile(id)
           const platform = accountPlatform(id)
-          return platform ? { ...p, platform } : p
+          // 键按 readIds 的规则归一化后再比：conflicts 里是去过空白的字符串，
+          // 而 bind 里可能写成数字或带空格
+          const off = excluded.has(String(id).trim())
+          return { ...p, ...(platform ? { platform } : {}), ...(off ? { excluded: true } : {}) }
         })
       : undefined
     if (c.exclude?.length) meta.push(`exclude: ${c.exclude.length}`)
@@ -214,12 +252,10 @@ function collect(detail = false) {
     }
 
     if (detail) {
-      // 一条运行时连接都没有时退回逻辑名：停用的连接根本不展开（expand.ts 里
-      // `conf.enable === false` 直接 return），但它今天转过的量仍记在自己名下，
-      // 报 0 等于对着一条刚被停用的连接说「它什么都没干过」
-      const n = sumCounters(
-        views.length ? views.map(r => r.runtimeName) : [c.name || String(c.url || "")],
-      )
+      // 一条运行时连接都没有时用「本该有」的那些名字（见上面的 wouldBe）：
+      // 停用的行取不到活着的运行时名字，但它今天转过的量确实记在那些名字下。
+      // 两者互斥地取，不会重复累加
+      const n = sumCounters(views.length ? views.map(r => r.runtimeName) : wouldBe.get(i) || [])
       meta.push(`↑${n.up} ↓${n.down}`)
       // 心跳年龄：lastPong 只在收到 pong 时刷新，而 pong 只因我们发 ping 而来。
       // 关掉 heartbeat 时它永远停在连接建立那一刻，显示出来会被误读成「卡了很久」，
@@ -244,9 +280,11 @@ function collect(detail = false) {
       tone: tone(status, enabled),
       meta,
       bots,
-      // 只派生出一条时不给子行：卡片右侧那个胶囊就是它，重复渲染只是噪音
-      // （与面板 webui/main.tsx 的 runtime.length > 1 同一条判断）
-      runtime: views.length > 1 ? views.map(r => runtimeRow(r, enabled, detail)) : undefined,
+      // 只派生出一条时不给子行：卡片右侧那个胶囊就是它，重复渲染只是噪音。
+      // 面板（webui/main.tsx:386）的判据是 `runtime.length > 0 && (open ||
+      // runtime.length > 1)` —— 单条也能点开看，且不管多少条都全部列出；这张图
+      // 严格一些是因为画布固定、没有交互：既点不开，也没有滚动条能往下翻
+      runtime: views.length > 1 ? views.map(r => runtimeRow(r, detail)) : undefined,
     }
   })
 
@@ -669,6 +707,9 @@ export async function renderStatus() {
         palette,
         time: stamp(),
         rows,
+        // 概览页把账号级子行折叠到前几条：下面还压着四块分组明细，一条核心绑十几个
+        // 号时全铺开会把它们挤到第二屏。要逐个核对走 #早柚连接列表 —— 那页不折叠
+        compactRuntime: true,
         emptyTip: enabled()
           ? "用 #早柚添加连接 <地址> 添加"
           : "适配器已禁用\n用 #早柚设置适配器开启 启用",

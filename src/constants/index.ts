@@ -20,6 +20,21 @@ export const STATUS_TEXT = {
 export const STATUS_ORDER: (0 | 1 | 2 | 3)[] = [1, 2, 3, 0]
 
 /**
+ * 状态在 {@link STATUS_ORDER} 里的名次，数字越大越糟
+ *
+ * 与 {@link pickByStatus} 是同一张顺序表的两种问法：那个答「这条逻辑连接对外算
+ * 什么状态」，这个答「几个账号之间谁更该被人看到」—— 状态图的账号级子行有条数
+ * 上限，要挑掉哪几条就得有个可比的名次。两处共用一张表，否则会出现「代表状态说
+ * 通了，而被折叠掉的偏偏是唯一没通的那个账号」。
+ *
+ * 表里没有的状态码排到最后（最糟）：出现了不认识的状态更该被看见，不该被折叠掉。
+ */
+export function statusRank(status: number): number {
+  const at = STATUS_ORDER.indexOf(status as 0 | 1 | 2 | 3)
+  return at === -1 ? STATUS_ORDER.length : at
+}
+
+/**
  * 按 {@link STATUS_ORDER} 挑出代表整条逻辑连接的那一项
  *
  * 放在 constants 而不是各模块自己写一遍：Web 面板（modules/webadapter）与状态图

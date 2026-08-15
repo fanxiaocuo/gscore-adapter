@@ -4,6 +4,7 @@
  * 版式参照 kkk 的推送列表：概览统计条 + 逐行卡片，每行左侧序号、
  * 中间主信息、右侧状态灯胶囊。
  */
+import { statusRank } from "@/constants"
 import type { Palette } from "../theme.js"
 import { Empty, Footer, Header, Page, Section, Stats } from "./Layout.js"
 
@@ -21,16 +22,36 @@ export interface ConnRow {
   /**
    * bind 账号的档案（头像 + 昵称），渲染成头像胶囊；没有绑定时不给。
    * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
+   *
+   * excluded 是「写在 bind 里但又被 exclude 挡掉」的那些：它们有胶囊却没有子行，
+   * 不标出来就像子行渲染丢了一条。
    */
-  bots?: { id: string; name: string; avatar: string; platform?: string }[]
+  bots?: { id: string; name: string; avatar: string; platform?: string; excluded?: boolean }[]
   /**
    * 账号级运行时连接，一条一行
    *
    * 一条逻辑连接在运行时是 N 条 ws（一个绑定账号一条），卡片右侧那个胶囊是聚合值，
    * 看不出是哪个账号没连上。派生出多条时才给（pages.ts 判），只有一条时那个胶囊
-   * 就是它，重复渲染只是噪音 —— 与面板 webui/main.tsx 的 `runtime.length > 1` 一致。
+   * 就是它，重复渲染只是噪音。
+   *
+   * 与面板（webui/main.tsx:386）的差别要记住：那边是 `runtime.length > 0 &&
+   * (open || runtime.length > 1)` —— 单条也能靠点开看到，且**从不折叠**。这张图
+   * 严格一些是因为画布是固定宽高、没有交互：点不开，也没有滚动条能往下翻。
    */
-  runtime?: { name: string; path: string; state: string; tone: ConnRow["tone"]; meta: string[] }[]
+  runtime?: {
+    name: string
+    path: string
+    /**
+     * 插件自己的状态码（见 constants 的 STATUS_TEXT）
+     *
+     * 已经有 state 文案和 tone 了还要它：折叠时得按 STATUS_ORDER 的名次挑出最该
+     * 被看见的几条，而 tone 把 2 和 3 并成了同一个 warn、把 0 归进 err，排不出序。
+     */
+    status: 0 | 1 | 2 | 3
+    state: string
+    tone: ConnRow["tone"]
+    meta: string[]
+  }[]
 }
 
 /**
@@ -75,6 +96,17 @@ export interface StatusData {
    * #早柚连接列表 只回答「有哪些连接」，用不着这些，所以做成可选。
    */
   panels?: StatusPanel[]
+  /**
+   * 账号级子行是否折叠到 {@link RUNTIME_LIMIT} 条
+   *
+   * 只有 #早柚状态 折：它是概览页，子行下面还压着四块分组明细，一条核心绑十几个号
+   * 时全铺开会把那些明细挤到第二屏。#早柚连接列表 不折 —— 那条命令存在的意义就是
+   * 逐条枚举（卡片上的提示也是这么写的），它下面没有别的块，纵向有地方放。
+   *
+   * 与 pages.ts 里 collect(detail) 是同一条分界线，只是那个参数问的是另一件事
+   * （要不要往 meta 里加收发计数），所以不能直接把它当这个用。
+   */
+  compactRuntime?: boolean
 }
 
 /** 状态色：语义色只用于状态，不参与主情绪（见 kkk tokens.md 颜色角色） */
@@ -86,13 +118,44 @@ function toneColor(p: Palette, tone: ConnRow["tone"]) {
 }
 
 /**
- * 账号级子行最多列几条
+ * 账号级子行最多列几条（只在 {@link StatusData.compactRuntime} 时生效）
  *
  * 一条核心绑十几个号是可能的（QQBot 多实例），逐条列出会把这张卡片拉成半页、
- * 把下面的分组明细挤到第二屏。前 3 条足够看出「是不是有账号掉线」，其余折叠成
- * 一句 +N；要逐个核对有 Web 面板和 #早柚连接列表。
+ * 把下面的分组明细挤到第二屏。3 条足够看出「是不是有账号掉线」——前提是挑的是
+ * 该看的那 3 条，见 {@link shownRuntime}；要逐个核对有 Web 面板和 #早柚连接列表，
+ * 后者不折叠，全部列出。
  */
 const RUNTIME_LIMIT = 3
+
+/**
+ * 折叠时真正画出来的那几条子行
+ *
+ * 不能按 bind 顺序取前 N 条
+ * ----------------------
+ * 绑了 5 个号、坏的是第 4 个时，前 3 条全是绿的，那个唯一需要人动手的账号恰好落进
+ * 「+2 个账号未显示」里；卡片上剩下的线索只有主行那个聚合的「已重连 N 次」，它说
+ * 「有账号在挣扎」但不说是哪个 —— 而子行存在的理由正是补上这句。所以先按
+ * STATUS_ORDER 的名次（statusRank，越大越糟）挑最糟的那几条。
+ *
+ * 挑与画分开
+ * --------
+ * 挑按名次，画按原顺序（也就是 bind 的书写顺序）：显示顺序稳定，状态抖动时卡片
+ * 不会重排，条数没超上限时看到的东西与折叠前逐字节一致。sort 里显式带上下标做
+ * 第二比较键，不依赖 Array.prototype.sort 的稳定性 —— 同名次内必须保持 bind 顺序。
+ *
+ * 副作用是主行那个代表账号（pickByStatus 选出的、决定右侧胶囊颜色的那条）可能
+ * **不在**列出的子行里：它状态最好，正是最先被折叠掉的。这是有意的，别「修」回去
+ * ——主行已经把它的状态说了一遍，子行的位置要留给说不出来的那些。
+ */
+function shownRuntime(list: NonNullable<ConnRow["runtime"]>, compact?: boolean) {
+  if (!compact || list.length <= RUNTIME_LIMIT) return { shown: list, hidden: 0 }
+  const keep = list
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => statusRank(b.r.status) - statusRank(a.r.status) || a.i - b.i)
+    .slice(0, RUNTIME_LIMIT)
+    .sort((a, b) => a.i - b.i)
+  return { shown: keep.map(x => x.r), hidden: list.length - keep.length }
+}
 
 export function Status(data: StatusData) {
   const p = data.palette
@@ -116,6 +179,9 @@ export function Status(data: StatusData) {
           <div className="flex flex-col gap-[22px]">
             {data.rows.map(row => {
               const c = toneColor(p, row.tone)
+              const subs = row.runtime?.length
+                ? shownRuntime(row.runtime, data.compactRuntime)
+                : null
               return (
                 // 刻意不给 items-center：序号、主信息、胶囊三者的对齐各有讲究，
                 // 由子元素各自的 self-center 决定（见下面序号那段注释）
@@ -172,6 +238,20 @@ export function Status(data: StatusData) {
                                 {b.platform}
                               </span>
                             )}
+                            {/*
+                             * 被 exclude 挡掉的账号要当场说明
+                             *
+                             * 这排胶囊来自原始 bind，而下面的子行是 bind - exclude 之后的
+                             * 结果：不标一句的话，bind 三个号却只有两条子行，第三个看起来
+                             * 像「子行渲染丢了」，而 meta 里那个光秃秃的 `exclude: 1`
+                             * 说不出是哪个号。措辞与面板的「已被排除，不会转发」同源，
+                             * 这里压成两个字是因为它挤在胶囊里。
+                             */}
+                            {b.excluded && (
+                              <span className="font-mono text-[17px] leading-none text-muted">
+                                已排除
+                              </span>
+                            )}
                           </span>
                         ))}
                       </div>
@@ -181,14 +261,20 @@ export function Status(data: StatusData) {
                      *
                      * 刻意不再造一套卡片 —— 这是主信息列里的一小组紧凑行，靠一层
                      * bg-inset 与卡片区分。右侧那个大胶囊是聚合值（任一账号连上就算
-                     * 这个核心通了），只有这里能看出是哪个号没连上。
+                     * 这个核心通了），只有这里能看出是哪个号没连上 —— 折叠时也仍然
+                     * 成立，因为挑的是状态最糟的那几条（见 shownRuntime）。
                      */}
-                    {row.runtime && row.runtime.length > 0 && (
+                    {subs && (
                       <div className="mt-[6px] flex flex-col gap-[8px] rounded-[18px] bg-inset px-[18px] py-[12px]">
-                        {row.runtime.slice(0, RUNTIME_LIMIT).map(r => {
+                        {subs.shown.map(r => {
                           const rc = toneColor(p, r.tone)
                           return (
-                            <div className="flex items-center gap-[12px]" key={r.name}>
+                            // flex-wrap 是溢出兜底：bind 里的账号 id 不保证是短数字（可能是
+                            // 十八九位的平台雪花号），名字 + 计数 + 状态三段定宽内容加起来能
+                            // 顶破这块 bg-inset，而这一行没有任何环节会裁切或折行，状态文字
+                            // 会直接漫出圆角框。给 meta 加 min-w-0 治不了：它是 flex-none，
+                            // 收缩因子本身就是 0，min-width 压根不参与计算
+                            <div className="flex flex-wrap items-center gap-[12px]" key={r.name}>
                               <span
                                 className="size-[10px] flex-none rounded-[9999px]"
                                 style={{ background: rc }}
@@ -196,8 +282,13 @@ export function Status(data: StatusData) {
                               <span className="flex-none font-mono text-[21px] font-bold leading-none">
                                 {r.name}
                               </span>
-                              {/* 只到 pathname —— 完整地址可能带 token，而这张图会发进群里 */}
-                              <span className="min-w-0 flex-1 break-all font-mono text-[19px] leading-[1.4] text-muted">
+                              {/*
+                               * 只到 pathname —— 完整地址可能带 token，而这张图会发进群里。
+                               * truncate 而不是 break-all：路径尾巴就是账号，左边那一列已经
+                               * 写着它，折成两三行只会让这组 leading-none 的紧凑行变松散
+                               * （面板 main.tsx:395 同样是 truncate）
+                               */}
+                              <span className="min-w-0 flex-1 truncate font-mono text-[19px] leading-none text-muted">
                                 {r.path}
                               </span>
                               {r.meta.length > 0 && (
@@ -214,9 +305,9 @@ export function Status(data: StatusData) {
                             </div>
                           )
                         })}
-                        {row.runtime.length > RUNTIME_LIMIT && (
+                        {subs.hidden > 0 && (
                           <div className="font-mono text-[19px] leading-none text-muted">
-                            +{row.runtime.length - RUNTIME_LIMIT} 个账号未显示
+                            +{subs.hidden} 个账号未显示（异常的已优先列出）
                           </div>
                         )}
                       </div>
