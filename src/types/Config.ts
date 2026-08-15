@@ -13,7 +13,12 @@ export interface WsConnection {
   url: string
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
-  /** 旧字段，升级时迁入 bot_id_map 后删除；上报不再读取 */
+  /**
+   * 旧字段，上报只读 bot_id_map，不读这里
+   *
+   * 启动时不动它（插件不改写用户的配置）；只有编辑这条连接时才顺手收正：
+   * 按绑定账号各写一行 bot_id_map，再把这个字段清掉。
+   */
   bot_id?: string
   /** 是否启用本连接 */
   enable?: boolean
@@ -37,7 +42,7 @@ export interface RuntimeWsConnection extends WsConnection {
   runtimeName: string
   /** 最终连接地址（不含 token 查询参数） */
   runtimeUrl: string
-  /** 兼容地址原本是否显式携带 token 参数（含空值） */
+  /** 地址原本是否显式携带 token 参数（含空值）；根路径与自定义路径都可能带 */
   inlineToken?: boolean
   /** 是否由 origin + bind 派生 */
   automatic: boolean

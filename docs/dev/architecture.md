@@ -85,7 +85,7 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 | :--- | :--- | :--- |
 | 通用 | `saveConfig(fn)` | 拿到 yaml `Document` 任意改，保留注释、写盘、热重载一步完成 |
 | 连接 | `appendConnection` / `updateConnection` / `removeConnection` | 连接的增 / 改 / 删。内部自带「文件里没有 `connections` 键时把运行时列表物化进文件」的兜底 |
-| 迁移 | `upgrade.ts` | 仅模块首次加载时跑：补缺失顶层键、迁 `ws_connections`、合并同一核心旧连接。热重载不再改用户文件 |
+| 补全 | `upgrade.ts` | 仅模块首次加载时跑：补缺失顶层键、把 `ws_connections` 键名换成 `connections`、给每个绑定账号补一行 `bot_id_map`。**不动已有的项** —— 尤其不改写用户写的连接地址 |
 
 两条约定：
 
