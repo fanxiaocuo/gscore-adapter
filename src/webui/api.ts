@@ -67,8 +67,8 @@ export interface ConnView {
   /**
    * 已脱敏的连接地址：查询串、fragment 与 userinfo 都被砍掉
    *
-   * 非根路径的地址可能把凭据内联成 `?token=`，而配置的 token 字段是空的
-   * （`normalizeEndpoint` 只收根路径），所以这一栏不是配置原值。
+   * 凭据可能内联在 `?token=` 里（核心地址与自定义路径都可能），所以这一栏
+   * 一定过 redactUrl，不是配置原值。要判配没配读 {@link has_token}。
    */
   url: string
   enable: boolean

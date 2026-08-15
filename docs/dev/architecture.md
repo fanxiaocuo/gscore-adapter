@@ -58,7 +58,8 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 - 停用的（`enable === false`）直接跳过
 - 有效账号 = `bind` 减 `exclude`，去重保序；两边都写了的账号按 `exclude` 处理并记一条 error
 - 地址 pathname 为空或根 → **自动端点**，按每个有效账号派生一条，地址由 `materializeAccountUrl` 拼成 `/ws/Yunzai-<账号>`（账号只当一个 path segment，`/`、`?`、`#` 都被编码掉），运行时 `bind` 收窄成该单账号；一个有效账号都没有则整条跳过并记 error
-- 非根路径 → **兼容连接**，路径原样不动、只派生一条，`bind` 在它上头是转发过滤器（最终由 `GsCoreClient.accept` 判）；地址里内联的 `?token=` 在这里被摘回 token 字段，运行时地址本身不带凭据
+- 非根路径 → **兼容连接**，路径原样不动、只派生一条，`bind` 在它上头是转发过滤器（最终由 `GsCoreClient.accept` 判）
+- 两种地址里内联的 `?token=` 都在这里被摘回 token 字段，运行时地址本身不带凭据
 - 全局按 `routeKey`（协议 + host + pathname）判重，撞上了先到先得，被跳过的那条记一条 error
 
 `errors` 由调用方决定怎么用：生命周期那条路径打日志，面板整包带回前端（`Payload.errors`），出图那条路径刻意不打——同一批错误在启停时已经报过一次。也因此**展开必须整表做**：路由冲突是全局裁决，逐条展开既拿不到上下文，又会把同一批错误算 n 遍。`startSource(i)` 同样先展开完整列表，再挑 `sourceIndex === i` 的那些启动。
