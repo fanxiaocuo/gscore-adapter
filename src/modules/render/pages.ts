@@ -7,7 +7,7 @@
 import { accountPlatform, config, getWsConnections, enabled } from "@/config"
 import { type RuntimeWsConnection, type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
-import { expandConnections, effectiveAccounts } from "@/modules/client/expand.js"
+import { expandConnections, effectiveAccounts, readIds } from "@/modules/client/expand.js"
 import { botProfile } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { PluginName } from "@/dir"
@@ -101,7 +101,7 @@ function sumCounters(names: string[]): { up: number; down: number } {
  * 一条账号级运行时连接的子行
  *
  * 不接「逻辑连接是否启用」：子行只由 expandConnections 的产物生成，而它对
- * `enable === false` 的行直接 return（expand.ts:148），所以走到这里的一定是启用的。
+ * `enable === false` 的行直接 return（expand.ts:149），所以走到这里的一定是启用的。
  * 曾经带过这个参数并为它写了「已停用」分支，那个分支永远走不到。
  *
  * @param detail 与 {@link collect} 同义：只有 #早柚状态 才把收发计数摆进来
@@ -171,7 +171,7 @@ function collect(detail = false) {
   // 停用的连接今天转过的量：拿它**本该有**的运行时名字去问
   // ------
   // 计数按运行时名字存（`早柚核心 [111]`），而停用的行根本不展开
-  // （expand.ts:148 对 `enable === false` 直接 return），于是没有任何键可查 ——
+  // （expand.ts:149 对 `enable === false` 直接 return），于是没有任何键可查 ——
   // 逻辑名（`早柚核心`）从来不是任何客户端的名字，问它必然是 ↑0 ↓0，等于对一条
   // 刚被停用的连接说「它什么都没干过」。所以再展开一份「假设全部启用」的副本，
   // 把停用行本该派生出的名字捞回来。
@@ -214,26 +214,29 @@ function collect(detail = false) {
     const retry = live.reduce((n, x) => Math.max(n, x.retry), 0)
 
     const meta: string[] = []
-    // 内联在地址里的凭据也算配过：非根路径的地址（`ws://h:8765/ws/Custom?token=x`）
-    // 规范化时会把查询串一起留下，那种配置的 c.token 是空的。只看 c.token 的话，
+    // 内联在地址里的凭据也算配过：地址的查询串规范化时会一起留下（核心地址与自定义
+    // 路径都留），那种配置的 c.token 是空的。只看 c.token 的话，
     // 排查时这张图会对一条其实配了凭据的连接说「没设 token」，把人引向错误方向
     if (c.token || inlineToken(c.url) !== null) meta.push("token 已设置")
     if (retry) meta.push(`已重连 ${retry} 次`)
     // bind 账号带上档案（头像/昵称）渲染成胶囊，替代原来的纯文本标签：
     // 多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接绑了谁，
-    // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图可出
+    // 头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图有名
     //
-    // 铺的是**原始** bind，而下面的子行来自 bind - exclude，两边条数会不一样：
-    // 所以在胶囊上标出被排除的那几个（conflicts 正是「bind 与 exclude 都写了」的
-    // 那些）。不标的话 bind 三个号只出两条子行，第三个看着像渲染丢了
+    // 铺的是 readIds 归一化之后的 bind（去空白、去重、丢空项），与子行同一个来源。
+    // 直接铺 c.bind 的话，`bind: [111, 111, 222]` 会出三个胶囊却只有两条子行，
+    // 第三个看着像渲染丢了 —— 这正是下面那句「标出被排除的」要消除的困惑，
+    // 而重复项还会让两个胶囊撞上同一个 React key。
+    //
+    // 被 exclude 的号仍然出胶囊、另外标一下（conflicts 正是「bind 与 exclude 都写了」
+    // 的那些）：它确实绑了，只是不会连，藏掉反而看不出配置写矛盾了
     const excluded = new Set(effectiveAccounts(c).conflicts)
-    const bots = c.bind?.length
-      ? c.bind.map(id => {
+    const bound = readIds(c.bind)
+    const bots = bound.length
+      ? bound.map(id => {
           const p = botProfile(id)
           const platform = accountPlatform(id)
-          // 键按 readIds 的规则归一化后再比：conflicts 里是去过空白的字符串，
-          // 而 bind 里可能写成数字或带空格
-          const off = excluded.has(String(id).trim())
+          const off = excluded.has(id)
           return { ...p, ...(platform ? { platform } : {}), ...(off ? { excluded: true } : {}) }
         })
       : undefined
@@ -272,9 +275,9 @@ function collect(detail = false) {
       index: i + 1,
       name: c.name || shownUrl(c.url),
       // 不用 client.url —— 那个 getter 会把 token 拼进查询参数，截图会外泄凭据。
-      // 配置里的 c.url 也不能原样用：normalizeEndpoint 只把根路径收成 origin，
-      // 非根路径连查询串一起留着（utils/url.ts:53-54），于是
-      // `ws://host:port/ws/Custom?token=xxx` 这种配置的凭据就在 c.url 里
+      // 配置里的 c.url 也不能原样用：normalizeEndpoint 不动查询串（核心地址与自定义
+      // 路径都留着，凭据可能就写在里面），于是 `ws://host:port/ws/Custom?token=xxx`
+      // 这种配置的凭据就在 c.url 里
       url: shownUrl(c.url),
       state,
       tone: tone(status, enabled),
@@ -328,6 +331,10 @@ export async function renderList() {
 
   return render({
     name: "list",
+    // 这一页不折叠子行（纵向有地方放），于是它没有任何高度上限：3 条连接各绑
+    // 12 个号就比原来多出上千像素。过高的图不少 QQ 适配器会拒发或压成马赛克，
+    // 所以交给 multiPage 切页 —— 与 renderChangelog 同一个理由
+    multiPage: true,
     title: "早柚核心 连接列表",
     view: palette =>
       Status({

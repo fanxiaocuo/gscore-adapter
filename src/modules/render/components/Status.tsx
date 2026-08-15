@@ -287,8 +287,14 @@ export function Status(data: StatusData) {
                                * truncate 而不是 break-all：路径尾巴就是账号，左边那一列已经
                                * 写着它，折成两三行只会让这组 leading-none 的紧凑行变松散
                                * （面板 main.tsx:395 同样是 truncate）
+                               *
+                               * 这一个 span 例外地不用 leading-none：truncate 带着
+                               * overflow:hidden，而 19px 等宽字的 ascent+descent 超过 19px 的
+                               * 行盒，自定义路径里的 `_`、`g` 会被切掉半截（根路径全是
+                               * `/ws/Yunzai-数字`，没有下伸笔画，所以一直没露出来）。
+                               * 1.2 倍只让这行高 ~2px，紧凑感还在
                                */}
-                              <span className="min-w-0 flex-1 truncate font-mono text-[19px] leading-none text-muted">
+                              <span className="min-w-0 flex-1 truncate font-mono text-[19px] leading-[1.2] text-muted">
                                 {r.path}
                               </span>
                               {r.meta.length > 0 && (
@@ -307,7 +313,12 @@ export function Status(data: StatusData) {
                         })}
                         {subs.hidden > 0 && (
                           <div className="font-mono text-[19px] leading-none text-muted">
-                            +{subs.hidden} 个账号未显示（异常的已优先列出）
+                            {/*
+                             * 「异常的已优先列出」只在真有异常时说：五个号全好的时候
+                             * 这句话读起来像「出了问题，我们把问题挑出来给你看了」
+                             */}
+                            +{subs.hidden} 个账号未显示
+                            {subs.shown.some(r => r.status !== 1) && "（异常的已优先列出）"}
                           </div>
                         )}
                       </div>
