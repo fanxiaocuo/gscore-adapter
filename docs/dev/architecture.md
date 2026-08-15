@@ -22,9 +22,9 @@ src/
 ├── types/          协议与配置的类型声明（无运行时代码）
 ├── constants/      状态文案、回环缓存上限、日志正则
 ├── config/         配置读写、热重载、bot_id 解析、连接增删改的写盘封装
-├── utils/          日志 / 媒体 / 会话判定 / 引用 id 反算 / 发送结果判定 / 能力探测 / 机器人档案
+├── utils/          日志 / 媒体 / 地址规范化 / 会话判定 / 引用 id 反算 / 发送结果判定 / 能力探测 / 机器人档案
 ├── modules/
-│   ├── convert/    消息段双向转换      ├── client/    连接类、生命周期、回环缓存
+│   ├── convert/    消息段双向转换      ├── client/    连接类、展开、生命周期、回环缓存
 │   ├── notice/     meta event 转换     ├── render/    出图
 │   ├── stats/      中转计数            ├── update/    检查更新与拉取
 │   ├── passive/    QQBot 被动回复窗口  ├── guoba/     锅巴面板
@@ -32,6 +32,50 @@ src/
 │   └── loader/     apps 静态导入表
 └── apps/           status / admin / update 三组指令
 ```
+
+## 连接的两段式启动
+
+配置里的一条连接不是一条 ws。中间隔着一次**展开**：
+
+```
+逻辑连接                展开                运行时连接              客户端
+WsConnection    →   expandConnections   →   RuntimeWsConnection  →  GsCoreClient
+（配置的一项）      （client/expand.ts）    （+ 账号、名字、地址）   （client/lifecycle.ts）
+
+url:  ws://host:8765                        /ws/Yunzai-账号A        连接名 [账号A]
+bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连接名 [账号B]
+```
+
+| 阶段 | 谁产出 | 关键点 |
+| :--- | :--- | :--- |
+| 逻辑连接 | `config/` 读 yaml | 只有核心地址与 `bind` / `exclude`，不含路径 |
+| 展开 | `expandConnections(list)` | 纯函数，回 `{ runtime, errors }`，不打日志 |
+| 运行时连接 | 同上 | 多出 `account` / `runtimeName` / `runtimeUrl` / `sourceIndex` / `automatic` |
+| 客户端 | `startClient(conf)` | **唯一**的 `new GsCoreClient` 处，按 `runtimeName` 去重 |
+
+展开这一步做的事：
+
+- 停用的（`enable === false`）直接跳过
+- 有效账号 = `bind` 减 `exclude`，去重保序；两边都写了的账号按 `exclude` 处理并记一条 error
+- 地址 pathname 为空或根 → **自动端点**，按每个有效账号派生一条，地址由 `materializeAccountUrl` 拼成 `/ws/Yunzai-<账号>`（账号只当一个 path segment，`/`、`?`、`#` 都被编码掉），运行时 `bind` 收窄成该单账号；一个有效账号都没有则整条跳过并记 error
+- 非根路径 → **兼容连接**，路径原样不动、只派生一条，`bind` 在它上头是转发过滤器（最终由 `GsCoreClient.accept` 判）；地址里内联的 `?token=` 在这里被摘回 token 字段，运行时地址本身不带凭据
+- 全局按 `routeKey`（协议 + host + pathname）判重，撞上了先到先得，被跳过的那条记一条 error
+
+`errors` 由调用方决定怎么用：生命周期那条路径打日志，面板整包带回前端（`Payload.errors`），出图那条路径刻意不打——同一批错误在启停时已经报过一次。也因此**展开必须整表做**：路由冲突是全局裁决，逐条展开既拿不到上下文，又会把同一批错误算 n 遍。`startSource(i)` 同样先展开完整列表，再挑 `sourceIndex === i` 的那些启动。
+
+### sourceIndex 是聚合键
+
+`sourceIndex` 就是这条运行时连接在 `client.connections` 里的下标，也是「运行时连接属于哪条配置」的唯一凭据：
+
+| 用处 | 位置 |
+| :--- | :--- |
+| 面板把 N 条 ws 归到一张卡片 | `webadapter` 的 `connView` |
+| `#早柚状态` / `#早柚连接列表` 按来源聚合、逐账号列子行 | `render/pages.ts` 的 `collect` |
+| 按来源停起（启用 / 停用 / 改完重建） | `lifecycle.ts` 的 `stopSource` / `startSource` |
+
+删掉一条配置会让后面各条的下标整体 -1，所以 `removeConnection` 之后必须调 `shiftSourceIndex`——不跟着移，下次停用第 3 条停掉的会是原来第 4 条派生的连接。直接拿逻辑连接 `new GsCoreClient` 的客户端 `sourceIndex` 是 `-1`，各处聚合都会把它排除在外。
+
+一个例外要记住：面板的绑定开关不走 `stopSource`。它只表达一个账号的意图，所以自动端点上按 `accountRuntimeName(label, account)` 精确停那一条 ws；名字与展开器拼得不一致就会停不掉，而 `stopClient` 找不到人只回 `false`，不报错。
 
 ## 配置写盘的分层
 
