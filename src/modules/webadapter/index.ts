@@ -20,7 +20,8 @@
  * 为什么不自己另写一套配置读写
  * -------------------------
  * 指令（apps/admin.ts）已经把「改配置 + 热生效」走通了，面板必须调同一批函数：
- * `saveConfig` 保留 yaml 注释，`startClient` / `stopClient` 精确启停单条连接。
+ * `saveConfig` 保留 yaml 注释，`stopSource` / `startSource` 按来源精确启停一条
+ * 逻辑连接派生出的全部运行时连接。
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
@@ -36,19 +37,20 @@ import {
   enabled,
   type ConnectionPatch,
 } from "@/config"
-import { clients, startClient, stopClient, reloadClients } from "@/modules/client"
+import { clients, reloadClients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
+import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
-import { findDuplicate, findSameCore, requireWsUrl, stripAccountPath } from "@/utils/url"
+import { findDuplicate, findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
-import type { WsConnection } from "@/types"
-import type { ConnView, Payload } from "@/webui/api.js"
+import type { RuntimeWsConnection, WsConnection } from "@/types"
+import type { BotProfile, ConnView, Payload, RuntimeConnView } from "@/webui/api.js"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -106,6 +108,31 @@ type PanelBody = Record<string, unknown>
 const BAD_KEYS = ["__proto__", "prototype", "constructor"]
 
 /**
+ * 档案叠加平台标识
+ *
+ * bot_id_map 的显式映射优先于适配器推断（accountPlatform 内部就是这个顺序）：
+ * 用户手写的映射才是上报时真正用的值，被在线实例的猜测盖掉就成了假显示。
+ */
+function withPlatform(p: BotProfile): BotProfile {
+  const platform = accountPlatform(p.id)
+  return platform ? { ...p, platform } : p
+}
+
+/**
+ * 一条连接的绑定候选
+ *
+ * 面板要为每个候选画一个开关，所以候选集是「在线的全部机器人 ∪ 本连接已绑定的
+ * 账号」：只给已绑定的就没法在面板上绑一个新号，只给在线的又没法解绑一个已经
+ * 离线的号。其他连接绑过、本连接没绑又不在线的账号不塞进来 —— 那是别人的号，
+ * 出现在这里只会让人误点。
+ */
+function bindBots(conf: WsConnection): BotProfile[] {
+  // 在线的排前面：union 的顺序就是显示顺序，先在线后离线才好扫
+  const ids = [...new Set([...onlineBots().map(p => p.id), ...readIds(conf.bind)])]
+  return ids.map(id => withPlatform(botProfile(id)))
+}
+
+/**
  * 连接的可序列化视图
  *
  * **不要整个 conf 扔给前端** —— 里面有 token。这里逐字段挑，token 只回一个
@@ -114,11 +141,29 @@ const BAD_KEYS = ["__proto__", "prototype", "constructor"]
  *
  * 返回类型标成 {@link ConnView}（与前端共用的那份声明）：字段改了名，
  * 编译期就在这里报，而不是等到面板上显示成 undefined
+ *
+ * @param runtime 本条连接派生出的运行时连接，由 payload() 一次展开后按 sourceIndex 分好
  */
-function connView(conf: WsConnection, i: number): ConnView {
-  const live = clients.find(c => c.name === (conf.name || conf.url))
+function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[]): ConnView {
   const enabled = conf.enable !== false
-  const counters = forName(conf.name || conf.url)
+  const views: RuntimeConnView[] = runtime.map(rt => {
+    // 一条配置对应多个客户端，靠运行时名字找它自己那一个：
+    // 按 conf.name 找只会拿到第一个账号，另外几条的状态与计数全丢
+    const live = clients.find(c => c.name === rt.runtimeName)
+    const counters = forName(rt.runtimeName)
+    return {
+      account: rt.account ?? undefined,
+      name: rt.runtimeName,
+      // 只给 pathname：runtimeUrl 本身已净化，但仍不取整串，免得哪天
+      // 上游又把鉴权参数放回地址里，面板就直接把它显示出去了
+      path: new URL(rt.runtimeUrl).pathname || "/",
+      status: live?.status ?? 0,
+      status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
+      retry: live?.retry ?? 0,
+      up: counters.up + counters.event,
+      down: counters.down,
+    }
+  })
   return {
     index: i,
     name: conf.name || conf.url,
@@ -132,24 +177,36 @@ function connView(conf: WsConnection, i: number): ConnView {
     max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
-    // 每个绑定账号带上头像/昵称/在线状态，面板的折叠区直接可视化
-    bind_bots: (Array.isArray(conf.bind) ? conf.bind : []).map(id => {
-      const p = botProfile(id)
-      const platform = accountPlatform(id)
-      return platform ? { ...p, platform } : p
-    }),
-    status: live?.status ?? 0,
+    bind_bots: bindBots(conf),
+    runtime: views,
+    // 逻辑连接的状态是聚合值：任一账号连上就算这个核心通了，
+    // 不让某一条的状态盖掉其他账号（明细在 runtime 里逐条给）
+    status: views.some(v => v.status === 1) ? 1 : (views[0]?.status ?? 0),
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
-    status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
-    retry: live?.retry ?? 0,
-    up: counters.up + counters.event,
-    down: counters.down,
+    status_text: !enabled
+      ? "已停用"
+      : ((views.find(v => v.status === 1) ?? views[0])?.status_text ?? "未启动"),
+    retry: views.reduce((n, v) => Math.max(n, v.retry), 0),
+    up: views.reduce((n, v) => n + v.up, 0),
+    down: views.reduce((n, v) => n + v.down, 0),
   }
 }
 
 /** GET 回的整包 */
 function payload(): Payload {
   const stats = snapshot()
+  const list = getWsConnections()
+  // 展开只做一次：expandConnections 是全局裁决（路由冲突先到先得），
+  // 每条连接各展开一次既拿不到全局上下文，也会把同一批错误重复算 n 遍
+  const { runtime } = expandConnections(list)
+  const connections = list.map((c, i) =>
+    connView(
+      c,
+      i,
+      runtime.filter(r => r.sourceIndex === i),
+    ),
+  )
+  const flat = connections.flatMap(c => c.runtime)
   return {
     ok: true,
     plugin: { name: PluginName, version: versionLabel(), configFile },
@@ -166,12 +223,14 @@ function payload(): Payload {
         only_reply_at: config.filter?.only_reply_at === true,
       },
     },
-    connections: getWsConnections().map(connView),
+    connections,
+    totals: {
+      logical: connections.length,
+      runtime: flat.length,
+      connected: flat.filter(r => r.status === 1).length,
+    },
     // 在线机器人清单：面板「添加绑定」的候选，含头像与昵称
-    bots: onlineBots().map(p => {
-      const platform = accountPlatform(p.id)
-      return platform ? { ...p, platform } : p
-    }),
+    bots: onlineBots().map(withPlatform),
     stats: {
       total: stats.total,
       today: stats.today,
@@ -264,8 +323,11 @@ function saveGlobal(body: PanelBody) {
 function addConnection(body: PanelBody) {
   const list = getWsConnections()
   const bind = (Array.isArray(body.bind) ? body.bind : []).map(String)
+  // requireWsUrl 而不是裸 normalizeEndpoint：协议校验只有那一处，http:// 会带着
+  // 换算好的 ws 地址抛出来，guard 转成 400 后那句话本身就是可用的建议
   const url = requireWsUrl(String(body.url ?? ""))
   const explicit = String(body.bot_id || "").trim()
+  const exclude = (Array.isArray(body.exclude) ? body.exclude : []).map(String)
 
   // 同一核心已有自动路径的连接 → 合并 bind，不再新开一条 ws
   const existing = findSameCore(list, url)
@@ -273,14 +335,28 @@ function addConnection(body: PanelBody) {
     if (findDuplicate([existing], url, bind))
       throw new Error(
         `这个核心已经加过了（${existing.name}），绑定：${
-          existing.bind?.length ? existing.bind.join("、") : "不限账号"
+          existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
         }`,
       )
     const idx = list.indexOf(existing)
     const prev = Array.isArray(existing.bind) ? existing.bind.map(String) : []
     const nextBind = [...new Set([...prev, ...bind])]
-    const nextUrl = stripAccountPath(existing.url || url)
+    // 已有配置值走 normalizeEndpoint：它不做协议校验，只把地址收成核心 origin
+    const nextUrl = normalizeEndpoint(existing.url || url)
+
+    // 明确要绑的账号必须从 existing.exclude 里放出来
+    // ------
+    // 合并只改 bind、existing.exclude 原样留着的话，落盘的组合是谁都没校验过的
+    // 那份：exclude 优先级更高，这个号永远派生不出运行时连接，面板上却显示已绑定。
+    // 与绑定开关同一套语义（拨开就等于绑上，不能绿着却不连），也与 admin.ts 一致
+    const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
+    const freed = readIds(existing.exclude).length !== nextExclude.length
+
+    const err = requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
+    if (err) throw new Error(err)
+
     const patch: ConnectionPatch = { bind: nextBind }
+    if (freed) patch.exclude = nextExclude.length ? nextExclude : null
     if (nextUrl !== existing.url) patch.url = nextUrl
     if (existing.bot_id) patch.bot_id = null
     updateConnection(idx, patch, doc => {
@@ -292,10 +368,9 @@ function addConnection(body: PanelBody) {
           config.bot_id_map,
         )
     })
-    stopClient(existing.name || existing.url)
-    const next = getWsConnections()[idx]
-    if (enabled() && next?.enable !== false) startClient(next)
-    return next?.name || existing.name || existing.url
+    stopSource(idx, existing.name || existing.url)
+    if (enabled()) startSource(idx)
+    return getWsConnections()[idx]?.name || existing.name || existing.url
   }
 
   let name = String(body.name || "").trim() || `core${list.length + 1}`
@@ -309,14 +384,19 @@ function addConnection(body: PanelBody) {
     reconnect_interval: Number(body.reconnect_interval) || 5,
     max_reconnect_attempts: num(body.max_reconnect_attempts, DEFAULT_MAX_RECONNECT),
     bind,
-    exclude: Array.isArray(body.exclude) ? body.exclude : [],
+    exclude,
   }
+
+  // 落盘前拦：自动端点没有明确账号就派生不出任何运行时连接，存下来只会变成
+  // 一条永远不连的死配置。话术与指令层共用，两处说法不会漂
+  const err = requireAccounts(conf)
+  if (err) throw new Error(err)
 
   appendConnection(conf, doc => {
     for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
   })
 
-  if (enabled() && conf.enable) startClient(conf)
+  if (enabled()) startSource(getWsConnections().length - 1)
   return conf.name
 }
 
@@ -336,8 +416,9 @@ function editConnection(body: PanelBody) {
   const patch: ConnectionPatch = {}
   if (body.url !== undefined) patch.url = requireWsUrl(String(body.url))
   else {
-    const stripped = stripAccountPath(String(hit.conf.url || ""))
-    if (stripped !== hit.conf.url) patch.url = stripped
+    // 顺手把老配置里的账号路径收回核心 origin：改都改了，别把不规范的地址留着
+    const normalized = normalizeEndpoint(String(hit.conf.url || ""))
+    if (normalized !== hit.conf.url) patch.url = normalized
   }
   if (body.name !== undefined) patch.name = String(body.name).trim()
   if (body.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
@@ -361,21 +442,33 @@ function editConnection(body: PanelBody) {
   const nextBind = (
     body.bind !== undefined ? (patch.bind as (string | number)[]) : hit.conf.bind || []
   ).map(String)
+  const nextExclude = (
+    body.exclude !== undefined ? (patch.exclude as (string | number)[]) : hit.conf.exclude || []
+  ).map(String)
   const explicit = body.bot_id !== undefined ? String(body.bot_id || "").trim() : ""
   if (explicit && !nextBind.length)
-    throw new Error("当前连接不限账号，无法按账号写入平台标识。请先填写绑定账号")
+    throw new Error("当前连接未绑定账号，无法按账号写入平台标识。请先填写绑定账号")
+
+  // 改成「自动端点 + 没有有效账号」等于把连接改死，写盘前就拦掉
+  const err = requireAccounts({
+    ...hit.conf,
+    url: patch.url ?? hit.conf.url,
+    bind: nextBind,
+    exclude: nextExclude,
+  })
+  if (err) throw new Error(err)
+
   updateConnection(hit.index, patch, doc => {
     if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
     else {
-      if (hit.conf.bot_id)
-        for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
+      if (hit.conf.bot_id) for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
       if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
     }
   })
 
-  stopClient(oldName)
+  stopSource(hit.index, oldName)
   const next = getWsConnections()[hit.index]
-  if (enabled() && next?.enable !== false) startClient(next)
+  if (enabled()) startSource(hit.index)
   return next?.name || oldName
 }
 
@@ -386,7 +479,10 @@ function delConnection(body: PanelBody) {
 
   const name = hit.conf.name || hit.conf.url
   removeConnection(hit.index)
-  stopClient(name)
+  stopSource(hit.index, name)
+  // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移，
+  // 否则下一次停用第 3 条，停掉的是原来第 4 条派生的连接
+  shiftSourceIndex(hit.index)
   return name
 }
 
@@ -398,10 +494,59 @@ function toggleConnection(body: PanelBody) {
   const on = bool(body.enable, true)
   updateConnection(hit.index, { enable: on })
   const name = hit.conf.name || hit.conf.url
-  if (on) {
-    if (enabled()) startClient({ ...hit.conf, enable: true })
-  } else stopClient(name)
+  // 先停后起：本来就在跑的运行时连接会被 startClient 的同名去重挡掉
+  // （lifecycle.ts:33），不停就起的话「重复开启」什么也起不来
+  stopSource(hit.index, name)
+  if (on && enabled()) startSource(hit.index)
   return name
+}
+
+/**
+ * 面板绑定开关：on 表示绑定，off 表示取消绑定
+ *
+ * 为什么单独一个动作，不复用 edit
+ * ---------------------------
+ * 面板上一个账号一个开关，一次只表达「这个号要不要接这条核心」。走 edit 就得把
+ * 整份 bind 数组回传，两个人同时点两个开关时后一个请求会把前一个的结果覆盖掉。
+ */
+function bindConnection(body: PanelBody): string {
+  const hit = locate(body.key ?? body.index ?? body.name)
+  if (!hit) throw new Error("找不到该连接")
+  const id = String(body.id || "").trim()
+  if (!id) throw new Error("缺少账号")
+  const on = bool(body.on, false)
+
+  const bind = readIds(hit.conf.bind).filter(x => x !== id)
+  const exclude = readIds(hit.conf.exclude)
+  let freed = false
+  if (on) {
+    bind.push(id)
+    // 「开」必须真的等于绑定：exclude 优先级更高，留在里面会让开关绿着却不连
+    const i = exclude.indexOf(id)
+    if (i >= 0) {
+      exclude.splice(i, 1)
+      freed = true
+    }
+  }
+  // 关只删 bind：不写 exclude（那是高级过滤项，面板一关就写进去等于替用户做决定），
+  // 也不删 bot_id_map（平台映射与绑定无关，下次绑回来还能用）
+
+  // 与指令同一套校验、同一句话术
+  const err = requireAccounts({ ...hit.conf, bind, exclude })
+  if (err) throw new Error(err)
+
+  const patch: ConnectionPatch = { bind }
+  // 只在真的放出了账号时才动 exclude：没改的键不重写，免得把用户写成数字的
+  // 账号悄悄规范成字符串
+  if (freed) patch.exclude = exclude.length ? exclude : null
+  updateConnection(hit.index, patch, doc =>
+    on ? writeAccountBotId(doc, id, accountPlatform(id)) : undefined,
+  )
+
+  const name = hit.conf.name || hit.conf.url
+  stopSource(hit.index, name)
+  if (enabled()) startSource(hit.index)
+  return `${name} ${on ? "已绑定" : "已取消绑定"} ${id}`
 }
 
 /**
@@ -461,7 +606,11 @@ export function init(ctx: WebCtx) {
       }
     }
 
-  registerApi("get", "/gscore-adapter/config", guard(() => payload(), 500))
+  registerApi(
+    "get",
+    "/gscore-adapter/config",
+    guard(() => payload(), 500),
+  )
 
   /**
    * 插件图标
@@ -518,10 +667,20 @@ export function init(ctx: WebCtx) {
         case "toggle":
           name = toggleConnection(body)
           break
+        case "bind":
+          name = bindConnection(body)
+          break
         default:
           throw new Error(`未知操作 ${action}`)
       }
-      return { ...payload(), message: `连接 ${name} 已${{ add: "添加", edit: "保存", del: "删除", toggle: "更新" }[action]}` }
+      return {
+        ...payload(),
+        // bind 回的已经是整句（含账号），再套一层就成了「连接 xx 已绑定 111 已更新」
+        message:
+          action === "bind"
+            ? name
+            : `连接 ${name} 已${{ add: "添加", edit: "保存", del: "删除", toggle: "更新" }[action]}`,
+      }
     }),
   )
 

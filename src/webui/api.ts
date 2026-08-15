@@ -39,6 +39,26 @@ export interface BotProfile {
   platform?: string
 }
 
+/**
+ * 一条逻辑连接派生出的账号级运行时连接，对应一个 GsCoreClient
+ *
+ * 配置里一条「核心地址 + 绑定账号」在运行时是 N 条 ws，各自有独立的状态与计数。
+ * 没有这一层的话面板只能显示其中一条，另外几条连没连上看不出来。
+ */
+export interface RuntimeConnView {
+  /** 自动端点为账号；自定义路径的兼容连接为 undefined */
+  account?: string
+  /** 运行时名称，形如 `早柚核心 [3889017463]`，也是计数与停起的键 */
+  name: string
+  /** 只到 pathname，绝不含 token 查询参数 */
+  path: string
+  status: 0 | 1 | 2 | 3
+  status_text: string
+  retry: number
+  up: number
+  down: number
+}
+
 /** 一条连接在面板上的视图，对应 `connView()` */
 export interface ConnView {
   /** 在 client.connections 里的下标，改/删/开关都用它定位 */
@@ -52,13 +72,21 @@ export interface ConnView {
   max_reconnect_attempts: number
   bind: (string | number)[]
   exclude: (string | number)[]
-  /** bind 里各账号的档案（头像/昵称/在线），与 bind 一一对应 */
+  /**
+   * 这条连接的绑定候选：在线的全部机器人 + 本连接已绑定的账号（含离线）
+   *
+   * 不是 `bind` 的一一对应视图 —— 面板要为每个候选画一个开关，只回已绑定的
+   * 就没法在面板上绑一个新号；只回在线的又没法解绑一个已离线的号。
+   * 开关的开合状态看 {@link bind}，这里只提供可选项与档案。
+   */
   bind_bots: BotProfile[]
-  /** 0 未连接 1 已连接 2 连接中 3 断线待重连 */
+  /** 展开出的账号级运行时连接，逐条带自己的状态与计数 */
+  runtime: RuntimeConnView[]
+  /** 0 未连接 1 已连接 2 连接中 3 断线待重连；由 runtime 聚合：任一已连接即 1 */
   status: 0 | 1 | 2 | 3
   status_text: string
   retry: number
-  /** 上行条数（含 meta 事件） */
+  /** 上行条数（含 meta 事件），runtime 各条之和 */
   up: number
   down: number
 }
@@ -91,6 +119,8 @@ export interface Payload {
   plugin: { name: string; version: string; configFile: string }
   config: PayloadConfig
   connections: ConnView[]
+  /** 连接总览：逻辑配置数、运行时连接数、其中已连接数 */
+  totals: { logical: number; runtime: number; connected: number }
   /** 当前在线的机器人，供「添加绑定」候选 */
   bots: BotProfile[]
   stats: {
