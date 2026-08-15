@@ -10,28 +10,14 @@
 export const DEFAULT_WS_PATH = "/ws/Yunzai"
 
 /**
- * 旧配置自动拼的 `/ws/Yunzai-<账号>`。后缀必须带数字，
- * 以免把用户自己起的 `/ws/Yunzai-backup` 当成账号路径收掉。
+ * `/ws/Yunzai-<账号>`：{@link materializeAccountUrl} 生成的形状，手写配置里也有。
+ * 后缀必须带数字，以免把用户自己起的 `/ws/Yunzai-backup` 认成账号路径。
  */
 const AUTO_ACCOUNT_PATH = /^\/ws\/Yunzai-[0-9A-Za-z_-]*\d[0-9A-Za-z_-]*$/
 
-/** 默认 `/ws/Yunzai`，以及旧配置里带账号后缀的同路径 */
+/** 默认 `/ws/Yunzai`，以及带账号后缀的同路径 */
 export function isAutoYunzaiPath(pathname: string): boolean {
   return pathname === DEFAULT_WS_PATH || AUTO_ACCOUNT_PATH.test(pathname)
-}
-
-/** 旧路径收到 `/ws/Yunzai`；自定义路径不动，token 查询参数保留 */
-export function stripAccountPath(url: string): string {
-  try {
-    const u = new URL(url)
-    if (AUTO_ACCOUNT_PATH.test(u.pathname)) {
-      u.pathname = DEFAULT_WS_PATH
-      return u.toString()
-    }
-  } catch {
-    // 解析不了就原样返回
-  }
-  return url
 }
 
 /**

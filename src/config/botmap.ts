@@ -2,7 +2,7 @@
  * 按账号写入 bot_id_map
  *
  * 单独一个文件：upgrade.ts 与 config/index.ts 都要用，而 upgrade 被 index
- * import，再反向 import 就成环。本文件只依赖 guessPlatform / getBot / url。
+ * import，再反向 import 就成环。本文件只依赖 guessPlatform / getBot。
  *
  * 每个 bind 过的机器人账号都该在这张表里有自己的平台标识，而不是写在连接的
  * `bot_id` 上——那一个字段会替所有账号断言同一个平台。
@@ -11,7 +11,6 @@ import YAML from "yaml"
 import type { YAMLMap } from "yaml"
 import { guessPlatform } from "@/utils/platform.js"
 import { getBot } from "@/utils/bots.js"
-import { stripAccountPath } from "@/utils/url.js"
 
 /** yaml Document 上实际用到的两个方法，避免 import config/index 的类型 */
 export interface MapDoc {
@@ -80,10 +79,6 @@ export function writeAccountBotIds(
   return written
 }
 
-function scalarText(node: unknown): string {
-  return YAML.isScalar(node) ? String(node.value ?? "").trim() : ""
-}
-
 function readIdList(item: YAMLMap, key: string): string[] {
   const node = item.get(key, true)
   if (!YAML.isSeq(node)) return []
@@ -97,8 +92,9 @@ function readIdList(item: YAMLMap, key: string): string[] {
 }
 
 /**
- * 锅巴整表写回 connections 时补齐：旧路径收到 /ws/Yunzai、连接级 bot_id
- * 按 bind 账号落入 map，再给还没有映射的账号推断一条。
+ * 锅巴整表写回 connections 时补齐：给每个 bind 账号在 bot_id_map 里落一行
+ *
+ * 只读连接、只写 bot_id_map —— 用户刚在面板上手填的地址与 bind 不能替他改。
  */
 export function syncConnectionAccounts(
   doc: MapDoc,
@@ -109,21 +105,7 @@ export function syncConnectionAccounts(
   const written: string[] = []
   for (const item of seq.items) {
     if (!YAML.isMap(item)) continue
-    const url = scalarText(item.get("url", true))
-    if (url) {
-      const next = stripAccountPath(url)
-      if (next !== url) item.set("url", next)
-    }
-    const bind = readIdList(item, "bind")
-    const botId = scalarText(item.get("bot_id", true))
-    if (botId) {
-      for (const id of bind) {
-        const p = writeAccountBotId(doc, id, botId, existingMap)
-        if (p) written.push(`${id}=${p}`)
-      }
-    }
-    if (item.has("bot_id")) item.delete("bot_id")
-    written.push(...writeAccountBotIds(doc, bind, existingMap))
+    written.push(...writeAccountBotIds(doc, readIdList(item, "bind"), existingMap))
   }
   return written
 }
