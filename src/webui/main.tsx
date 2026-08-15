@@ -314,7 +314,7 @@ function Conn({
           <div className={`truncate text-[12px] text-muted ${MONO}`}>{c.url}</div>
           <div className="mt-[6px] flex flex-wrap items-center gap-[6px]">
             <span className={TAG}>{c.status_text}</span>
-            {c.retry > 0 && <span className={TAG}>重连 {c.retry} 次</span>}
+            {c.retry > 0 && <span className={TAG}>已重连 {c.retry} 次</span>}
             {c.has_token && <span className={TAG}>已配 token</span>}
             {/* 绑定标签升级成折叠开关：缩起时预览前几个已开的头像，点开进管理区 */}
             <button

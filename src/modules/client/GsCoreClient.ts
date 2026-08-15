@@ -128,9 +128,18 @@ export class GsCoreClient {
     this.lastPong = 0
   }
 
-  /** 可读状态，供 apps 显示 */
+  /**
+   * 可读状态，供**文字**指令显示（#早柚状态 / #早柚连接列表 的文本回复）
+   *
+   * 重连次数拼在括号里是因为那些回复只有一行、没有别的地方放。措辞跟出图与面板
+   * 对齐成「已重连」：写「重连 N 次」会被读成「还要重连 N 次」，而这里说的是已经
+   * 重连过的次数。三处话术一旦分叉，同一个数在三个界面上像三种计量。
+   *
+   * 面板不用这个 getter —— 它另有 retry 字段并单独渲一个标签，用了就是把同一个数
+   * 在一行里写两遍（见 webadapter 的 status_text）。
+   */
   get statusText() {
-    return (STATUS_TEXT[this.status] || String(this.status)) + (this.retry ? `(重连${this.retry}次)` : "")
+    return STATUS_TEXT[this.status] + (this.retry ? `(已重连${this.retry}次)` : "")
   }
 
   /** 早柚核心用 ?token= 查询参数鉴权，不使用请求头 */

@@ -68,7 +68,7 @@ import {
 } from "@/utils/url"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
-import { DEFAULT_MAX_RECONNECT, pickByStatus } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
@@ -202,7 +202,10 @@ function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[])
       // 上游又把鉴权参数放回地址里，面板就直接把它显示出去了
       path: new URL(rt.runtimeUrl).pathname || "/",
       status: live?.status ?? 0,
-      status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
+      // 只给状态名，不用 client.statusText —— 那个为文字指令服务，把重连次数拼进了
+      // 括号里（`断线重连中(已重连3次)`），而面板另有一个 retry 字段、前端已经单独
+      // 渲了一个「已重连 N 次」标签。用它就成了同一行里把同一个数写两遍
+      status_text: !enabled ? "已停用" : live ? STATUS_TEXT[live.status] : "未启动",
       retry: live?.retry ?? 0,
       up: counters.up + counters.event,
       down: counters.down,
