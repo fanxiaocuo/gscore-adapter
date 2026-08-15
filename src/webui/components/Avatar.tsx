@@ -24,18 +24,27 @@ export function Avatar({
    */
   className?: string
 }) {
-  const [err, setErr] = useState(false)
+  /**
+   * 加载失败标记，按 URL 记
+   * ------
+   * 存 URL 而不是布尔：离线账号的头像是按号猜的 qlogo，挂掉后置位；等这个号上线、
+   * 后端换成真头像时 URL 变了，布尔值却不会自然复位 —— 卡片按 `key={b.id}` 渲染，
+   * 组件一直挂着，于是明明有真头像还一直显示首字圆，刷新页面也不好（key 没变）。
+   * 与当前 URL 比一次，换了地址就重新试。
+   */
+  const [failed, setFailed] = useState<string | null>(null)
+  const broken = !!p.avatar && failed === p.avatar
   return (
     <span
       className={`inline-flex flex-none items-center justify-center overflow-hidden rounded-[50%] border border-border bg-bg text-[12px] font-bold text-muted ${className}`}
       style={{ width: size, height: size }}
     >
-      {p.avatar && !err ? (
+      {p.avatar && !broken ? (
         <img
           className="size-full object-cover"
           src={p.avatar}
           alt=""
-          onError={() => setErr(true)}
+          onError={() => setFailed(p.avatar ?? null)}
         />
       ) : (
         (p.name || p.id).slice(0, 1)

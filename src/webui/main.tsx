@@ -284,9 +284,19 @@ function Conn({
      * 而它压根没有「不限账号」这个状态（零账号会被后端拒）。
      */
     if (!c.automatic) {
+      /*
+       * 「不限账号」不等于「谁都转发」：exclude 是独立的一层，仍然拦着名单里的号
+       * （GsCoreClient.accept 先判 exclude 再判 bind）。写死「所有机器人」会在配了
+       * 排除名单的连接上说过头。
+       *
+       * 反过来「关掉最后一个有效账号之后 bind 还非空、所以还是白名单」不成立：
+       * 非根连接的运行时 bind 取的是**有效**账号（expand 的 `bind: accounts`），
+       * bind 里剩下的全是被 exclude 挡掉的号时它就是空的，确实变成不限。
+       */
+      const rest = c.exclude?.length ? "除排除名单里的账号外，其余" : "所有"
       const ask =
         !next && on.length === 1
-          ? `移除最后一个绑定后，连接「${c.name}」将变为不限账号，所有机器人的消息都会转发。继续？`
+          ? `移除最后一个绑定后，连接「${c.name}」将变为不限账号，${rest}机器人的消息都会转发。继续？`
           : next && on.length === 0
             ? `连接「${c.name}」现在不限账号。绑上这一个之后只转发它，其余机器人的消息会立刻停止进入这个核心。继续？`
             : ""
@@ -516,7 +526,7 @@ function Modal({
                 type={x.type === "list" ? "text" : x.type || "text"}
                 placeholder={x.ph || ""}
                 value={form[x.k] ?? ""}
-                onChange={e => setForm({ ...form, [x.k]: e.target.value })}
+                onChange={e => setForm(f => ({ ...f, [x.k]: e.target.value }))}
               />
               {x.hint && <span className={FHINT}>{x.hint}</span>}
             </label>
@@ -654,7 +664,7 @@ function Settings({
                   <Switch
                     id={id}
                     checked={!!form[x.k]}
-                    onChange={next => setForm({ ...form, [x.k]: next })}
+                    onChange={next => setForm(f => ({ ...f, [x.k]: next }))}
                   />
                 ) : (
                   <input
@@ -662,7 +672,7 @@ function Settings({
                     id={id}
                     type="number"
                     value={String(form[x.k] ?? 0)}
-                    onChange={e => setForm({ ...form, [x.k]: e.target.value })}
+                    onChange={e => setForm(f => ({ ...f, [x.k]: e.target.value }))}
                   />
                 )}
               </div>
@@ -745,7 +755,10 @@ function App() {
         // 成功用回包整包换 state：那是服务端算完之后的真状态，比本地猜的准
         setState(r)
         setModal(undefined)
-        say(r.message)
+        // 有话才弹：Payload.message 是可选的（多数写动作不带），空着弹出来是个
+        // 没有字的框。tsc 抓不到 —— 仓库关了 strictNullChecks（见 tsconfig.json 的
+        // 说明），`string | undefined` 传进 `text: string` 不报错
+        if (r.message) say(r.message)
       } catch (err) {
         // 失败不动 state，界面停在原样，用户重来一次就是
         say(errMsg(err), true)
