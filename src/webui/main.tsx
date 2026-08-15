@@ -18,6 +18,7 @@ import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api.js"
 import { Avatar } from "./components/Avatar.js"
 import { BotSwitchList } from "./components/BotSwitchList.js"
 import { Switch } from "./components/Switch.js"
+import { MONO, TAG } from "./ui.js"
 import "./styles.css"
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
@@ -140,6 +141,8 @@ const dig = (o: unknown, path: string): unknown => {
  * 按钮、输入框这些在多处重复出现，抽成常量免得各处手抄跑偏。
  * 形状与配色分开：同一属性的两个 utility 写在一起时，谁生效由样式表里的
  * 先后决定而非 className 的顺序，所以变体不叠加基础色，各给各的。
+ *
+ * 只有本文件用到的留在这儿；组件也要用的（MONO / TAG）在 ui.ts，从那儿引。
  */
 const BTN_SHAPE = "cursor-pointer rounded-[8px] border px-[14px] py-[6px] text-[13px]"
 const BTN = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-primary`
@@ -149,10 +152,8 @@ const BTN_DANGER = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-d
 const INPUT = "rounded-[8px] border border-border bg-bg px-[10px] py-[7px] text-[13px] text-fg"
 const HINT = "mt-[2px] text-[12px] text-muted"
 const FHINT = "text-[11px] text-muted"
-const TAG = "rounded-[999px] border border-border px-[8px] py-[1px] text-[11px] text-muted"
 const FIELD = "flex flex-col gap-[4px]"
 const GRID = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-[12px]"
-const MONO = "font-[family-name:ui-monospace,SFMono-Regular,Consolas,monospace]"
 const PANEL =
   "mb-[16px] rounded-[12px] border border-border bg-surface p-[16px] shadow-[var(--shadow)]"
 /* 面板头的「靠右」变体：margin 上 12 下 0，与常规 phead 的下 12 相反 */
@@ -250,12 +251,18 @@ function Conn({
   const on = c.accounts || []
   const runtime = c.runtime || []
   /**
-   * 非根路径的兼容连接，bind 清空确实等于「不限账号」
+   * 这条连接现在「不限账号」：兼容连接且一个有效账号都没有
    *
-   * 那种连接只有一条 ws，bind 在它上头是转发过滤器；自动端点的 bind 决定派生出几条
-   * ws，清空等于这条连接不存在，后端 requireAccounts 会拒（所以它不会走到这个分支）。
+   * 判据是 `accounts` 而不是 `bind` —— 后端给兼容连接派生的运行时 bind 就是 accounts
+   * （expand.ts:188），而 `accept()` 见到空 bind 就放行一切（GsCoreClient.ts:336-337）。
+   * 于是 bind 非空但被 exclude 吃干净时（bind=[A]、exclude=[A]），实际行为是「除被排除
+   * 的号以外全部转发」，看 bind 却会显示成「绑定 0/N 个账号」—— 用户以为白名单在生效，
+   * 实际所有机器人的消息都在进核心。被排除的号由旁边的「排除 …」标签单独说。
+   *
+   * 自动端点不适用：它的 bind 决定派生出几条 ws，零账号等于这条连接不存在，
+   * 后端 requireAccounts 直接拒，不存在「不限账号」这个状态。
    */
-  const unlimited = !c.automatic && !(c.bind || []).length
+  const unlimited = !c.automatic && !on.length
 
   /**
    * 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
@@ -267,17 +274,24 @@ function Conn({
    * 保存期间整组禁用也是为这个：连点会造出同样的交叉覆盖。
    */
   const toggle = async (id: string, next: boolean) => {
-    // 只有兼容连接会走到「关掉最后一个」，语义会从白名单变成不限，值得确认一次。
-    // 自动端点在 BotSwitchList 里最后一个开关就是禁用的，不必在这儿重复判断
-    if (
-      !next &&
-      !c.automatic &&
-      on.length === 1 &&
-      !confirm(
-        `移除最后一个绑定后，连接「${c.name}」将变为不限账号，所有机器人的消息都会转发。继续？`,
-      )
-    )
-      return
+    /*
+     * 兼容连接的两个方向都要确认，因为两边都会当场改变「谁的消息进核心」
+     *
+     * 关掉最后一个：白名单变不限，其余机器人的消息突然全部开始转发。
+     * 从不限拨开第一个：不限变单账号白名单，其余机器人的消息当场全部停止转发 ——
+     * 比放宽更有破坏性，所以更不能一声不响。
+     * 自动端点两个方向都不问：它的最后一个开关在 BotSwitchList 里就是禁用的，
+     * 而它压根没有「不限账号」这个状态（零账号会被后端拒）。
+     */
+    if (!c.automatic) {
+      const ask =
+        !next && on.length === 1
+          ? `移除最后一个绑定后，连接「${c.name}」将变为不限账号，所有机器人的消息都会转发。继续？`
+          : next && on.length === 0
+            ? `连接「${c.name}」现在不限账号。绑上这一个之后只转发它，其余机器人的消息会立刻停止进入这个核心。继续？`
+            : ""
+      if (ask && !confirm(ask)) return
+    }
     setSaving(id)
     try {
       await onAct({ action: "bind", key: c.index, id, on: next })
@@ -321,8 +335,9 @@ function Conn({
                     className={i ? "-ml-[6px] ring-2 ring-surface" : ""}
                   />
                 ))}
-              {/* X/Y = 开着的 / 候选总数（在线的 + 本连接绑过的），后者才是这排开关的行数 */}
-              <span>{unlimited ? "不限账号" : `绑定 ${on.length}/${bindBots.length} 个账号`}</span>
+              {/* 只说开着几个，不给分母：分母是候选数（在线的 + 绑过的），10 个 Bot 在线时
+                  「绑定 1/10」看起来像 9 个绑定没成功。行数在展开后自己数得清 */}
+              <span>{unlimited ? "不限账号" : `绑定 ${on.length} 个账号`}</span>
               <span className="text-[9px]">{open ? "▲" : "▼"}</span>
             </button>
             {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
@@ -356,7 +371,7 @@ function Conn({
           bots={bindBots}
           checked={on}
           conflicts={c.conflicts || []}
-          automatic={c.automatic}
+          lockLast={c.automatic}
           saving={saving}
           onToggle={toggle}
           empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
@@ -440,7 +455,15 @@ function Modal({
   const candidates = [...known.values()]
   const checked = bind.filter(id => !exclude.includes(id))
   const conflicts = bind.filter(id => exclude.includes(id))
-  const automatic = looksAutomatic(form.url || "")
+  const url = (form.url || "").trim()
+  /*
+   * 地址还没填时既不是自动端点也不是兼容连接
+   *
+   * `looksAutomatic("")` 回 true（没有 `/` 就算根路径），若照它办，弹层一打开、用户还
+   * 什么都没输入，保存按钮就是灰的、底下红字说「自动连接至少要绑定一个账号」——
+   * 指错了字段（后端对空地址报的是「连接地址不能为空」，isAutomaticEndpoint 也回 false）。
+   */
+  const automatic = !!url && looksAutomatic(url)
 
   const toggle = (id: string, on: boolean) => {
     // 开一个号要顺手把它从 exclude 里放出来，否则「开着但不转发」，与后端
@@ -502,16 +525,18 @@ function Modal({
         <div className="mt-[16px]">
           <div className="text-[13px] font-semibold">绑定账号</div>
           <p className={FHINT}>
-            {automatic
-              ? "自动连接：每个开着的账号在核心侧是一条独立客户端（/ws/Yunzai-<账号>），至少留一个"
-              : "自定义路径的兼容连接：只有一条 ws，这里的账号是转发过滤器，全关等于不限账号"}
+            {!url
+              ? "先填上面的连接地址：只填 host:port 就是自动连接，每个绑定账号在核心侧各是一条独立客户端"
+              : automatic
+                ? "自动连接：每个开着的账号在核心侧是一条独立客户端（/ws/Yunzai-<账号>），至少留一个"
+                : "自定义路径的兼容连接：只有一条 ws，这里的账号是转发过滤器，全关等于不限账号"}
           </p>
-          {/* 不即时保存：弹层里的改动跟其余字段一起提交，中途关掉就等于没改 */}
+          {/* 不即时保存：弹层里的改动跟其余字段一起提交，中途关掉就等于没改。
+              也不锁「最后一个」—— 还没落盘，没有要维护的不变量，锁了只会让人关不掉 */}
           <BotSwitchList
             bots={candidates}
             checked={checked}
             conflicts={conflicts}
-            automatic={automatic}
             onToggle={toggle}
             empty="没有机器人在线。可以在上面的「绑定账号」框里手填账号，离线号也能先绑上。"
           />
@@ -545,6 +570,18 @@ interface SettingsBody {
   [k: string]: unknown
 }
 
+/** 把 config 摊平成表单值。初始化与「外部真的变了吗」的比对都用它 */
+function readFields(config: PayloadConfig): Record<string, unknown> {
+  const f: Record<string, unknown> = {}
+  for (const x of FIELDS) f[x.k] = dig(config, x.k)
+  return f
+}
+
+/** 表单值的指纹。按 FIELDS 顺序取值，所以与对象的键顺序无关 */
+function fieldsKey(f: Record<string, unknown>): string {
+  return JSON.stringify(FIELDS.map(x => f[x.k] ?? null))
+}
+
 function Settings({
   config,
   onSave,
@@ -552,15 +589,30 @@ function Settings({
   config: PayloadConfig
   onSave: (body: SettingsBody) => void
 }) {
-  const [form, setForm] = useState<Record<string, unknown>>(() => {
-    const f: Record<string, unknown> = {}
-    for (const x of FIELDS) f[x.k] = dig(config, x.k)
-    return f
-  })
-  // 外部数据刷新（定时轮询）时同步过来，否则表单会一直停在旧值
+  const [form, setForm] = useState<Record<string, unknown>>(() => readFields(config))
+  /**
+   * 上一次同步进表单的那份服务端值的指纹，用来区分「外部真的改了」与「轮询又回了同一份包」
+   *
+   * useRef 的初值表达式每次渲染都会算一遍（只在首次被采用），FIELDS 就那么几项，
+   * 换成惰性初始化反而要多一次 mount 后的重渲染，不值当。
+   */
+  const synced = useRef(fieldsKey(readFields(config)))
+  /*
+   * 只在服务端值真的变了时才覆盖表单
+   *
+   * 每 10 秒的轮询都会 setState 一个新对象，`config` 引用因此每次都变。原来只按引用
+   * 判断，于是拨了全局设置的开关却没点保存时，10 秒内它自己弹回去；输一半的数字也
+   * 会被抹掉。这批开关不像绑定开关那样即时写（要点「保存设置」），所以 App 那个
+   * `inflight` 挡不住它 —— 拨开关的那一刻根本没有在途的写请求。
+   *
+   * 内容真变了才覆盖：那时本地未保存的改动确实会被顶掉，但那是「外部数据变了」的
+   * 既定行为，也是这个 effect 本来的用途（自己保存成功后回包同样走这条路）。
+   */
   useEffect(() => {
-    const f: Record<string, unknown> = {}
-    for (const x of FIELDS) f[x.k] = dig(config, x.k)
+    const f = readFields(config)
+    const key = fieldsKey(f)
+    if (key === synced.current) return
+    synced.current = key
     setForm(f)
   }, [config])
 
@@ -647,6 +699,24 @@ function App() {
    * 不该把还在途的那个也放开。用 ref 不用 state：它只在回调里读，不需要触发重渲染。
    */
   const inflight = useRef(0)
+  /**
+   * 已落地的写请求计数，用来作废「跨过一次写」的读回包
+   *
+   * `inflight` 管的是**别发起**（写在途时不轮询），这里管的是**别采用**：轮询在写请求
+   * 开始之前就发出去了（那时 inflight 还是 0），却在写完成之后才回来，那份 state 是
+   * 写之前的旧值，采用它就是把刚保存的改动刷没了。两个窗口不重叠，所以两者都要有。
+   */
+  const gen = useRef(0)
+  /**
+   * 弹层是否开着，给轮询回调读
+   *
+   * 不在回调里用 `setModal(m => …)` 顺手读当前值：那个 updater 会被 React 当纯函数
+   * 对待（严格模式下按约定可重复调用），在里面发请求属于副作用。ref 只是读，安全。
+   */
+  const modalOpen = useRef(false)
+  useEffect(() => {
+    modalOpen.current = modal !== undefined
+  }, [modal])
 
   const say = useCallback((text: string, bad?: boolean) => {
     setToast({ text, bad })
@@ -655,8 +725,12 @@ function App() {
   }, [])
 
   const load = useCallback(async () => {
+    const at = gen.current
     try {
-      setState(await api("/config"))
+      const r = await api("/config")
+      // 这期间有写请求落地过，回包已经过期，丢掉等下一轮（失败仍要报：那是真的读不到）
+      if (gen.current !== at) return
+      setState(r)
     } catch (err) {
       say(errMsg(err), true)
     }
@@ -676,6 +750,8 @@ function App() {
         // 失败不动 state，界面停在原样，用户重来一次就是
         say(errMsg(err), true)
       } finally {
+        // 失败也要加：那时虽然没换 state，但服务端可能已经改了，旧回包一样不可信
+        gen.current++
         inflight.current--
       }
     },
@@ -687,10 +763,7 @@ function App() {
     // 连接状态会自己变（断线重连），定时刷一下
     const id = setInterval(() => {
       // 弹层开着时不刷，免得输入被覆盖；有写请求在途时也不刷，理由见 inflight
-      setModal(m => {
-        if (m === undefined && inflight.current === 0) load()
-        return m
-      })
+      if (!modalOpen.current && inflight.current === 0) load()
     }, 10000)
     return () => clearInterval(id)
   }, [load])

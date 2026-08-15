@@ -10,9 +10,8 @@
  *
  * 视觉细节（滑块、上色、动画、prefers-reduced-motion）在 styles.css 的 `.sw`：
  * appearance-none + ::after 那一套写成任意值 utility 会长到读不出意图。
- *
- * 外层 span 只为把触控区补到 44px 高：轨道本体 28px 高，手指点不准
- * （设计稿要求最小触控区 44×44，横向 46+4 已经够）。
+ * 44px 触控区也在那儿（`.sw::before` 上下各撑 8px）—— 伪元素的命中算在宿主元素上，
+ * 而外层这个 span 只撑布局高度，本身点不动。
  */
 export function Switch({
   checked,
@@ -20,6 +19,7 @@ export function Switch({
   disabled,
   label,
   hint,
+  describedBy,
   id,
 }: {
   checked: boolean
@@ -27,8 +27,16 @@ export function Switch({
   disabled?: boolean
   /** 无可见行标题可关联时必填：读屏靠它说出这个开关控制什么 */
   label?: string
-  /** 悬停提示。禁用时用来说明「为什么点不动」—— 灰着不给理由最让人困惑 */
+  /** 悬停提示，只是**补充**。禁用理由不能只写在这儿，见 {@link describedBy} */
   hint?: string
+  /**
+   * 关联到一段可见说明的 id（`aria-describedby`）
+   *
+   * 禁用理由必须走这条路而不是 `title`：触屏设备根本不显示 tooltip，而这个面板的
+   * 第一目标就是手机可用 —— 一个灰着不动的开关在目标平台上不给任何解释最让人困惑。
+   * 读屏同理（名字由 aria-label 给，span 上的 title 不进可访问描述）。
+   */
+  describedBy?: string
   /** 有可见行标题时给它，配 `<label htmlFor>` 让点标题也能切换 */
   id?: string
 }) {
@@ -41,6 +49,7 @@ export function Switch({
         type="checkbox"
         role="switch"
         aria-label={label}
+        aria-describedby={describedBy}
         checked={checked}
         disabled={disabled}
         onChange={e => onChange(e.target.checked)}
