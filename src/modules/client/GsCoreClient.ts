@@ -53,10 +53,11 @@ function segSummary(message: any[]): string {
  * 于是频道的被动回复会被静默降级成普通发送，日志里只写「无被动窗口」。
  */
 function passiveReady(target: SendTarget, type: "direct" | "group", targetId: string): boolean {
-  const t = target as Record<string, unknown>
-  if (!t.self_id || !t.bot) return false
-  if (type === "direct") return !!t.user_id
-  return targetId.startsWith("qg_") ? !!t.channel_id : !!t.group_id
+  // 直接读字段，不再 `as Record<string, unknown>`：那个断言等于 any，
+  // 这几项现在在 SendTarget 上有声明（见 types/Bot.ts）
+  if (!target.self_id || !target.bot) return false
+  if (type === "direct") return !!target.user_id
+  return targetId.startsWith("qg_") ? !!target.channel_id : !!target.group_id
 }
 
 /**
