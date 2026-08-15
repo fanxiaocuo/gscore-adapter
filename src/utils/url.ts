@@ -44,9 +44,12 @@ export function normalizeEndpoint(url: string | null | undefined): string {
   try {
     const u = new URL(url)
     if (u.pathname === "/" || u.pathname === "") {
-      if (!u.search) return u.origin
-      u.hash = ""
-      return u.toString()
+      // 查询串拼在 origin 后面，而不是走 u.toString()：后者会补一个 `/`，于是同一个核心
+      // 内联了凭据就显示成 `ws://h:8765/`、没内联就是 `ws://h:8765`；更要紧的是配置里
+      // 写成 `h:8765?token=x` 的地址规范化后必然不等于原值，编辑路径那一步
+      // （webadapter 的 patch.url、admin 的 nextUrl）就会顺手把用户的地址行改写一遍
+      // —— 插件不改用户写的地址，改名字、改绑定都不该顺带动它。
+      return u.search ? `${u.origin}${u.search}` : u.origin
     }
     return u.toString()
   } catch {
