@@ -39,14 +39,54 @@ function segSummary(message: any[]): string {
 /**
  * 被动发送要的是「完整的会话上下文」
  *
- * QQBot-Plugin 的 sendGroupMsg/sendFriendMsg 直接从 target 上取 self_id / bot /
- * group_id|user_id，缺一项就会在插件内部抛出来 —— 那时异常信息指向 QQBot-Plugin，
- * 很难看出是这边 pick 出来的对象不完整。
+ * QQBot-Plugin 的各条发送函数直接从 target 上取字段，缺一项就在插件内部抛出来 ——
+ * 那时异常信息指向 QQBot-Plugin，很难看出是这边 pick 出来的对象不完整。
+ *
+ * 逐条对应实际读的字段，不能笼统查 group_id：
+ *   sendGroupMsg   data.group_id   （index.js:1051 一带）
+ *   sendFriendMsg  data.user_id
+ *   sendGuildMsg   data.channel_id （index.js:1022-1024）
+ * 频道尤其要紧 —— pickGuild（index.js:1333-1350）显式给的是 guild_id/channel_id，
+ * group_id 只可能从 `...gl.get()` 展开里捎来。查 group_id 等于查了个与该发送函数
+ * 无关的字段：真正要用的 channel_id 没查，可能缺的 group_id 反倒成了硬条件，
+ * 于是频道的被动回复会被静默降级成普通发送，日志里只写「无被动窗口」。
  */
-function passiveReady(target: SendTarget, type: "direct" | "group"): boolean {
+function passiveReady(target: SendTarget, type: "direct" | "group", targetId: string): boolean {
   const t = target as Record<string, unknown>
   if (!t.self_id || !t.bot) return false
-  return type === "direct" ? !!t.user_id : !!t.group_id
+  if (type === "direct") return !!t.user_id
+  return targetId.startsWith("qg_") ? !!t.channel_id : !!t.group_id
+}
+
+/**
+ * QQBot 这一条下行「有没有投出去哪怕一条」
+ *
+ * 不能只用 sendError 来决定回不回退
+ * ------
+ * QQBotAdapter.sendMsg（index.js:805-865）把一条下行拆成多个消息组逐个发，
+ * 失败只 `rets.error.push(err)` 就返回剩余的，接着是四级阶梯重试（原样重试 →
+ * 换 markdown 形态重建 → legacy makeMsg 兜底）。而 **rets.error 全程没有任何
+ * 清空动作** —— 首轮失败、后续成功的发送，返回的仍是
+ * `{ message_id:[非空], data:[非空], error:[旧错误] }`。
+ *
+ * sendError 只要 error 数组有真值就判失败，于是「QQBot 自己已经重试成功」会被
+ * 当成失败：doSend 再整条发一遍，用户看到两条。ww帮助 是 text+image 走 raw
+ * markdown，首轮被拒本就是常态（四级阶梯的存在即是证据），这条路很热。
+ *
+ * 判据用 rets.data 而不是 message_id：index.js:821 是 `if (ret.id) push(ret.id)`，
+ * 已投递但响应不带 id 时 message_id 会是空的；而 820 行 `rets.data.push(ret)`
+ * 每次成功投递都执行。这也与 utils/send.ts 里「缺 message_id 不得判失败」一致。
+ *
+ * 形状不认识时必须退回旧判据，不能一律当「没投出去」
+ * ------
+ * 只认 `data` 数组的话，返回值形状一变（换版本、换实现、或 isQQBot 认到别的
+ * 适配器）就会变成「每条消息都回退再发一遍」—— 那比现在这个偶发重复更糟，
+ * 且是无条件发生。所以只有拿到 `data` 数组这个确切证据时才用它下判断，
+ * 其余情况沿用 sendError：至少不比改动前差。
+ */
+function qqbotDelivered(ret: any): boolean {
+  if (Array.isArray(ret?.data)) return ret.data.length > 0
+  return !sendError(ret)
 }
 
 export class GsCoreClient {
@@ -455,7 +495,8 @@ export class GsCoreClient {
     // 使用次数（同一个 id 只能带 5 次），顺序反了会在「这条路径走不通」时白耗额度，
     // 后面那几段本来还能挂到原消息上的回复反而掉出引用形态
     const fn = this.passiveSender(bot.adapter, type, targetId)
-    const msgId = fn && passiveReady(target, type) ? take(data.bot_self_id, type, targetId) : ""
+    const msgId =
+      fn && passiveReady(target, type, targetId) ? take(data.bot_self_id, type, targetId) : ""
     if (!fn || !msgId) {
       this.log("debug", `下行发送（无被动窗口）：${brief}`)
       return await target.sendMsg(message)
@@ -463,17 +504,20 @@ export class GsCoreClient {
 
     try {
       const ret = await fn(target, message, { id: msgId })
-      // 返回派的失败（Milky/OneBot 那种不抛错的）在外层统一判，这里只看抛没抛，
-      // 以及返回值里是否已经明确失败 —— 后者要回退，不能当成功
-      if (!sendError(ret)) {
+      // 只在「一条都没投出去」时才回退。QQBot 内部四级阶梯自愈过的发送带着陈旧
+      // error 回来，照 sendError 判会重发整条 —— 详见 qqbotDelivered 的注释
+      if (qqbotDelivered(ret)) {
         this.log("debug", `下行发送（被动回复）：${brief}`)
         return ret
       }
-      this.log("debug", `被动回复失败，改为不带 id 发送：${brief}`)
+      this.log("debug", `被动回复未投出，改为不带 id 发送：${brief}`)
     } catch (err) {
       this.log("debug", [`被动回复异常，改为不带 id 发送：${brief}`, err])
     }
-    // 回退用同一个 message 引用：两条路径都不得就地删改 image 段
+    // 回退复用同一个 message 引用是安全的：QQBot-Plugin 的 makeMsg(index.js:699-804)、
+    // makeRawMarkdownMsg(293-460)、makeGuildMsg(883-970) 都先 `i = {...i}` 浅拷贝段
+    // 再改，并往新建数组 push，不回写入参。唯一按引用透传的是 raw 段（758/392），
+    // 而本插件下行从不产出 raw（convert/toYunzai.ts:56-100），该例外不可达。
     return await target.sendMsg(message)
   }
 
@@ -601,7 +645,19 @@ export class GsCoreClient {
       // OneBot 系同理。只 await 不看返回值会把失败记成成功中转，
       // 而「连着但不通」恰是这个计数该抓到的情况。判定见 utils/send.ts。
       const err = sendError(ret)
-      if (err) {
+      // QQBot 的「部分成功」不能当整体失败
+      // ------
+      // 它的 rets.error 从不清空（见 qqbotDelivered），四级阶梯自愈过的发送带着
+      // 陈旧 error 回来。照 err 直接 return 有三重后果：误报一条 error 级「发送失败」、
+      // 漏掉 count("down")、并且丢掉 recallId —— 而消息其实已经发出去了，
+      // 核心侧的定时撤回就此失效（正是下面那条注释担心的 latch 语义）。
+      // 所以这里只降级为 warn，计数与撤回 id 照常走。
+      if (err && isQQBot(bot) && qqbotDelivered(ret)) {
+        this.log(
+          "warn",
+          `发送部分失败（已投出，QQBot 内部重试过）：${err}（${segSummary(message)}）`,
+        )
+      } else if (err) {
         // 带上段类型摘要：「发送失败」最常见的成因是某类段被平台拒收（图片尤甚），
         // 有摘要才分得清是整条没发出去还是某种段不被接受
         this.log("error", `发送失败：${err}（${segSummary(message)}）`)
