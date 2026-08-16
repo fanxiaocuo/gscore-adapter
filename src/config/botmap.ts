@@ -12,24 +12,44 @@ import type { YAMLMap } from "yaml"
 import { guessPlatform } from "@/utils/platform.js"
 import { getBot } from "@/utils/bots.js"
 
-/** yaml Document 上实际用到的两个方法，避免 import config/index 的类型 */
+/** yaml Document 上实际用到的三个方法，避免 import config/index 的类型 */
 export interface MapDoc {
   getIn(path: readonly (string | number)[], keep?: boolean): unknown
   setIn(path: readonly (string | number)[], value: unknown): void
+  hasIn(path: readonly (string | number)[]): boolean
 }
 
 /**
  * yaml 里 `111: onebot` 的键是数字，`getIn(["bot_id_map", "111"])` 找不到。
  * 覆盖时必须用原来的键类型，否则会并排出一个字符串键。
+ *
+ * 判据是「键在不在」，不是「值空不空」
+ * ------
+ * 原来这里要求旧值非空才复用旧键类型，于是 `111: ""` 或 `111:`（手改 yaml 才会有
+ * 的形状）会漏过去，写出并排的两行：
+ *
+ *     bot_id_map:
+ *       111: ""
+ *       "111": onebot
+ *
+ * yaml 里数字键与字符串键是**两个**键，所以这不是重复键报错，文件照样能读。解析成
+ * JS 之后两者都成了属性 `"111"`、靠后的赢 —— 值是对的，坑在于用户之后去改上面那个
+ * `111:` 会**静默无效**。用 hasIn 就地覆盖，不再并排。
+ *
+ * 数字键必须原样往返才认
+ * ------
+ * 只判 `/^\d+$/` 是不够的：`Number("007") === 7`，于是账号 `007` 会认领 `bot_id_map`
+ * 里**账号 7** 那一行。读的时候是把 7 的平台当成 007 的，`force`（指令里显式
+ * `id=<平台>`）时更糟 —— `setIn(["bot_id_map", 7], …)` 直接改掉账号 7 的平台，而
+ * 账号 007 一条记录都没落下。用户说的是「设 007 的平台」，被改的是另一个账号，
+ * 之后那个账号上报给核心的 bot_id 就一直是错的，且没有一处话术提得到。
+ * 超过 `Number.MAX_SAFE_INTEGER` 的账号同理（精度丢了就不是同一个键），
+ * 往返判据一并挡住。
  */
 function mapKey(doc: MapDoc, sid: string): string | number {
-  const asStr = doc.getIn(["bot_id_map", sid])
-  if (asStr != null && String(asStr).trim() !== "") return sid
-  if (/^\d+$/.test(sid)) {
-    const n = Number(sid)
-    const asNum = doc.getIn(["bot_id_map", n])
-    if (asNum != null && String(asNum).trim() !== "") return n
-  }
+  if (doc.hasIn(["bot_id_map", sid])) return sid
+  const n = Number(sid)
+  if (/^\d+$/.test(sid) && String(n) === sid && doc.hasIn(["bot_id_map", n])) return n
   return sid
 }
 
