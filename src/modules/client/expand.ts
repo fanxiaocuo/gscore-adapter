@@ -150,7 +150,7 @@ export function requireAccounts(conf: WsConnection): string | null {
  * 级重打一遍 —— 用户点一下与本次操作无关的开关，控制台就再刷一遍别条连接的
  * 冲突报错，看着像刚出的新故障。
  *
- * 路由冲突记在**被跳过**那条的名下（不是留下的那条）：它才是启动不起来的那个。
+ * 冲突记在**被跳过**那条的名下（不是留下的那条）：它才是启动不起来的那个。
  */
 export interface ExpandError {
   /** 出问题的连接在配置列表里的下标，与 {@link RuntimeWsConnection.sourceIndex} 同源 */
@@ -171,6 +171,7 @@ export function expandConnections(list: WsConnection[]): {
   const runtime: RuntimeWsConnection[] = []
   const errors: ExpandError[] = []
   const taken = new Map<string, Pick<RuntimeWsConnection, "runtimeName" | "sourceIndex">>()
+  const named = new Map<string, number>()
 
   const claim = (conn: RuntimeWsConnection) => {
     const key = routeKey(conn.runtimeUrl)
@@ -186,7 +187,52 @@ export function expandConnections(list: WsConnection[]): {
       })
       return
     }
+
+    /**
+     * 运行时名字也必须唯一，路由唯一并不蕴含名字唯一
+     *
+     * {@link accountRuntimeName} 只拼 `连接名 [账号]`，**不含 host**。所以两条同名
+     * 连接绑同一个账号、指向不同的核心时，routeKey 不撞（host 不同）而名字撞：
+     *
+     *     - name: 核心   url: ws://a:8765   bind: ["111"]
+     *     - name: 核心   url: ws://b:8765   bind: ["111"]
+     *
+     * 不拦的后果不是「少一条连接」这么轻：
+     * - lifecycle.startClient 的同名去重（`clients.some(c => c.name === name)`）
+     *   会静默 return null，一句日志都不打，`startSource` 只是少数一个；
+     * - 面板（webadapter 的 connView）与状态图（render/pages.ts）都用
+     *   `clients.find(c => c.name === runtimeName)` 找活客户端，两条同名时第二条
+     *   拿到的是**第一条**的客户端 —— 显示成「已连接」，是**假绿**；
+     * - `stats.forName` 也按这个名字存，两条共享一份收发计数；
+     * - 而文字版 `#早柚连接列表` 按 sourceIndex 筛（apps/admin.ts），显示「未启动」。
+     *   于是三个视图各说各话，最难查的那种。
+     *
+     * 为什么修在这儿，不在两个 edit 入口补重名检查
+     * ------
+     * 两个 add 入口本来就有重名自动加后缀（apps/admin.ts、webadapter），两个 edit
+     * 入口都没有，而 findRouteConflict 的 next 只带 url/bind/exclude/enable，压根
+     * 不看 name —— 改名这个动作从头到尾没被检查过。但补在入口是补不齐的：锅巴整表
+     * 保存与手改 yaml 都能直接写出重名。这里是所有入口的必经之路，且与路由冲突同
+     * 一套「全局唯一性裁决」语义，报错也跟着走同一条路（lifecycle 打日志、面板整包
+     * 回前端）。
+     *
+     * 跳过而不是自动改名：名字是用户写的，运行时替他改一个，他在面板上看到的名字
+     * 与配置里的对不上，而且下次保存又会写回去。报出来让他改。
+     */
+    const namedAt = named.get(conn.runtimeName)
+    if (namedAt !== undefined) {
+      errors.push({
+        sourceIndex: conn.sourceIndex,
+        message:
+          `运行时名字冲突：来源 #${namedAt + 1} 与来源 #${conn.sourceIndex + 1} ` +
+          `都叫 ${conn.runtimeName}，已跳过后者。名字是停起与计数的键，重名会让这一条` +
+          `起不来，而面板与状态图会把它显示成另一条的状态。请给其中一条连接改个名字。`,
+      })
+      return
+    }
+
     taken.set(key, { runtimeName: conn.runtimeName, sourceIndex: conn.sourceIndex })
+    named.set(conn.runtimeName, conn.sourceIndex)
     runtime.push(conn)
   }
 
