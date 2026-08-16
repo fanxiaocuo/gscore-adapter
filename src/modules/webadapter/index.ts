@@ -301,7 +301,13 @@ function payload(): Payload {
     connections,
     // 只把话术上线：ExpandError 的 sourceIndex 是给 lifecycle 挑「属于我这条」用的，
     // 前端目前把错误统一列在顶部一个块里，不逐卡显示，多一个下标只是没人读的字段
-    errors: errors.map(e => e.message),
+    //
+    // 但 skipped 必须分开：前端那个红框的标题是「有连接没能启动」，而 bind/exclude
+    // 撞与共享 /ws/Yunzai 这两条之后连接照常跑。混在一起，一条正在正常收发的连接
+    // 就会绿着点、顶着红框说自己没能启动。分成两个数组而不是把 skipped 带上去 ——
+    // 前端要的是「渲哪个框」，那正是两个数组本身回答的问题
+    errors: errors.filter(e => e.skipped).map(e => e.message),
+    warnings: errors.filter(e => !e.skipped).map(e => e.message),
     totals: {
       logical: connections.length,
       runtime: flat.length,

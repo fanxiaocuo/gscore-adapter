@@ -123,7 +123,10 @@ export function BotSwitchList({
               <div className="flex justify-end max-[720px]:col-start-3 max-[720px]:row-span-2 max-[720px]:row-start-1">
                 <Switch
                   checked={on}
-                  disabled={saving !== null || last}
+                  // 只禁别的，不禁刚被点的那个：浏览器会把 disabled 元素的焦点丢给
+                  // body，请求回来解禁时也不还 —— 键盘用户拨完第 3 个开关，想拨第 4 个
+                  // 得从页面顶部重新 Tab 一遍。防连点的目的排除当前项也达到了
+                  disabled={(saving !== null && saving !== b.id) || last}
                   label={`绑定 ${b.name !== b.id ? `${b.name}（${b.id}）` : b.id}`}
                   describedBy={last ? noteId : undefined}
                   hint={

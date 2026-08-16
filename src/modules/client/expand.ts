@@ -156,6 +156,22 @@ export interface ExpandError {
   /** 出问题的连接在配置列表里的下标，与 {@link RuntimeWsConnection.sourceIndex} 同源 */
   sourceIndex: number
   /**
+   * 这条原因是不是「有运行时连接没起来」
+   *
+   * 不是所有 errors 都意味着连接起不来 —— bind 与 exclude 撞、以及还在用共享
+   * `/ws/Yunzai` 这两条，`fail` 之后都继续走到 claim()，连接照常跑。而面板把整包
+   * errors 列在一个标题为「有连接没能启动」的红框里：一条 `ws://h:8765/ws/Yunzai`
+   * 的兼容连接不填账号（老配置升级后的默认形态），面板上就是绿点「已连接」，头顶
+   * 一个红框说它没能启动，每次轮询复现一次 —— 用户去查一条正在正常收发的连接。
+   *
+   * 光看话术分不可靠：真跳过的都以「已跳过」收尾，但那是措辞约定，前端解析措辞
+   * 就等于把话术冻成契约，改一个字就错位。所以在数据里标出来。
+   *
+   * 账号编码失败算 true：它 `continue` 跳过的是那**一个账号**，同连接的其他账号照
+   * 起 —— 但那个账号的运行时连接确实没起来，面板该看见。
+   */
+  skipped: boolean
+  /**
    * 给人看的原因
    *
    * 只含连接名、来源序号与 pathname，不含完整地址 —— 这些话术会经面板整包回到
@@ -180,6 +196,7 @@ export function expandConnections(list: WsConnection[]): {
       errors.push({
         // 记在被跳过的那条名下：留下的那条好好地跑着，起不来的是这一条
         sourceIndex: conn.sourceIndex,
+        skipped: true,
         message:
           `连接路径冲突，已保留 ${prev.runtimeName}（来源 #${prev.sourceIndex + 1}），` +
           `跳过 ${conn.runtimeName}（来源 #${conn.sourceIndex + 1}）。` +
@@ -223,6 +240,7 @@ export function expandConnections(list: WsConnection[]): {
     if (namedAt !== undefined) {
       errors.push({
         sourceIndex: conn.sourceIndex,
+        skipped: true,
         message:
           `运行时名字冲突：来源 #${namedAt + 1} 与来源 #${conn.sourceIndex + 1} ` +
           `都叫 ${conn.runtimeName}，已跳过后者。名字是停起与计数的键，重名会让这一条` +
@@ -240,7 +258,9 @@ export function expandConnections(list: WsConnection[]): {
     if (conf.enable === false) return
 
     const label = sourceLabel(conf, sourceIndex)
-    const fail = (message: string) => errors.push({ sourceIndex, message })
+    // fail = 有运行时连接没起来；warn = 报出来但连接照常跑（见 ExpandError.skipped）
+    const fail = (message: string) => errors.push({ sourceIndex, skipped: true, message })
+    const warn = (message: string) => errors.push({ sourceIndex, skipped: false, message })
     const url = normalizeEndpoint(conf.url)
     if (!url) {
       fail(`连接 ${label} 缺少 url，已跳过`)
@@ -255,7 +275,7 @@ export function expandConnections(list: WsConnection[]): {
 
     const { accounts, conflicts } = effectiveAccounts(conf)
     if (conflicts.length) {
-      fail(
+      warn(
         `连接 ${label} 的账号 ${conflicts.join("、")} 同时出现在 bind 与 exclude，按 exclude 处理`,
       )
     }
@@ -263,7 +283,7 @@ export function expandConnections(list: WsConnection[]): {
     // 自定义路径与旧 Yunzai 路径只起一条兼容连接，路径原样不动。
     if (!isRootEndpoint(parsed)) {
       if (isAutoYunzaiPath(parsed.pathname) && !accounts.length) {
-        fail(
+        warn(
           `连接 ${label} 仍使用共享路径 ${parsed.pathname}，多个机器人会互相顶掉。` +
             `请改为只填 host:port 并补上绑定账号。`,
         )

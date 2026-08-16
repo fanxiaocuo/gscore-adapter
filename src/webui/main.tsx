@@ -509,7 +509,7 @@ function Modal({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px] max-[720px]:p-[8px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px] max-[720px]:p-[8px]"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px] max-[720px]:p-[14px]">
@@ -793,6 +793,7 @@ function App() {
   const t = state.totals || { logical: state.connections.length, runtime: 0, connected: 0 }
   // 展开阶段被跳过的连接在卡片上只显示「未启动」，原因只有这份话术说得出
   const errors = state.errors || []
+  const warnings = state.warnings || []
 
   return (
     <>
@@ -826,12 +827,27 @@ function App() {
         </div>
       </header>
 
+      {/*
+       * 浮在弹层之上，而不是待在文档流里
+       * ------
+       * 原来这是 header 后面一个普通的流内 div，而 Modal 是 `fixed inset-0` 带半透明
+       * 遮罩 —— 同一层叠上下文里定位元素画在非定位的流内兄弟之上，于是弹层保存失败时
+       * 唯一的反馈被压在遮罩底下；页面往下滚过一屏更是整个在视口外。而失败分支只弹
+       * toast、不关弹层也不动 state（见 send 的 catch），界面上于是没有任何可见变化，
+       * 用户只会再点几次保存。本分支给弹层新加了两个拒绝点（requireAccounts、面板侧的
+       * findRouteConflict），把一个原先几乎碰不到的问题变成了常规路径。
+       *
+       * 底色用 color-mix 兑到 --surface 而不是 transparent：浮在遮罩上时透明底会把
+       * 遮罩的黑透进来，文字读不了。z 值与 Modal 的 z-50 成对，别只改一个。
+       */}
       {toast && (
         <div
-          className={`mb-[12px] rounded-[10px] border px-[14px] py-[10px] text-[13px] ${
+          role="status"
+          aria-live="polite"
+          className={`fixed left-1/2 top-[16px] z-[60] w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-[10px] border px-[14px] py-[10px] text-[13px] shadow-[0_8px_24px_rgb(0_0_0/18%)] ${
             toast.bad
-              ? "border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)]"
-              : "border-success bg-[color-mix(in_srgb,var(--success)_12%,transparent)]"
+              ? "border-danger bg-[color-mix(in_srgb,var(--danger)_12%,var(--surface))]"
+              : "border-success bg-[color-mix(in_srgb,var(--success)_12%,var(--surface))]"
           }`}
         >
           {toast.text}
@@ -874,6 +890,24 @@ function App() {
                * 也不局部增删，下标就是稳定身份
                */}
               {errors.map((e, i) => (
+                <p className="whitespace-pre-line text-[12px]" key={i}>
+                  {e}
+                </p>
+              ))}
+            </div>
+          )}
+          {/*
+           * 警告与上面那个框分开渲，标题和配色都不一样
+           * ------
+           * 服务端按 ExpandError.skipped 分流（webui/api.ts 的 warnings）。混在上面
+           * 那个红框里的话，一条 `ws://h:8765/ws/Yunzai` 不填账号的兼容连接（老配置
+           * 升级后的默认形态）就会绿着点显示「已连接」，头顶一个红框说它没能启动 ——
+           * 而它正在正常收发，每次轮询还复现一次。
+           */}
+          {warnings.length > 0 && (
+            <div className="rounded-[10px] border border-warning bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
+              <div className="mb-[4px] font-semibold">连接已启动，但有需要注意的地方</div>
+              {warnings.map((e, i) => (
                 <p className="whitespace-pre-line text-[12px]" key={i}>
                   {e}
                 </p>

@@ -192,6 +192,18 @@ export interface Payload {
    * （`sourceLabel` 没名字时用 `连接 #n`）。
    */
   errors: string[]
+  /**
+   * 报出来但连接照常跑的原因
+   *
+   * 与 {@link errors} 同源（服务端 `ExpandError`，按 `skipped` 分流），分开是因为
+   * 前端要渲两个不同的框：`errors` 那个标题是「有连接没能启动」，而这里的两条
+   * —— bind 与 exclude 撞了、以及还在用共享 `/ws/Yunzai` —— `fail` 之后都继续走到
+   * `claim()`，连接是起来的。混在一起会让一条正在正常收发的连接绿着点、同时顶着
+   * 一个红框说它没能启动，而且每次轮询复现一次。
+   *
+   * 别改成前端按话术分（真跳过的都以「已跳过」收尾）：那等于把措辞冻成契约。
+   */
+  warnings: string[]
   /** 连接总览：逻辑配置数、运行时连接数、其中已连接数 */
   totals: { logical: number; runtime: number; connected: number }
   /** 当前在线的机器人，供「添加绑定」候选 */

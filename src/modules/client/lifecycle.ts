@@ -88,8 +88,13 @@ export function startSource(sourceIndex: number) {
   // 全部错误按 error 级重打一遍：点一下与本次操作无关的开关，控制台就再刷一遍别条
   // 连接的冲突报错，看着像刚出的新故障。别条的错误在启动时（下面 startClients）
   // 与面板整包里都给了，不靠这里重复。
+  //
+  // 级别按 skipped 分：bind/exclude 撞与共享 /ws/Yunzai 这两条之后连接照常跑，
+  // 打成 error 会让一条正在正常收发的连接看着像坏了（面板上同一条曾经因此
+  // 显示「已连接」却顶着「有连接没能启动」的红框）
   for (const error of errors)
-    if (error.sourceIndex === sourceIndex) makeLog("error", error.message, "GsCore")
+    if (error.sourceIndex === sourceIndex)
+      makeLog(error.skipped ? "error" : "warn", error.message, "GsCore")
 
   let started = 0
   for (const conf of runtime) {
@@ -129,7 +134,7 @@ export function startClients() {
 
   if (wsEnabled()) {
     const { runtime, errors } = expandConnections(getWsConnections())
-    for (const error of errors) makeLog("error", error.message, "GsCore")
+    for (const error of errors) makeLog(error.skipped ? "error" : "warn", error.message, "GsCore")
     for (const conf of runtime) startClient(conf)
   }
 
