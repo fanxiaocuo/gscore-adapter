@@ -11,7 +11,7 @@ import {
   type ConnectionPatch,
 } from "@/config"
 import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
-import { expandConnections, readIds, requireAccounts } from "@/modules/client/expand"
+import { expandConnections, readIds, requireAccounts, sourceLabel } from "@/modules/client/expand"
 import { findRouteConflict } from "@/modules/client/conflict"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
@@ -343,7 +343,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
         .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
         .filter(Boolean)
       return e.reply(
-        `已把账号 ${bind.join("、")} 绑到连接 ${existing.name}\n` +
+        `已把账号 ${bind.join("、")} 绑到连接 ${sourceLabel(existing, idx)}\n` +
           `核心地址：${safeUrl(nextUrl)}\n` +
           `当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}\n` +
           // 悄悄改掉 exclude 会让用户下次看配置时莫名其妙，这里明说一句
@@ -623,7 +623,9 @@ export default class GsCoreAdmin extends plugin<"message"> {
         .map(x => `\n     ${x.account}: ${x.statusText}`)
         .join("")
       msg.push(
-        `\n\n${i + 1}. ${c.name}  [${state}]` +
+        // 这一行不用 sourceLabel：它的兜底是 `连接 #N`，而序号已经是行首那个
+        // `${i + 1}.` 了，拼出来就是「1. 连接 #1」。行首序号本身就是 find() 认的键
+        `\n\n${i + 1}. ${c.name || "(未命名)"}  [${state}]` +
           `\n   ${safeUrl(c.url)}` +
           (c.token ? "\n   token: 已设置" : "") +
           `\n   bind: ${accounts.length ? accounts.join("、") : "未绑定账号"}` +
@@ -655,7 +657,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (on) {
       if (!clientMode())
         return e.reply(
-          `已启用连接 ${hit.conf.name}\n但适配器本体已禁用（enable: false），客户端未运行`,
+          `已启用连接 ${sourceLabel(hit.conf, hit.index)}\n但适配器本体已禁用（enable: false），客户端未运行`,
         )
       // 先停后起，和 add/edit 两处一致
       // ------
@@ -665,15 +667,18 @@ export default class GsCoreAdmin extends plugin<"message"> {
       // 账号」—— 绑定明明是好的，把人打发去查一个不存在的问题
       stopSource(hit.index, hit.conf.name || hit.conf.url)
       const started = startSource(hit.index)
-      if (started) return e.reply(`已启用连接 ${hit.conf.name}，正在连接 ${started} 条`)
+      if (started)
+        return e.reply(`已启用连接 ${sourceLabel(hit.conf, hit.index)}，正在连接 ${started} 条`)
       // 真的 0 条：要么没有效账号，要么 ws 总开关关着，两者的下一步动作不一样
       return e.reply(
-        `已启用连接 ${hit.conf.name}，但没有可起的运行时连接` +
+        `已启用连接 ${sourceLabel(hit.conf, hit.index)}，但没有可起的运行时连接` +
           (idleReason() || "\n请检查绑定账号（#早柚连接列表 可看）"),
       )
     }
     const stopped = stopSource(hit.index, hit.conf.name || hit.conf.url)
-    return e.reply(`已停用连接 ${hit.conf.name}${stopped ? `，断开 ${stopped} 条` : ""}`)
+    return e.reply(
+      `已停用连接 ${sourceLabel(hit.conf, hit.index)}${stopped ? `，断开 ${stopped} 条` : ""}`,
+    )
   }
 
   async set(e: YunzaiEvent) {
