@@ -1,7 +1,13 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT } from "@/constants"
-import { logStr, sendError, sendMessageId } from "@/utils"
+import {
+  logStr,
+  sendMessageId,
+  classifyDelivery,
+  deliveryComplete,
+  deliveryDelivered,
+} from "@/utils"
 import { redactUrl } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
@@ -60,36 +66,17 @@ function passiveReady(target: SendTarget, type: "direct" | "group", targetId: st
   return targetId.startsWith("qg_") ? !!target.channel_id : !!target.group_id
 }
 
-/**
- * QQBot 这一条下行「有没有投出去哪怕一条」
- *
- * 不能只用 sendError 来决定回不回退
+/*
+ * 下行投递判定见 utils/send.ts 的 classifyDelivery
  * ------
- * QQBotAdapter.sendMsg（index.js:805-865）把一条下行拆成多个消息组逐个发，
- * 失败只 `rets.error.push(err)` 就返回剩余的，接着是四级阶梯重试（原样重试 →
- * 换 markdown 形态重建 → legacy makeMsg 兜底）。而 **rets.error 全程没有任何
- * 清空动作** —— 首轮失败、后续成功的发送，返回的仍是
- * `{ message_id:[非空], data:[非空], error:[旧错误] }`。
+ * 这里曾有一个本地的 qqbotDelivered()：`data.length > 0` 就算「投出去了」。
+ * doSend 拿它决定回不回退、onMessage 拿它决定要不要降级成 warn —— 同一个返回值
+ * 两处各判一套，顶层数组形状在两边还得出相反结论。而「至少一个分组成功」既不能
+ * 回答「要不要重发」也不能回答「算不算完整成功」，它把半条消息计成了一次完整中转。
  *
- * sendError 只要 error 数组有真值就判失败，于是「QQBot 自己已经重试成功」会被
- * 当成失败：doSend 再整条发一遍，用户看到两条。ww帮助 是 text+image 走 raw
- * markdown，首轮被拒本就是常态（四级阶梯的存在即是证据），这条路很热。
- *
- * 判据用 rets.data 而不是 message_id：index.js:821 是 `if (ret.id) push(ret.id)`，
- * 已投递但响应不带 id 时 message_id 会是空的；而 820 行 `rets.data.push(ret)`
- * 每次成功投递都执行。这也与 utils/send.ts 里「缺 message_id 不得判失败」一致。
- *
- * 形状不认识时必须退回旧判据，不能一律当「没投出去」
- * ------
- * 只认 `data` 数组的话，返回值形状一变（换版本、换实现、或 isQQBot 认到别的
- * 适配器）就会变成「每条消息都回退再发一遍」—— 那比现在这个偶发重复更糟，
- * 且是无条件发生。所以只有拿到 `data` 数组这个确切证据时才用它下判断，
- * 其余情况沿用 sendError：至少不比改动前差。
+ * 现在两条路径共用 classifyDelivery + deliveryDelivered / deliveryComplete，
+ * 判据只有一份。
  */
-function qqbotDelivered(ret: any): boolean {
-  if (Array.isArray(ret?.data)) return ret.data.length > 0
-  return !sendError(ret)
-}
 
 export class GsCoreClient {
   conf: WsConnection | RuntimeWsConnection
@@ -520,8 +507,9 @@ export class GsCoreClient {
     try {
       const ret = await fn(target, message, { id: msgId })
       // 只在「一条都没投出去」时才回退。QQBot 内部四级阶梯自愈过的发送带着陈旧
-      // error 回来，照 sendError 判会重发整条 —— 详见 qqbotDelivered 的注释
-      if (qqbotDelivered(ret)) {
+      // error 回来，照 sendError 判会重发整条；部分成功的也不能重发，那会复制
+      // 已经投出去的分组 —— 详见 utils/send.ts 的 classifyDelivery
+      if (deliveryDelivered(classifyDelivery(ret))) {
         this.log("debug", `下行发送（被动回复）：${brief}`)
         return ret
       }
@@ -659,23 +647,26 @@ export class GsCoreClient {
       // { retcode: -1, status: "failed", error }（Milky.js:424-434）而从不抛，
       // OneBot 系同理。只 await 不看返回值会把失败记成成功中转，
       // 而「连着但不通」恰是这个计数该抓到的情况。判定见 utils/send.ts。
-      const err = sendError(ret)
-      // QQBot 的「部分成功」不能当整体失败
+      const delivery = classifyDelivery(ret)
+
+      // 部分投出：不能计完整成功，也不能当整条失败
       // ------
-      // 它的 rets.error 从不清空（见 qqbotDelivered），四级阶梯自愈过的发送带着
-      // 陈旧 error 回来。照 err 直接 return 有三重后果：误报一条 error 级「发送失败」、
-      // 漏掉 count("down")、并且丢掉 recallId —— 而消息其实已经发出去了，
-      // 核心侧的定时撤回就此失效（正是下面那条注释担心的 latch 语义）。
-      // 所以这里只降级为 warn，计数与撤回 id 照常走。
-      if (err && isQQBot(bot) && qqbotDelivered(ret)) {
-        this.log(
-          "warn",
-          `发送部分失败（已投出，QQBot 内部重试过）：${err}（${segSummary(message)}）`,
-        )
-      } else if (err) {
+      // QQBot 把一条下行拆成多个分组逐个发，`data` 与 `error` 同时非空时
+      // 分不清「它自己重试成功了」还是「有一组永久失败」——证不出整条完成。
+      // 处置取两者的交集：撤回 id 照回（消息确实出去了，漏回会让核心侧的定时
+      // 撤回失效），但不计一次完整中转（宁可少计，不能把半条当整条）。
+      // 日志记 error 级并带上已投出的分组数，方便对着用户实收的内容核。
+      if (delivery.kind === "partial") {
+        const n = delivery.delivered == null ? "" : `已投出 ${delivery.delivered} 组，`
+        this.log("error", `发送部分失败：${delivery.error}（${n}${segSummary(message)}）`)
+        recallId = sendMessageId(ret)
+        return
+      }
+
+      if (!deliveryComplete(delivery)) {
         // 带上段类型摘要：「发送失败」最常见的成因是某类段被平台拒收（图片尤甚），
         // 有摘要才分得清是整条没发出去还是某种段不被接受
-        this.log("error", `发送失败：${err}（${segSummary(message)}）`)
+        this.log("error", `发送失败：${delivery.error}（${segSummary(message)}）`)
         // 不计数，但仍要走 finally 里的回执 —— 漏回会被核心 latch 成「不支持撤回」
         return
       }
