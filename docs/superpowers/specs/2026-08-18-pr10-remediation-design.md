@@ -14,7 +14,7 @@ PR #10 把逻辑连接扩展为按账号生成运行时连接，并新增命令�
 4. 老配置中的 `client.ws_connections`、连接级 `bot_id` 和自动路径在启动迁移后保持原有意图，且迁移幂等。
 5. 命令、Web 面板、Guoba、配置 watcher 和直接 YAML 修改采用相同的有效配置规则。
 6. QQBot 只有在能证明整条消息所有分组均已完成时才确认成功；部分失败不能计数为完整成功或返回完整撤回回执。
-7. 所有回归测试均被 Git 跟踪，并在 CI、全新克隆和本地运行同一套测试。
+7. 每个已确认问题都有一条本地可复跑的回归测试。`test/` 继续不入库，测试由维护者在推送前本地跑；CI 的关卡是 typecheck、lint、build 与产物冒烟。
 8. README、帮助、默认配置与实际连接模型一致，不再文档化 `bind=all`。
 
 ## 非目标
@@ -133,9 +133,11 @@ QQBot 返回的 `data.length > 0` 只表示至少一个分组成功，不能表�
 12. 新增、合并和编辑中的显式 `id=` 均覆盖旧账号映射，自动推断不覆盖。
 13. QQBot 完全成功、首轮失败后最终成功、部分最终失败、完全失败和未知返回形状分别得到正确分类、统计、回退与回执。
 14. watcher 收到旧格式配置时先迁移；收到无效配置时保留当前运行状态。
-15. 所有已有 190 个测试和新增测试在全新 Git checkout 中可运行。
+15. 已有 190 个测试与新增测试在一次本地 `pnpm build && pnpm test` 中全部通过。
 
-`test/` 从 `.gitignore` 移除，测试文件加入版本控制。CI 的构建和发布工作流在打包前运行 `pnpm test`、`pnpm typecheck` 和 `pnpm lint`；测试失败时不得发布。
+测试留在本地：`test/` 仍在 `.gitignore` 里，CI 克隆不到，因此构建与发布工作流不加 `pnpm test` 步骤，关卡仍是 `pnpm typecheck`、`pnpm lint`、`pnpm build` 与锅巴入口冒烟加产物完整性自检。测试由维护者在推送前跑一遍，红着不推 main。
+
+本地跑法是 `pnpm build && pnpm test`，顺序不能颠倒。测试本身不读 `lib/`——它们用 `await import("../src/**.ts")` 让 `tsx` 现场转译源码（见 `test/fixtures.mjs` 的说明），但 `classes.test.mjs` 会断言 Tailwind 产物 `resources/template/css/tailwind.css` 真的被内联进了 CSS，那份产物由 `pnpm build` 的 `build:css` 步骤生成，缺了它这条测试就红。
 
 ## 文档与兼容性
 
@@ -156,5 +158,5 @@ README、帮助页、配置指南和默认配置统一说明：
 - 配置中已解绑、删除或被冲突淘汰的账号不存在仍在运行的客户端。
 - 同一账号事件不会因兼容连接和自动连接并存而上传两次。
 - QQBot 部分失败不会被记录为完整成功，也不会静默确认整条投递完成。
-- `pnpm test`、`pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm docs:build` 和 `git diff --check main...HEAD` 全部通过。
+- `pnpm typecheck`、`pnpm lint`、`pnpm build`、`pnpm test`、`pnpm docs:build` 和 `git diff --check main...HEAD` 在本地全部通过（`pnpm test` 依赖 `pnpm build` 产出的 Tailwind 产物，两者顺序不能颠倒）。
 - PR 复审无 P1/P2 阻塞项后才允许合并；合并成功后删除远端 `fix/exact-multi-bot-resolution` 分支，并确认 PR 状态为 `MERGED`。
