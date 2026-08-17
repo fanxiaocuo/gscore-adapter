@@ -6,7 +6,7 @@ import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
 import type { AdapterEvent, Config, WsConnection } from "@/types"
 import { isChannel } from "@/utils/session.js"
-import { guessPlatform } from "@/utils/platform.js"
+import { guessPlatform, isQQBotAppId } from "@/utils/platform.js"
 import { getBot } from "@/utils/bots.js"
 import { unflow } from "./yaml.js"
 import { upgradeUserConfig } from "./upgrade.js"
@@ -326,11 +326,18 @@ export function wsEnabled(): boolean {
  * 所以在 default 之前插一次 `guessPlatform` —— 它按账号前缀与 appid 形状判断，
  * 不依赖用户有没有配对那张表。见 utils/platform.ts。
  *
- * 频道单独判
+ * 频道要压在账号级映射之前
  * ---------
- * QQBot-Plugin 用**同一个** adapter（id 恒为 QQBot）同时处理 QQ 群与 QQ 频道，
- * 所以按适配器查表分不开这两者 —— 而核心侧 qqgroup 与 qqguild 是两个平台。
- * 判据只能来自事件形状，见 utils/message.ts 的 isChannel。
+ * QQBot-Plugin 用**同一个** adapter（id 恒为 QQBot）、同一个 appid 同时处理 QQ 群
+ * 与 QQ 频道，所以按适配器或按账号查表都分不开这两者 —— 而核心侧 qqgroup 与
+ * qqguild 是两个平台。判据只能来自事件形状，见 utils/session.ts 的 isChannel。
+ *
+ * 账号级那行记的是这个 appid 的**群**平台（seedAccountBotIds 自动补的就是
+ * qqgroup），一旦排在频道特判之前，频道消息就会按群消息上报 —— 核心拿 qqgroup
+ * 处理频道会话，静默出错，用户那头只看到「功能怪异」。所以频道判在最前面。
+ *
+ * 但只有 QQ 家族的频道才该报 qqguild：isChannel 只看事件形状，KOOK / Discord
+ * 的频道消息也会命中，那些得按自己的账号形状推。见 isQQChannel。
  * 键名 QQGuild 与 xiowo/yunzai-gscore-adapter 的 ADAPTER_BOT_ID_MAP 对齐。
  */
 /**
@@ -346,16 +353,36 @@ export function accountPlatform(selfId: string | number): string {
   return map[sid] || guessPlatform(sid, getBot(sid)) || ""
 }
 
+/**
+ * 这条频道事件是不是 QQ 家族的
+ *
+ * 只有它们的频道该报 qqguild。判据优先看账号形状（qg_ 前缀的频道级账号、
+ * QQBot 的 appid 形状），账号缺失或形状认不出时退到适配器名 —— QQBot-Plugin
+ * 的群与频道共用 adapter.id，光看适配器分不出群还是频道，但足以确认「是 QQ」。
+ */
+function isQQChannel(e: AdapterEvent, sid: string): boolean {
+  if (sid.startsWith("qg_") || isQQBotAppId(sid)) return true
+  const names = [e.bot?.adapter?.id, e.adapter_id, e.bot?.adapter?.name, e.adapter_name]
+  return names.some(n => n === "QQBot" || n === "QQGuild")
+}
+
 export function resolveBotId(e: AdapterEvent, _conf?: WsConnection | null, selfId?: string) {
   const map = config.bot_id_map || {}
 
-  // self_id 精确覆盖优先级最高（同一适配器下的不同账号可各指其一）
   const sid = selfId ?? (e.self_id != null ? String(e.self_id) : "")
+
+  // 频道判在账号级映射之前，理由见上面的注释
+  if (isChannel(e) && isQQChannel(e, sid)) {
+    // qg_ 前缀的账号键例外：那本身就是频道级账号，用户单独记它就是要例外
+    if (sid.startsWith("qg_") && map[sid]) return map[sid]
+    // 兜死成 qqguild，不落回 map.default —— 用户可能删掉或改坏 QQGuild 那行，
+    // 而退到 map[appid] / map.QQBot 会得到 qqgroup，那对频道事件一定是错的
+    return map.QQGuild || "qqguild"
+  }
+
+  // self_id 精确覆盖优先级最高（同一适配器下的不同账号可各指其一）
   const bySelf = sid ? map[sid] : undefined
   if (bySelf) return bySelf
-
-  // 频道要在适配器之前：QQBot 的群与频道共用 adapter.id
-  if (isChannel(e) && map.QQGuild) return map.QQGuild
 
   return (
     map[e.bot?.adapter?.id] ||
