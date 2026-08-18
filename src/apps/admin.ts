@@ -19,6 +19,7 @@ import {
   findDuplicate,
   findSameCore,
   inlineToken,
+  mergeEndpointQuery,
   normalizeEndpoint,
   requireWsUrl,
 } from "@/utils/url"
@@ -326,13 +327,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
       const explicit = kv.bot_id || ""
       try {
         updateConnection(idx, patch, doc => {
-          for (const id of nextBind)
-            writeAccountBotId(
-              doc,
-              id,
-              explicit && bind.includes(String(id)) ? explicit : undefined,
-              config.bot_id_map,
-            )
+          for (const id of nextBind) {
+            // 显式 id= 只覆盖**本次指令点到的**那些账号（`bind` 而不是 `nextBind`）
+            // ------
+            // 合并分支里 nextBind 还含着这条连接原有的账号，那些不是用户这次的表态，
+            // 拿 id= 去盖它们等于一句 `#早柚添加连接 <核心> bind=B id=qqgroup` 顺手改掉了
+            // A 的平台 —— A 之后上报给核心的 bot_id 就一直是错的，而回执里只提到 B。
+            //
+            // 点到的账号必须 force：不 force 时 writeAccountBotId 见到旧值就直接返回，
+            // 用户改不掉一个填错的平台标识 —— 回执说「平台标识：B=qqgroup」，表里还是旧值。
+            if (explicit && bind.includes(String(id)))
+              writeAccountBotId(doc, id, explicit, undefined, true)
+            else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+          }
         })
       } catch (err) {
         makeLog("error", ["写入配置失败", err], "GsCore")
@@ -385,7 +392,14 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const explicit = kv.bot_id || ""
     try {
       appendConnection(conf, doc => {
-        for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
+        for (const id of bind) {
+          // 显式 id= 同样要 force：新增一条连接时旧的 bot_id_map 可能已经有这个账号的
+          // 记录（这个账号早先绑在别条连接上，或上一版按形状推错了）。不 force 的话
+          // writeAccountBotId 见到旧值直接返回，回执却照着输入念「平台标识：xxx」——
+          // 用户以为改过了，核心那头收到的还是旧平台，两边都没有一处话术提得到。
+          if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
+          else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+        }
       })
     } catch (err) {
       makeLog("error", ["写入配置失败", err], "GsCore")
@@ -407,11 +421,16 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 无条件收敛（适配器关着时目标计划为空，见 applyConnections），再数这条现在跑着几条
     applyConnections({ sourceIndex: addedIndex })
     const runningNew = countSource(addedIndex)
+    // 只读写盘后的实际表，不复述 explicit
+    // ------
+    // appendConnection 里的 saveConfig 已经 reload 过，config.bot_id_map 就是文件里
+    // 那一份。原来这里是 `explicit || config.bot_id_map?.[id]`，也就是输入优先 ——
+    // 而输入和落盘结果并不必然相同：mapKey 会因为键类型（数字键 / 前导零 / 手改 yaml
+    // 并排出的两行）把值写到另一处，或者干脆判定不该写。那时回执念的是用户刚敲的那串，
+    // 表里却是别的值，核心收到的也是别的值，而「平台标识：A=qqgroup」这句话本身
+    // 看不出任何问题 —— 用户没有任何理由去怀疑它。念表里的实际值，错了至少看得见。
     const mappedNow = bind
-      .map(id => {
-        const p = explicit || config.bot_id_map?.[id]
-        return p ? `${id}=${p}` : ""
-      })
+      .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
       .filter(Boolean)
     return e.reply(
       `已添加连接 ${name}\n核心地址：${safeUrl(url)}\n` +
@@ -463,9 +482,25 @@ export default class GsCoreAdmin extends plugin<"message"> {
 
     // requireWsUrl 会抛（协议错、解析不了），而这一步在写盘之外，
     // 抛出去就是一条框架级异常日志而不是回给用户的话
+    //
+    // 协议门吃的是用户新填的**原串**，搬参数发生在门之后
+    // ------
+    // `url=10.0.0.5:8765` 这种写法只重写了 host 和端口，旧地址上的 `?tenant=`、
+    // `?access_token=` 会跟着消失（见 utils/url.ts 的 mergeEndpointQuery），所以要搬。
+    // 但顺序不能倒过来：mergeEndpointQuery 是**容错**的 —— 旧地址解析不了它就静默
+    // 回退成新地址，那正是「用户来改这条连接」的常见前提。把它垫在 requireWsUrl 前面
+    // 就等于让协议门去校验一个派生串，而这个派生串是哪来的、还会不会被将来新加的回退
+    // 分支改写，没有任何一处签名说得清 —— 门放行的范围会跟着 merge 悄悄变。
+    // 反过来放在门之后不削弱校验：merge 只往 searchParams 里补名字，协议、主机、路径
+    // 一概不碰，门已经定了协议就不会再被改回 http。
+    //
+    // 顺便记一笔以免下一个人白找：拒 http:// 那句「请改用：ws://…」不受这个顺序影响，
+    // requireWsUrl 给建议时已经过了 redactUrl（查询串整段砍掉），先搬也漏不进去。
     let nextUrl: string
     try {
-      nextUrl = kv.url ? requireWsUrl(kv.url) : normalizeEndpoint(String(hit.conf.url || ""))
+      nextUrl = kv.url
+        ? mergeEndpointQuery(hit.conf.url, requireWsUrl(kv.url))
+        : normalizeEndpoint(String(hit.conf.url || ""))
     } catch (err) {
       return e.reply(errorMessage(err))
     }
@@ -558,11 +593,19 @@ export default class GsCoreAdmin extends plugin<"message"> {
       // 改完把最终绑定念出来：bind+=/-= 是增量操作，用户看不到合并后的全貌
       lines.push(`当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}`)
     }
-    if (kv.bot_id)
+    if (kv.bot_id) {
+      // 同样只念写盘后的实际表（理由见 add() 里那段）：这里虽然走的是 force，
+      // 值也不保证等于输入 —— mapKey 挑的键可能与用户手改 yaml 留下的另一行并排，
+      // 解析回 JS 时靠后的那行赢。念输入就成了一句看不出问题的假话。
+      const mapped = ids
+        .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
+        .filter(Boolean)
       lines.push(
-        `平台标识 ${kv.bot_id} 已按账号记入 bot_id_map` +
-          (nextBind.length ? `（${nextBind.join("、")}）` : ""),
+        mapped.length
+          ? `平台标识已按账号记入 bot_id_map：${mapped.join("、")}`
+          : `平台标识 ${kv.bot_id} 未能写入 bot_id_map，请检查配置里的 bot_id_map`,
       )
+    }
     if (kv.exclude !== undefined)
       lines.push(`当前排除：${nextExclude.length ? nextExclude.join("、") : "无"}`)
     return e.reply(lines.filter(Boolean).join("\n"))

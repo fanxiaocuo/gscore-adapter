@@ -54,6 +54,7 @@ import {
   findDuplicate,
   findSameCore,
   inlineToken,
+  mergeEndpointQuery,
   normalizeEndpoint,
   redactUrl,
   requireWsUrl,
@@ -454,13 +455,19 @@ function addConnection(body: PanelBody) {
     if (nextUrl !== existing.url) patch.url = nextUrl
     if (existing.bot_id) patch.bot_id = null
     updateConnection(idx, patch, doc => {
-      for (const id of nextBind)
-        writeAccountBotId(
-          doc,
-          id,
-          explicit && bind.includes(String(id)) ? explicit : undefined,
-          config.bot_id_map,
-        )
+      for (const id of nextBind) {
+        // 判据是 bind（本次请求点明要绑的那几个）而不是 nextBind：后者含已在这条连接上
+        // 的老账号，那些不是这次表态的对象，替他们改平台标识是越权。
+        //
+        // 这一支必须 force：老连接上多半已经有一行自动推断出来的映射（加连接、开绑定
+        // 开关都会顺手补），writeAccountBotId 默认「有值就不写」，于是用户在面板里明确
+        // 填了 bot_id、回包说保存成功，表里还是推断值 —— 而推断值恰恰是他填这一栏要
+        // 纠正的东西（QQBot 的 appid 被推成 qqgroup、实际要 qqguild 之类）。
+        // 反过来不带 explicit 的那一支保持不覆盖：那是推断，凭什么盖掉用户的记录。
+        if (explicit && bind.includes(String(id)))
+          writeAccountBotId(doc, id, explicit, undefined, true)
+        else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+      }
     })
     applyConnections({ sourceIndex: idx })
     // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
@@ -487,7 +494,13 @@ function addConnection(body: PanelBody) {
   if (err) throw new Error(err)
 
   appendConnection(conf, doc => {
-    for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
+    // 新建也要 force：连接是新的，bot_id_map 是全局的 —— 这个账号可能早就因为别条
+    // 连接留下了一行。不 force 的话「新建连接时填的 bot_id」在这些账号上静默失效，
+    // 而这是最没道理失效的一处：整条连接都是他现在建的。
+    for (const id of bind) {
+      if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
+      else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+    }
   })
 
   // sourceIndex 只用来把展开诊断收窄到刚加的这条：新连接撞了别人已占的路由时会被
@@ -523,8 +536,27 @@ function editConnection(body: PanelBody) {
     // （normalizeEndpoint 经 new URL() 重新序列化），于是 `h:8765/ws/X`、
     // `ws://HOST:8765/...`、`ws://h:80/...` 这些配置即便一个字没动也「看起来变了」，
     // 白写一次 patch.url —— 而写 url 就会丢查询串里的凭据（下面那段搬运是兜底）
-    if (next !== normalizeEndpoint(redactUrl(hit.conf.url))) patch.url = next
-    nextUrl = next
+    if (next !== normalizeEndpoint(redactUrl(hit.conf.url)))
+      // 搬参数发生在协议门之后、并且发生在「这一栏动过没有」判完之后
+      // ------
+      // 门在前：mergeEndpointQuery 解析不了旧地址时会静默退回新串（那是它刻意的容错，
+      // 见 utils/url.ts），把它垫在 requireWsUrl 前面就等于让协议门去校验一个派生串；
+      // 而这条路的入参是任意 HTTP 请求体，不能像指令那样默认对面大致会写对。派生串是
+      // 哪来的、将来新加的回退分支会不会改写它，没有一处签名说得清 —— 门放行的范围就
+      // 跟着 merge 悄悄变了。（拒 http:// 那句建议不受顺序影响：requireWsUrl 给建议前
+      // 已过 redactUrl，查询串整段被砍，先搬也漏不进去。）
+      //
+      // 判据在前：合并结果必然带着旧地址的查询串，而我们回填给面板的是**脱敏**地址
+      // （查询串已被 redactUrl 砍掉）。拿合并后的串去比，一条带 `?tenant=` 的连接
+      // 无论用户动没动这一栏都「看起来变了」，上面那整段「没动就不写」的收敛全废。
+      // 多写一次的后果不只是白写：patch.url 一写，下面那段「搬内联凭据」就跟着触发，
+      // 于是用户只改了个名字，地址却被重写成不带 `?token=` 的形状、凭据被挪进 token
+      // 字段。功能上还能连，但他手写的地址行被动了，而回包只说改名成功。
+      //
+      // 反过来放在门后不削弱校验：合并只往 searchParams 里补名字，协议、主机、路径
+      // 一概不碰，门已经定了协议就不会再被改回 http。
+      patch.url = mergeEndpointQuery(hit.conf.url, next)
+    nextUrl = patch.url ?? next
   } else {
     // normalizeEndpoint 做的是：没写协议就补 ws://、砍掉 fragment、经 new URL()
     // 重新序列化（主机小写、默认端口消失）。**不改写用户写的路径** —— 老配置里的
