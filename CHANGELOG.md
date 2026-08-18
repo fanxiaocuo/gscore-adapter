@@ -3,6 +3,86 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [3.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.2.0...v3.3.0) (2026-08-18)
+
+
+### ✨ 新功能
+
+* **admin:** 连接指令改为核心地址 + 必填绑定账号 ([61dec65](https://github.com/fanxiaocuo/gscore-adapter/commit/61dec6529de2f22fe756aefdffdab89101594d8e))
+* **client:** 两阶段启动与按来源停起运行时连接 ([7ed870b](https://github.com/fanxiaocuo/gscore-adapter/commit/7ed870befec39099dc1e729c928aa1dd962414f3))
+* **client:** 客户端按账号使用运行时名称与地址 ([1c7ebb1](https://github.com/fanxiaocuo/gscore-adapter/commit/1c7ebb16b15ae88aa8507b45aa2f63a08d7ba441))
+* **client:** 逻辑连接按绑定账号展开为运行时连接 ([089dfcf](https://github.com/fanxiaocuo/gscore-adapter/commit/089dfcff16b2e8b1fa0618c283c49e9a8af935ff))
+* **panel:** 响应式设置式布局与 Apple 风格绑定开关 ([fa5fe6c](https://github.com/fanxiaocuo/gscore-adapter/commit/fa5fe6ccbbdc3d403db7387ada91dcbbe6ec3d9e))
+* **panel:** 运行时连接视图与账号绑定开关接口 ([b751989](https://github.com/fanxiaocuo/gscore-adapter/commit/b75198982e32430fa13a13791cdfe43146790e3b))
+* **panel:** 面板按账号绑定，并守住只内联在地址里的凭据 ([442f843](https://github.com/fanxiaocuo/gscore-adapter/commit/442f843c3382c9b3ed3c25501175c1c15e346aa0))
+* **render:** 状态图按来源聚合账号级连接 ([098f028](https://github.com/fanxiaocuo/gscore-adapter/commit/098f02825e56febf21595994a28f9f33693fe4df))
+* 多 Bot 账号精确解析 ([ec59c6e](https://github.com/fanxiaocuo/gscore-adapter/commit/ec59c6e83a2c0f85365c0aa78b4c4fd9a5a75fd7))
+
+
+### 🐛 问题修复
+
+* **admin:** 修正 Task 7 评审发现的四处指令层问题 ([8b412ab](https://github.com/fanxiaocuo/gscore-adapter/commit/8b412ab5ef3cf5d7d29621168681c85dfd68e529))
+* **admin:** 改地址时把内联凭据搬进 token 字段 ([40a12d7](https://github.com/fanxiaocuo/gscore-adapter/commit/40a12d730f594679623e4b6c5a975f18511679c9))
+* **admin:** 文字版连接列表的聚合状态不再藏掉部分失败 ([0d921e1](https://github.com/fanxiaocuo/gscore-adapter/commit/0d921e13d13862814e49a7c1f1316c3f565eb672))
+* **admin:** 无名连接的六处回复不再显示「连接 undefined」 ([1754d20](https://github.com/fanxiaocuo/gscore-adapter/commit/1754d20c21fa3b013a262bf3da30127b84dd7f1b))
+* **admin:** 未命名连接不再回复「连接 undefined」 ([72fd8c9](https://github.com/fanxiaocuo/gscore-adapter/commit/72fd8c98308cd2b834d32e1b2c525e7cfabfbe17))
+* **client:** QQBot 下行图片补目标校验、失败回退与安全摘要日志 ([c5765e4](https://github.com/fanxiaocuo/gscore-adapter/commit/c5765e4e7258cf07d6183e5196d7aca27910f825))
+* **client:** QQBot 自愈过的发送不重发，频道被动回复不误降级 ([6c62c60](https://github.com/fanxiaocuo/gscore-adapter/commit/6c62c605b56291593fd6cd46a8cab902ff7ebad2))
+* **client:** QQBot 部分投出不再计成一次完整中转 ([0da75c4](https://github.com/fanxiaocuo/gscore-adapter/commit/0da75c4f2b6b1a3adfd7ac105ce267fb152ad71c))
+* **client:** 只重启一条连接时不再重打别条的错误日志 ([1dba353](https://github.com/fanxiaocuo/gscore-adapter/commit/1dba353e80929f3983a7c3460d001d7eb5a8a86c))
+* **client:** 同名连接不再被静默丢掉，也不再在面板上报假绿 ([5d5b3eb](https://github.com/fanxiaocuo/gscore-adapter/commit/5d5b3eb2f8793d6c38acc73bdaf242f1eda872cb))
+* **client:** 按稳定路由收敛运行时连接，不再按显示名停起 ([9fcc086](https://github.com/fanxiaocuo/gscore-adapter/commit/9fcc086f9f3b90eec629cf2dac007a0e535eaa93))
+* **client:** 收紧运行时连接敏感信息边界 ([f186beb](https://github.com/fanxiaocuo/gscore-adapter/commit/f186beb09cbcf999f26899f1a9ec90f49ba9a651))
+* **client:** 空写的内联 token 不再顶掉配置里的凭据 ([8f8bf2f](https://github.com/fanxiaocuo/gscore-adapter/commit/8f8bf2fd5ebef85c65adb49550390988db754edd))
+* **client:** 编辑连接前按仲裁结果判冲突，不再用 origin 误伤 ([4b3d6cb](https://github.com/fanxiaocuo/gscore-adapter/commit/4b3d6cb2c273c35cd5d719356fe45dff1b2e7ea4))
+* **config:** bot_id_map 的数字键按存在与原样往返判，不再写串账号 ([def816c](https://github.com/fanxiaocuo/gscore-adapter/commit/def816c7a33f5cc10c0b0840e1013b274789190b))
+* **config:** make connection saves transactional ([21b9cb7](https://github.com/fanxiaocuo/gscore-adapter/commit/21b9cb7475c528300b04d177566a245308fc03a4))
+* **config:** 内联 token 不再被静默丢弃 ([042b39d](https://github.com/fanxiaocuo/gscore-adapter/commit/042b39d5faa1b356924e75c939ceafd914036fec))
+* **config:** 改地址不丢查询参数，连接级 bot_id 按账号迁移 ([aef56dc](https://github.com/fanxiaocuo/gscore-adapter/commit/aef56dc86990e21845e010227e45c0b06dc0e76a))
+* **config:** 频道事件的平台判定压过账号级映射 ([7c682dc](https://github.com/fanxiaocuo/gscore-adapter/commit/7c682dcf8ab2b1c1cfe5e0ba20dc99ba594c4ae7))
+* **convert:** 空 markdown 不透传，并指向核心图片配置 ([3928c7a](https://github.com/fanxiaocuo/gscore-adapter/commit/3928c7a91d473e34ea856b45b852b5677b5b3568))
+* **media:** 上行外链不使用下行 link 包装 ([b1a2c19](https://github.com/fanxiaocuo/gscore-adapter/commit/b1a2c19cfc02546a56106ef59eef7c9b09bb678b))
+* **panel:** 正常跑着的连接不再顶着「有连接没能启动」的红框 ([8293014](https://github.com/fanxiaocuo/gscore-adapter/commit/8293014389602015929a2eb066a91d27177bc4cf))
+* **panel:** 重连次数不再在同一行里写两遍 ([d31349b](https://github.com/fanxiaocuo/gscore-adapter/commit/d31349b27bf8468e11ea955ae85ab50e94f6ba5f))
+* **panel:** 重连次数的措辞与出图统一 ([a69d9b6](https://github.com/fanxiaocuo/gscore-adapter/commit/a69d9b663017947f772bf8abbd8bd081cd0b9425))
+* **protocol:** 适配引用正文与 reply_id 字段 ([fa339c9](https://github.com/fanxiaocuo/gscore-adapter/commit/fa339c957342e155a8521a483d041615d251581e))
+* **render:** 出图上的四处显示错位 ([93b76b9](https://github.com/fanxiaocuo/gscore-adapter/commit/93b76b9aef0c9c1833ef9336570d2bfc351d1223))
+* **render:** 子行按状态排序，详情模式不再截断 ([aad951e](https://github.com/fanxiaocuo/gscore-adapter/commit/aad951eaa024ddb00a93e8233182a2849f8e3f54))
+* **url:** 保持端点规范化契约 ([133e4ea](https://github.com/fanxiaocuo/gscore-adapter/commit/133e4ea7569b068b5bfac1160a3be3d0f3ff5913))
+* **url:** 根端点带查询串时不补尾斜杠 ([89e0fc6](https://github.com/fanxiaocuo/gscore-adapter/commit/89e0fc6afdc98006d92cd3a7023bf7c18b5165c9))
+* **url:** 空写的 ?token= 不再让面板与状态图说「已配 token」 ([00a0c76](https://github.com/fanxiaocuo/gscore-adapter/commit/00a0c76457fc27616616a09c51fa52987abf3f2a))
+* **webui:** 修掉绑定开关的错误话术与表单自弹回 ([47d9ee2](https://github.com/fanxiaocuo/gscore-adapter/commit/47d9ee2e32e8a4d3822c3a8127285328fb198f91))
+* **webui:** 开关描边按主题分色，边界对比度过 3:1 ([7534817](https://github.com/fanxiaocuo/gscore-adapter/commit/7534817aeedb4ab28dae572e5687ad677c23fb6d))
+* **webui:** 收掉面板自查的四处小毛病 ([93b35d7](https://github.com/fanxiaocuo/gscore-adapter/commit/93b35d72de2ec22767e74b5b499f06e03df9de03))
+* **webui:** 错误列表的 key 用下标，同名连接不再吞掉一条 ([d72dd11](https://github.com/fanxiaocuo/gscore-adapter/commit/d72dd11b628d9cd27e9716213a01e5e28b790f9c))
+
+
+### ♻️ 代码重构
+
+* **client:** 新增完整候选校验，尚未接线 ([013dbfc](https://github.com/fanxiaocuo/gscore-adapter/commit/013dbfc1b0545718c4205f2724a6dee3db26658a))
+* **client:** 连接名的地址退路也过 redactUrl ([39a7a58](https://github.com/fanxiaocuo/gscore-adapter/commit/39a7a586683619c78cc2c6c2f5aea2ded25a807c))
+* **config:** 删除旧配置迁移，不再改写用户的连接地址 ([2ae2fe2](https://github.com/fanxiaocuo/gscore-adapter/commit/2ae2fe25aeffad02d309e11f2952b2c2b7914e7d))
+* **constants:** STATUS_TEXT 标 Record，渲染处去掉走不到的兜底 ([b64c0c4](https://github.com/fanxiaocuo/gscore-adapter/commit/b64c0c4f5de3e662745623639b142eca8971c2ee))
+* **log:** 移除日志 URL 查询串脱敏 ([37b2794](https://github.com/fanxiaocuo/gscore-adapter/commit/37b279420035bad42dd02810f63669787683ddbb))
+* **types:** SendTarget 声明被动发送要读的五个字段 ([5e1797f](https://github.com/fanxiaocuo/gscore-adapter/commit/5e1797fa765f528a5f4f0fa164cee173cd3d0686))
+* **url:** 端点存 origin，账号路径改为运行时生成 ([16f8793](https://github.com/fanxiaocuo/gscore-adapter/commit/16f87930295b70796d233ee89090401824e55e94))
+
+
+### 📝 文档
+
+* **config:** 说清 bind 留空会让整条连接被跳过 ([edd7649](https://github.com/fanxiaocuo/gscore-adapter/commit/edd7649c177a13545c84b783e036d3ac64bfa05c))
+* **config:** 默认连接与锅巴文案改为核心 origin ([d789859](https://github.com/fanxiaocuo/gscore-adapter/commit/d789859e59924cfd2447c798a2e4875ae54a5106))
+* define PR 10 remediation design ([f2a1867](https://github.com/fanxiaocuo/gscore-adapter/commit/f2a1867801cf67d52fbdb65525fdcc42c0bc25cf))
+* design account-scoped core connections ([7c190c4](https://github.com/fanxiaocuo/gscore-adapter/commit/7c190c475311527ab4672b973510ae11a2f1adba))
+* design exact multi-bot resolution ([37b569a](https://github.com/fanxiaocuo/gscore-adapter/commit/37b569a7bf722c4b809532c69c8aa37ebdbdb299))
+* design inbound media URL direction ([d4e4e52](https://github.com/fanxiaocuo/gscore-adapter/commit/d4e4e52163f87e796800604995c401d12d0d50eb))
+* **spec:** PR 10 的测试与 CI 口径改为测试留在本地 ([1318c21](https://github.com/fanxiaocuo/gscore-adapter/commit/1318c216ba7e66013d284e09ef876c8d18457adf))
+* **webui:** 写明 status_text 不含重连次数 ([0487831](https://github.com/fanxiaocuo/gscore-adapter/commit/048783180c218e0bb053d9fc1e358a70c628ff85))
+* 不再文档化 bind=all，修掉 panel.md 结尾空行 ([b59e016](https://github.com/fanxiaocuo/gscore-adapter/commit/b59e016a2dc631b121344e813045a831a73fe648))
+* 内联 token 的说明跟上「两种地址都摘」的实际行为 ([09b02c6](https://github.com/fanxiaocuo/gscore-adapter/commit/09b02c6b0f6289d3200752c16386eb64d1739005))
+* 文档与字段注释跟上删掉迁移之后的实际行为 ([737219e](https://github.com/fanxiaocuo/gscore-adapter/commit/737219e9c859e859d6a2f2abc927e2d3ad20de62))
+* 更新账号级连接、面板绑定与常见问题 ([1e0dfca](https://github.com/fanxiaocuo/gscore-adapter/commit/1e0dfca8ee4de01b9e15867ffc9af34e2fe065fb))
+
 ## [3.2.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.1.0...v3.2.0) (2026-08-13)
 
 
