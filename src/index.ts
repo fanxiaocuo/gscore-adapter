@@ -4,7 +4,7 @@
  * 由 index.js 转调，index.js 保持 .js 是因为框架 loader 只认
  * plugins/<name>/index.js（lib/plugins/loader.js:55）。
  */
-import { configFile, enabled, onConfigReload } from "@/config"
+import { configFile, enabled, markOnline, onConfigReload } from "@/config"
 import { startClients, stopClients } from "@/modules/client"
 import { loadApps } from "@/modules/loader"
 import { checkConflicts } from "@/modules/conflict"
@@ -25,6 +25,10 @@ import { makeLog } from "@/utils/compat"
 let online = false
 Bot.once("online", () => {
   online = true
+  // 配置 watcher 那边也在等这一刻：手改 yaml 要收敛跑着的连接，而它在
+  // online 之前必须一条都不碰（理由同上）。它自己 import 不到这个时点 ——
+  // config 是最底层模块，求值时 Bot 未必装好，见 markOnline 上面的说明
+  markOnline()
   if (!enabled()) return
   // 放在 startClients 之前：先让"可能重复上报"的告警出现在连接日志上方，
   // 用户看到"已连接"时才不会以为一切正常。checkConflicts 内部自带兜底，

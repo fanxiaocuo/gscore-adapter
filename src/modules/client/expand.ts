@@ -52,11 +52,14 @@ export function sourceLabel(conf: WsConnection, sourceIndex: number): string {
 }
 
 /**
- * 账号级运行时连接的名字，也是停起（lifecycle.stopClient）与计数（stats.forName）的键
+ * 账号级运行时连接的显示名，也是计数分桶（stats.forName）的键
  *
- * 单独抽一个函数是给「只停一个账号」的调用点用的：面板的绑定开关关掉一个号时按
- * 名字停那一条客户端（modules/webadapter 的 bindConnection），名字与这里拼得不一样
- * 就会停不掉，而且不会报错 —— stopClient 找不到人只回 false。
+ * 单独抽一个函数是为了让「按名字取计数」的几个展示点（状态图、面板、
+ * #早柚状态）与这里拼出来的串对得上；拼得不一样时症状是计数恒为 0，
+ * 而连接显示正常 —— 没有任何报错。
+ *
+ * 停起与复用**不**用它：那些按 {@link RuntimeWsConnection.runtimeKey} 比，
+ * 否则改个名字就等于「停掉旧的、起一条新的」，用户那头是一次无谓的断线重连。
  */
 export function accountRuntimeName(label: string, account: string): string {
   return `${label} [${account}]`
@@ -144,8 +147,8 @@ export function requireAccounts(conf: WsConnection): string | null {
 /**
  * 展开时跳过或降级一条连接的原因，带上是**哪一条**出的问题
  *
- * 带 sourceIndex 是给「只重启一条」的调用点用的：面板每个开关都会走
- * lifecycle 的 startSource(i)，而展开必须喂完整列表（路由冲突是全局裁决）。
+ * 带 sourceIndex 是给「只关心本次改动」的调用点用的：配置变更走 lifecycle 的
+ * applyConnections({ sourceIndex })，而展开必须喂完整列表（路由冲突是全局裁决）。
  * 只有一串字符串的话它没法分辨哪条错误属于自己，于是把**全部**错误按 error
  * 级重打一遍 —— 用户点一下与本次操作无关的开关，控制台就再刷一遍别条连接的
  * 冲突报错，看着像刚出的新故障。
@@ -189,7 +192,14 @@ export function expandConnections(list: WsConnection[]): {
   const taken = new Map<string, Pick<RuntimeWsConnection, "runtimeName" | "sourceIndex">>()
   const named = new Map<string, number>()
 
-  const claim = (conn: RuntimeWsConnection) => {
+  /**
+   * runtimeKey 在这里算一次，之后全程带着走
+   *
+   * 它就是路由裁决用的那个键，与「这条连接的稳定身份」是同一件事。算在 claim 里而
+   * 不是每个 emit 点各算一次，保证「参与冲突仲裁的键」与「客户端复用时比的键」
+   * 不可能分叉 —— 那种分叉的症状是冲突报了但客户端仍被复用，或反过来。
+   */
+  const claim = (conn: Omit<RuntimeWsConnection, "runtimeKey">) => {
     const key = routeKey(conn.runtimeUrl)
     const prev = taken.get(key)
     if (prev) {
@@ -214,15 +224,12 @@ export function expandConnections(list: WsConnection[]): {
      *     - name: 核心   url: ws://a:8765   bind: ["111"]
      *     - name: 核心   url: ws://b:8765   bind: ["111"]
      *
-     * 不拦的后果不是「少一条连接」这么轻：
-     * - lifecycle.startClient 的同名去重（`clients.some(c => c.name === name)`）
-     *   会静默 return null，一句日志都不打，`startSource` 只是少数一个；
-     * - 面板（webadapter 的 connView）与状态图（render/pages.ts）都用
-     *   `clients.find(c => c.name === runtimeName)` 找活客户端，两条同名时第二条
-     *   拿到的是**第一条**的客户端 —— 显示成「已连接」，是**假绿**；
-     * - `stats.forName` 也按这个名字存，两条共享一份收发计数；
-     * - 而文字版 `#早柚连接列表` 按 sourceIndex 筛（apps/admin.ts），显示「未启动」。
-     *   于是三个视图各说各话，最难查的那种。
+     * 停起与复用已经改按 runtimeKey 比（见 lifecycle.reconcileClients），所以重名
+     * 不再让连接起不来。但它仍会让**看到的东西**是错的：
+     * - `stats.forName` 按名字分桶，两条同名共享一份收发计数；
+     * - 文字版 `#早柚连接列表` 按 sourceIndex 筛（apps/admin.ts），面板与状态图按
+     *   runtimeKey 查活客户端，而计数按名字取 —— 于是同一条连接的「已连接」与
+     *   「转了多少」来自两条不同的连接，最难查的那种。
      *
      * 为什么修在这儿，不在两个 edit 入口补重名检查
      * ------
@@ -243,15 +250,15 @@ export function expandConnections(list: WsConnection[]): {
         skipped: true,
         message:
           `运行时名字冲突：来源 #${namedAt + 1} 与来源 #${conn.sourceIndex + 1} ` +
-          `都叫 ${conn.runtimeName}，已跳过后者。名字是停起与计数的键，重名会让这一条` +
-          `起不来，而面板与状态图会把它显示成另一条的状态。请给其中一条连接改个名字。`,
+          `都叫 ${conn.runtimeName}，已跳过后者。名字是计数与展示的键，重名会让这一条的` +
+          `收发计数与另一条混在一起。请给其中一条连接改个名字。`,
       })
       return
     }
 
     taken.set(key, { runtimeName: conn.runtimeName, sourceIndex: conn.sourceIndex })
     named.set(conn.runtimeName, conn.sourceIndex)
-    runtime.push(conn)
+    runtime.push({ ...conn, runtimeKey: key })
   }
 
   list.forEach((conf, sourceIndex) => {
@@ -307,16 +314,17 @@ export function expandConnections(list: WsConnection[]): {
       return
     }
 
-    // 根端点的内联凭据同样要摘进 token 字段。materializeAccountUrl 会清空 search，
-    // 不摘就等于在这一步把 `ws://h:8765/?token=x` 的凭据丢掉：握手不带凭据、核心拒连，
+    // 根端点的内联凭据同样要摘进 token 字段。不摘就等于在这一步把
+    // `ws://h:8765/?token=x` 的凭据丢掉：握手不带凭据、核心拒连，
     // 而这个分支原来压根不调 detachInlineToken（只有非根那支调），于是同一份配置
     // 写成自定义路径能连、写成核心地址连不上。
     //
     // 派生地址从摘干净的 endpoint 上长出来，而不是再拿原串 url 走一遍：那样「凭据不进
-    // runtimeUrl」就得靠 materializeAccountUrl 也清一次 search 才成立 —— 两处各扫一遍、
-    // 谁也不知道对方在扫。它哪天改成保留无害查询参数（自定义路径那支本来就留 mode=
-    // 这类），凭据立刻跟着进 runtimeUrl，而 runtimeUrl 会进面板的 path 字段、也随状态图
-    // 发进群。摘一次、后面全用摘过的那个串，这条不变式就只依赖这一行。
+    // runtimeUrl」就得靠 materializeAccountUrl 也删一次 token 才成立 —— 两处各扫一遍、
+    // 谁也不知道对方在扫。而 materializeAccountUrl 现在正是**保留**无害查询参数的
+    // （自定义路径那支本来就留 mode= 这类，两支不一致会让同一份配置换个写法就丢掉
+    // 网关路由参数），所以它清不掉凭据。摘一次、后面全用摘过的那个串，这条不变式
+    // 就只依赖这一行；它那边仍显式删 token，是给别的调用方留的第二道防线。
     const { runtimeUrl: endpoint, ...auth } = detachInlineToken(parsed, conf.token)
 
     for (const account of accounts) {

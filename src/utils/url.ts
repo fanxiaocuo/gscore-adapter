@@ -58,6 +58,68 @@ export function normalizeEndpoint(url: string | null | undefined): string {
 }
 
 /**
+ * 编辑地址时把旧地址上的非 token 查询参数搬到用户新填的地址上
+ *
+ * 为什么编辑不能直接拿新串落盘
+ * ------------------------
+ * 指令（`#早柚修改连接 url=...`）与面板的编辑连接原来都是把用户新填的那串过一遍
+ * {@link normalizeEndpoint} 就写进配置。可用户改地址的常见动机是「核心搬了机器」——
+ * 他只重写 host 和端口，原地址上的 `?tenant=abc`、`?access_token=xyz` 于是一起消失。
+ * 那两类参数是核心侧反代与多租户网关用来路由的：丢了握手被打回，或者更糟 —— 连上了
+ * 但落到别的租户上，消息静静地进了另一个人的核心。而回执是「已修改连接 url 已更新」，
+ * 配置里的地址看着完全正常（他改的那部分确实生效了），没有一处话术指得到丢掉的参数上。
+ *
+ * 新值优先，包括显式写成空值
+ * ----------------------
+ * 用 `searchParams.has` 判「新地址写没写这个名字」而不是看值：`?tenant=` 是「我要把它
+ * 清成空」的明确表达。按值判的话用户改不掉一个写错的租户参数 —— 他删掉值、保存、回执
+ * 说已更新，旧值却被搬回来，请求继续落到错误的租户上。这跟 {@link inlineToken} 把空写
+ * 的 `?token=` 当「没配凭据」不矛盾：那个函数问的是「有没有一份凭据」，这里问的是
+ * 「用户这次表态了吗」。
+ *
+ * token 一律不搬
+ * ------------
+ * 它有专用字段，{@link inlineToken} 与 expand 的 detachInlineToken 已经在管迁移与脱敏。
+ * 搬过来等于把凭据又塞回地址里，而地址会进面板的 url 字段、也随状态图发进群，落进截图
+ * 就是永久留痕。用户自己写进新地址的 token 不动 —— 砍掉的话 token 字段是空的、
+ * inlineToken 也看不见它，面板与状态图会一致地报「未配 token」，然后握手不带凭据。
+ *
+ * 旧值坏了不让这次编辑失败
+ * --------------------
+ * 配置允许手改、也允许不写协议，而一个改坏了的地址正是用户来改它的原因。解析不了就
+ * 当没有可搬的参数，直接回新地址规范化后的结果；抛出去他就被锁在那个坏地址上改不动了。
+ * 新地址本身的协议与语法由 {@link requireWsUrl} 那一个门去否决并给话术，这里不重复。
+ *
+ * 结果过一遍 {@link normalizeEndpoint}：搬了参数就意味着重新序列化查询串，不收敛的话
+ * 根路径会带上 `/`（见 normalizeEndpoint 的注释），同一个地址经这条路和经旧路存成两个
+ * 不同的串，webadapter 那边按串比较判要不要写 patch.url 就会认为地址变了。
+ */
+export function mergeEndpointQuery(
+  prev: string | null | undefined,
+  next: string | null | undefined,
+): string {
+  const base = normalizeEndpoint(next)
+  if (!base) return base
+  let target: URL
+  let source: URL
+  try {
+    target = new URL(base)
+    source = new URL(normalizeEndpoint(prev))
+  } catch {
+    return base
+  }
+  // 去重后再逐名搬：keys() 对 `?a=1&a=2` 会吐两次 "a"，不去重就把 getAll 的结果追加两遍。
+  // 而 getAll/append 而不是 get/set —— 同名参数重复出现是合法的多值语义，压成一个等于
+  // 换了一条网关路由规则，地址却看着还是对的。
+  for (const name of new Set(source.searchParams.keys())) {
+    if (name === "token") continue
+    if (target.searchParams.has(name)) continue
+    for (const value of source.searchParams.getAll(name)) target.searchParams.append(name, value)
+  }
+  return normalizeEndpoint(target.toString())
+}
+
+/**
  * 地址里内联的凭据；没内联、或内联的是空写的 `?token=`，都回 null
  *
  * 先过 {@link normalizeEndpoint} —— 配置里允许不写协议（`h:8765/ws/X`），直接
@@ -90,24 +152,62 @@ export function inlineToken(url: string | null | undefined): string | null {
   }
 }
 
-/** 账号只当一个 path segment：不许注入 `/`、`?`、`#` */
+/**
+ * 账号只当一个 path segment：不许注入 `/`、`?`、`#`
+ *
+ * 非 token 查询参数要留下，只砍 token
+ * ------
+ * 原来这里是 `u.search = ""` 整串清掉。于是同一份配置换个写法就是两种行为：
+ * 自定义路径那支（expand.ts 的非根分支）经 detachInlineToken 之后 `tenant`、
+ * `access_token` 这些参数一路留到运行时地址；根端点这支派生 `/ws/Yunzai-<账号>`
+ * 时把它们一起丢了。而这些参数正是反代与多租户网关用来路由的 —— 丢了要么握手被
+ * 打回，要么更糟：连上了但落到错误的租户上。用户看配置一切正常（他填的参数确实
+ * 在那儿），面板的 url 字段也照原样显示，只有派生出来的 path 少了点东西，
+ * 而没人会把那当成成因。
+ *
+ * expand.ts:317-325 那段长注释正是为 token 消除同一种「两种写法两种行为」的
+ * 不对称，这里是它漏掉的反方向。
+ *
+ * 仍然显式删 token 而不是信任调用方
+ * ------
+ * 唯一的调用点传进来的 `endpoint` 已经过 detachInlineToken，凭据早摘干净了，
+ * 这一行删不到任何东西。但这个函数是导出的，它的契约里从没写过「入参必须先摘过
+ * 凭据」—— 保留整串 search 就等于把「凭据不进 runtimeUrl」这条不变式的成立条件
+ * 从「一处 detach」扩大到「所有调用方都记得先 detach」。而 runtimeUrl 会进面板的
+ * path 字段、也随状态图发进群。留着这一行，代价是一次无用的 delete。
+ */
 export function materializeAccountUrl(endpoint: string, account: string): string {
   const id = encodeURIComponent(String(account).trim())
   if (!id) throw new Error("绑定账号不能为空")
   const u = new URL(endpoint)
   if (u.pathname !== "/" && u.pathname !== "") throw new Error("自定义路径不能生成账号连接地址")
   u.pathname = `${DEFAULT_WS_PATH}-${id}`
-  u.search = ""
+  u.searchParams.delete("token")
+  // fragment 不会发给服务端，留着只会让运行时地址与日志里多一段噪声
   u.hash = ""
   return u.toString()
 }
 
-/** 运行时身份：协议 + 主机 + 端口 + 路径，query/token 不参与 */
+/**
+ * 运行时身份：协议 + 主机 + 端口 + 路径，query/token 不参与
+ *
+ * 协议与主机归一到小写，路径**保留大小写**
+ * ------
+ * 核心侧把 `/ws/<bot_id>` 整段当客户端标识，而 HTTP 路径本身是大小写敏感的 ——
+ * 账号 `BotA` 与 `bota` 在核心眼里是两个客户端，两条运行时连接都该起来。原来
+ * 整串一起小写，于是 expandConnections 认为它们同路由，静默跳掉后一条：用户看到
+ * 「保存成功」，然后其中一个号永远收不到消息，配置里怎么看都对。
+ *
+ * 反过来协议与主机必须归一：`WS://Host` 与 `ws://host` 连的是同一个端点，
+ * 不归一就会真开两条 ws 到同一个路由，核心侧后连上的顶掉先连上的。
+ *
+ * 解析不了的串退回整串小写：那时没有可分的协议/主机/路径，只能整体比较。
+ */
 export function routeKey(url?: string): string {
   if (!url) return ""
   try {
     const u = new URL(String(url))
-    return `${u.protocol}//${u.host}${u.pathname}`.toLowerCase()
+    return `${u.protocol.toLowerCase()}//${u.host.toLowerCase()}${u.pathname}`
   } catch {
     return String(url).trim().toLowerCase()
   }

@@ -37,7 +37,16 @@ export interface RuntimeWsConnection extends WsConnection {
   sourceIndex: number
   /** 自动端点对应的唯一账号；自定义路径为 null */
   account: string | null
-  /** 日志 / 状态 / 重连 / 统计用的唯一名称 */
+  /**
+   * 稳定身份：规范化后的运行时路由（见 utils/url.ts 的 routeKey）
+   *
+   * 停起、复用、冲突仲裁都按它比，而不是按 {@link runtimeName}。名字会随
+   * 「改名」「删掉前面一条导致 连接 #N 整体位移」变化 —— 按名字比就会把一条
+   * 没动过的连接判成「删掉旧的再起一条新的」，用户那头是一次无谓的断线重连。
+   * 路由才是「连到核心的哪个客户端」这件事本身，改名不影响它。
+   */
+  runtimeKey: string
+  /** 日志 / 状态 / 统计用的显示名称。仅用于展示，不做身份 */
   runtimeName: string
   /** 最终连接地址（不含 token 查询参数） */
   runtimeUrl: string

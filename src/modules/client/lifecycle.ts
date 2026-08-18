@@ -6,7 +6,8 @@ import type { RuntimeWsConnection, WsConnection } from "@/types"
 import { GsCoreClient } from "./GsCoreClient.js"
 import { clients } from "./state.js"
 import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
-import { expandConnections } from "./expand.js"
+import { expandConnections, type ExpandError } from "./expand.js"
+import { routeKey } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 
 let hooked = false
@@ -19,7 +20,7 @@ function hook() {
   hooked = true
 }
 
-/** 启动单个连接（已存在同名则跳过） */
+/** 启动单个连接（同一路由已有客户端则跳过） */
 export function startClient(conf: WsConnection | RuntimeWsConnection) {
   if (conf.enable === false) return null
   const rt = conf as Partial<RuntimeWsConnection>
@@ -30,7 +31,11 @@ export function startClient(conf: WsConnection | RuntimeWsConnection) {
     makeLog("error", `连接 ${name} 缺少 url，已跳过`, "GsCore")
     return null
   }
-  if (clients.some(c => c.name === name)) return null
+  // 去重按路由而不是按显示名：两条不同路由的连接可能显示名相同（都没写 name 的
+  // 直传、或用户手写重名），按名字去重会把其中一条静默丢掉 —— 而它们连的是核心
+  // 侧两个不同的客户端，都该起来。同路由才是真的不能起两条（后连上的顶掉先连上的）。
+  const key = rt.runtimeKey || routeKey(rt.runtimeUrl || String(conf.url))
+  if (clients.some(c => c.runtimeKey === key)) return null
 
   hook()
   const c = new GsCoreClient(conf)
@@ -40,67 +45,186 @@ export function startClient(conf: WsConnection | RuntimeWsConnection) {
   return c
 }
 
-/** 停止并移除单个连接 */
-export function stopClient(name: string) {
-  const idx = clients.findIndex(c => c.name === name)
-  if (idx === -1) return false
-  clients[idx].close()
-  clients.splice(idx, 1)
-  return true
-}
-
-/** 停掉一条逻辑连接派生的全部运行时客户端 */
-export function stopSource(sourceIndex: number, name?: string) {
-  let stopped = 0
-  for (let i = clients.length - 1; i >= 0; i--) {
-    const client = clients[i]
-    const legacyNameHit = client.sourceIndex === -1 && name !== undefined && client.name === name
-    if (client.sourceIndex !== sourceIndex && !legacyNameHit) continue
-    client.close()
-    clients.splice(i, 1)
-    stopped++
-  }
-  return stopped
+/**
+ * 这条逻辑连接现在有几条运行时客户端在跑
+ *
+ * 各入口改完配置要回一句「运行时连接：N 条」，而它们过去报的是 `startSource()` 的
+ * 返回值 —— **本次新起了几条**。收敛之后这两个数不再相等：一条没变的连接会被原地
+ * 留着，新起数是 0，而它明明连着。报 0 就成了「已启用连接 X，但没有可起的运行时
+ * 连接，请检查绑定账号」，把人打发去查一个不存在的问题。
+ *
+ * 所以话术要的一直是「现在有几条」，按 sourceIndex 现数即可。
+ */
+export function countSource(sourceIndex: number): number {
+  return clients.filter(c => c.sourceIndex === sourceIndex).length
 }
 
 /**
- * 配置里删掉一条之后，把后面各条的来源序号前移，与配置重新对齐
+ * 打展开诊断
  *
- * sourceIndex 是「运行时连接属于哪条配置」的唯一凭据：面板聚合、状态图、
- * stopSource/startSource 全靠它。删除会让后面的配置项下标整体 -1，不跟着移
- * 就会错位 —— 下一次停用第 3 条，停掉的是原来第 4 条派生的连接。
+ * 级别按 skipped 分：bind/exclude 撞与共享 /ws/Yunzai 这两条之后连接照常跑，
+ * 打成 error 会让一条正在正常收发的连接看着像坏了（面板上同一条曾经因此
+ * 显示「已连接」却顶着「有连接没能启动」的红框）。
+ *
+ * @param only 只打属于这条来源的。面板每个开关都走一次展开，而展开必须喂完整
+ *   列表 —— 早先是把全部错误重打一遍：点一下与本次操作无关的开关，控制台就再刷
+ *   一遍别条连接的冲突报错，看着像刚出的新故障。别条的错误在启动时与面板整包里
+ *   都给了，不靠这里重复。
  */
-export function shiftSourceIndex(removedIndex: number) {
-  for (const client of clients) if (client.sourceIndex > removedIndex) client.sourceIndex--
+function logErrors(errors: ExpandError[], only?: number) {
+  for (const error of errors)
+    if (only === undefined || error.sourceIndex === only)
+      makeLog(error.skipped ? "error" : "warn", error.message, "GsCore")
 }
 
-/** 按当前配置展开并启动一条逻辑连接派生的全部运行时客户端 */
-export function startSource(sourceIndex: number) {
-  if (!enabled() || !wsEnabled()) return 0
+/**
+ * 当前配置对应的目标计划
+ *
+ * 总开关关掉时目标就是「一条都不连」—— 让「关掉适配器」与「删光连接」在协调器
+ * 眼里是同一件事，不必在每个调用点各写一次前置判断（漏写的那个就是「关了还在连」）。
+ */
+export function planClients(list: WsConnection[] = getWsConnections()): {
+  runtime: RuntimeWsConnection[]
+  errors: ExpandError[]
+} {
+  if (!enabled() || !wsEnabled()) return { runtime: [], errors: [] }
+  return expandConnections(list)
+}
 
-  const list = getWsConnections()
-  const source = list[sourceIndex]
-  if (!source || source.enable === false) return 0
+/** {@link reconcileClients} 的收敛结果，供调用方回话与打日志 */
+export interface ReconcileResult {
+  /** 新建并连上的 */
+  started: number
+  /** 目标里没有、已停掉的 */
+  stopped: number
+  /** 路由不变但连接行为变了，停掉重起的 */
+  restarted: number
+  /** 原地更新了元数据的 */
+  updated: number
+  /** 完全没动的 */
+  kept: number
+}
 
-  // 必须展开完整列表：来源序号与全局「前项优先」冲突语义都依赖原始上下文。
-  const { runtime, errors } = expandConnections(list)
-  // 只打属于这一条的错误。面板每个开关都走这里，而展开必须喂完整列表，早先是把
-  // 全部错误按 error 级重打一遍：点一下与本次操作无关的开关，控制台就再刷一遍别条
-  // 连接的冲突报错，看着像刚出的新故障。别条的错误在启动时（下面 startClients）
-  // 与面板整包里都给了，不靠这里重复。
-  //
-  // 级别按 skipped 分：bind/exclude 撞与共享 /ws/Yunzai 这两条之后连接照常跑，
-  // 打成 error 会让一条正在正常收发的连接看着像坏了（面板上同一条曾经因此
-  // 显示「已连接」却顶着「有连接没能启动」的红框）
-  for (const error of errors)
-    if (error.sourceIndex === sourceIndex)
-      makeLog(error.skipped ? "error" : "warn", error.message, "GsCore")
+/**
+ * 这条客户端的连接行为是不是变了 —— 变了就只能停掉重起
+ *
+ * 分界线是「这个字段在什么时候被读」：
+ *
+ *   握手时读一次      runtimeUrl（含非 token 查询参数）、token、inlineToken
+ *                    —— 见 GsCoreClient.connect。换 conf 只会让**下一次**重连用上
+ *                    新值，而正在跑的这条还带着旧凭据，核心侧可能已经拒了它，
+ *                    两边状态不一致且没有任何提示。
+ *   每次用时现读      bind / exclude（accept 逐条消息读）、reconnect_interval /
+ *                    max_reconnect_attempts（每次退避现读）—— 换掉 conf 引用就生效。
+ *
+ * 所以只有前一组进这个判断。为后一组断线是白丢消息：重连有 5 秒起步的退避，
+ * 期间的上下行是真的没了。
+ *
+ * runtimeUrl 与 runtimeKey 的区别正在于查询参数：自定义路径那支会保留 `tenant`、
+ * `access_token` 这类参数（见 utils/url.ts），它们进握手，所以要比全串。
+ */
+function behaviorChanged(client: GsCoreClient, next: RuntimeWsConnection): boolean {
+  const cur = client.conf as Partial<RuntimeWsConnection>
+  if (client.target !== next.runtimeUrl) return true
+  if (String(cur.token ?? "") !== String(next.token ?? "")) return true
+  return (cur.inlineToken === true) !== (next.inlineToken === true)
+}
 
-  let started = 0
-  for (const conf of runtime) {
-    if (conf.sourceIndex === sourceIndex && startClient(conf)) started++
+/**
+ * 把运行中的客户端收敛到目标计划
+ *
+ * 为什么要声明式的收敛，而不是各入口手工停起
+ * ------
+ * 原来每个配置入口自己组合 `stopSource(i)` + `shiftSourceIndex(i)` + `startSource(i)`。
+ * 这套动作隐含「一次改动只影响被改的那一条」，而事实不是：
+ *
+ * - 路由仲裁是全局「前项优先」的（见 expand.ts 的 claim）。删掉第 1 条会**释放**
+ *   它占的路由，第 2 条这才起得来 —— 而 stopSource(0) + shiftSourceIndex(0) 压根
+ *   不会去起第 2 条。症状是「删掉了冲突的那条，被顶掉的那条还是不连」，得手动
+ *   #早柚重连，而用户没有理由知道这一步。
+ * - `连接 #N` 是按下标现拼的显示名，删掉前面一条之后后面每条都变 —— 客户端里存的
+ *   还是旧名字，面板/状态图与配置对不上。
+ * - 反过来，改个名字**不该**让一条正在正常收发的连接断线重连。
+ *
+ * 判据是 runtimeKey（规范化路由）而不是显示名：名字会随改名与下标位移变，
+ * 路由不会。按名字比就会把一条没动过的连接判成「删掉旧的再起一条新的」。
+ *
+ * 顺序是先停后起，不能反
+ * ------
+ * 停掉的那条可能正占着新那条要用的路由（改地址、账号大小写换写法）。先起会撞上
+ * startClient 的同路由去重而静默失败，然后旧那条才被停掉 —— 结果是两条都没了。
+ */
+export function reconcileClients(plan: RuntimeWsConnection[]): ReconcileResult {
+  const ret: ReconcileResult = { started: 0, stopped: 0, restarted: 0, updated: 0, kept: 0 }
+
+  // 计划本身按 runtimeKey 唯一（expand 的 claim 保证），这里 first-wins 只是防御：
+  // 直接调协调器的调用方（测试、将来的新入口）不一定过 expand
+  const want = new Map<string, RuntimeWsConnection>()
+  for (const conn of plan) if (!want.has(conn.runtimeKey)) want.set(conn.runtimeKey, conn)
+
+  /** 已经由现存客户端认领的键，剩下的就是要新建的 */
+  const adopted = new Set<string>()
+  /** 行为变了、停掉之后要按新配置重建的键。它们不算「新增」 */
+  const restarting = new Set<string>()
+
+  for (let i = clients.length - 1; i >= 0; i--) {
+    const client = clients[i]
+    const next = want.get(client.runtimeKey)
+
+    if (!next) {
+      client.close()
+      clients.splice(i, 1)
+      ret.stopped++
+      continue
+    }
+
+    if (behaviorChanged(client, next)) {
+      // 不认领：这一轮的最后会按新配置重新建一个
+      client.close()
+      clients.splice(i, 1)
+      restarting.add(client.runtimeKey)
+      ret.restarted++
+      continue
+    }
+
+    adopted.add(client.runtimeKey)
+    const changed =
+      client.name !== next.runtimeName ||
+      client.sourceIndex !== next.sourceIndex ||
+      client.account !== next.account
+    // conf 一律换成新的：懒读的那些字段（bind/exclude/重连参数）就这样生效
+    client.conf = next
+    client.name = next.runtimeName
+    client.sourceIndex = next.sourceIndex
+    client.account = next.account
+    if (changed) ret.updated++
+    else ret.kept++
   }
-  return started
+
+  // 按计划顺序起，客户端列表的次序才跟着配置走（面板与状态图直接按这个顺序展示）
+  for (const conn of plan) {
+    if (adopted.has(conn.runtimeKey)) continue
+    if (startClient(conn) && !restarting.has(conn.runtimeKey)) ret.started++
+  }
+
+  return ret
+}
+
+/**
+ * 配置变更后的统一收敛入口
+ *
+ * 所有改配置的地方（指令、面板、锅巴、watcher）写盘之后调这一个函数。按来源精确
+ * 停起的那套旧 API（`stopSource` / `startSource` / `shiftSourceIndex` / 按显示名的
+ * `stopClient`）已经删掉，不是留着不用 —— 它们全都建立在「一次改动只影响被改的那
+ * 一条」这个不成立的前提上（理由见 {@link reconcileClients}），留在导出面上迟早会
+ * 有新入口照着用。手动重连仍在，那是客户端自己的 `restart()`，与收敛无关。
+ *
+ * @param sourceIndex 本次改动的来源序号，只用来收窄诊断日志的范围（见 {@link logErrors}）
+ */
+export function applyConnections(opts: { sourceIndex?: number } = {}): ReconcileResult {
+  const { runtime, errors } = planClients()
+  logErrors(errors, opts.sourceIndex)
+  return reconcileClients(runtime)
 }
 
 /** 按当前配置重建所有连接（用于 #早柚重载） */
@@ -133,9 +257,9 @@ export function startClients() {
     )
 
   if (wsEnabled()) {
-    const { runtime, errors } = expandConnections(getWsConnections())
-    for (const error of errors) makeLog(error.skipped ? "error" : "warn", error.message, "GsCore")
-    for (const conf of runtime) startClient(conf)
+    const { runtime, errors } = planClients()
+    logErrors(errors)
+    reconcileClients(runtime)
   }
 
   if (clients.length) {

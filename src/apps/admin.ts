@@ -10,7 +10,7 @@ import {
   wsEnabled,
   type ConnectionPatch,
 } from "@/config"
-import { clients, shiftSourceIndex, startSource, stopSource } from "@/modules/client"
+import { applyConnections, clients, countSource } from "@/modules/client"
 import { expandConnections, readIds, requireAccounts, sourceLabel } from "@/modules/client/expand"
 import { findRouteConflict } from "@/modules/client/conflict"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
@@ -37,8 +37,9 @@ function clientMode() {
 /**
  * 「起了 0 条」时补一句成因
  *
- * clientMode() 只查总开关 enable，而 startSource 还要求 client.enable_ws。
- * 后者关着时各处回复只会剩一个 0，既没错也没用 —— 用户看不出该去改哪个开关。
+ * clientMode() 只查总开关 enable，而运行时目标还要求 client.enable_ws
+ * （lifecycle 的 planClients）。后者关着时各处回复只会剩一个 0，既没错也没用
+ * —— 用户看不出该去改哪个开关。
  *
  * 只查 enable_ws：三个调用点都已经在 clientMode() 里面，enable 必然是开的，
  * 再判一次就是永远走不到的死分支。返回空串表示「没有额外要说的」，直接拼进回复。
@@ -337,8 +338,12 @@ export default class GsCoreAdmin extends plugin<"message"> {
         makeLog("error", ["写入配置失败", err], "GsCore")
         return e.reply(`保存失败：${errorMessage(err)}`)
       }
-      stopSource(idx, existing.name || existing.url)
-      const startedMerge = clientMode() ? startSource(idx) : 0
+      // 无条件收敛：适配器关着时目标计划本来就是空的（planClients 查总开关），
+      // 不用在这里先判一次 clientMode()，而且「关着适配器改配置」也不会留下幽灵客户端
+      applyConnections({ sourceIndex: idx })
+      // 数现在有几条，不是这次新起了几条：合并只加账号，原有那几条运行时连接会被
+      // 原地留着（started 为 0），照新起数说话就成了「运行时连接：0 条」，而它们明明连着
+      const runningMerge = countSource(idx)
       const mapped = nextBind
         .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
         .filter(Boolean)
@@ -350,8 +355,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
           (freed.length ? `已从排除名单移出：${freed.join("、")}\n` : "") +
           (mapped.length ? `平台标识：${mapped.join("、")}\n` : "") +
           (clientMode()
-            ? `运行时连接：${startedMerge} 条，稍后可用 #早柚状态 查看${
-                startedMerge ? "" : idleReason()
+            ? `运行时连接：${runningMerge} 条，稍后可用 #早柚状态 查看${
+                runningMerge ? "" : idleReason()
               }`
             : "配置已保存"),
       )
@@ -390,7 +395,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 按**全局**展开再筛自己那条，不是 expandConnections([conf])。孤立展开看不到
     // 路由冲突（全局前项优先），会把已经被别人占掉、实际不会连的地址也列进
     // 「将连接：」—— 用户照着这行去核心侧找，那个客户端根本不存在。
-    // 新连接刚 append 完，就在列表末尾（下一行的 startSource 用的也是这个下标）
+    // 新连接刚 append 完，就在列表末尾（下面筛路由、筛跳过原因、数运行时条数都用它）
     const addedIndex = getWsConnections().length - 1
     const expanded = expandConnections(getWsConnections())
     const routes = expanded.runtime
@@ -399,7 +404,9 @@ export default class GsCoreAdmin extends plugin<"message"> {
     // 一条都没派生出来时把原因带上：这行以前只是消失，用户看到「已添加连接」
     // 加一个再也不出现的连接，无处可查
     const skipped = expanded.errors.filter(x => x.sourceIndex === addedIndex).map(x => x.message)
-    const startedNew = clientMode() ? startSource(addedIndex) : 0
+    // 无条件收敛（适配器关着时目标计划为空，见 applyConnections），再数这条现在跑着几条
+    applyConnections({ sourceIndex: addedIndex })
+    const runningNew = countSource(addedIndex)
     const mappedNow = bind
       .map(id => {
         const p = explicit || config.bot_id_map?.[id]
@@ -416,8 +423,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
           : bind.length
             ? "平台标识：未识别，上报时按 bot_id_map 推断\n"
             : "") +
-        (startedNew
-          ? `运行时连接：${startedNew} 条，稍后可用 #早柚状态 查看`
+        (runningNew
+          ? `运行时连接：${runningNew} 条，稍后可用 #早柚状态 查看`
           : clientMode()
             ? `配置已保存，可用 #早柚重连 启动${idleReason()}`
             : "适配器当前已禁用（enable: false）。发 #早柚设置适配器开启 即可启用"),
@@ -527,12 +534,14 @@ export default class GsCoreAdmin extends plugin<"message"> {
     }
     const changed = Object.keys(patch)
 
-    stopSource(hit.index, hit.conf.name || hit.conf.url)
+    applyConnections({ sourceIndex: hit.index })
     const next = getWsConnections()[hit.index]
     // 真起得来才报「运行时连接」；停用或适配器关着时只能说会展开成几条
     const willRun = next?.enable !== false && clientMode()
     const runningNow = willRun
-      ? startSource(hit.index)
+      ? // 数现在跑着几条，不是这次新起了几条：改名字之类不影响握手的改动，收敛会把
+        // 客户端原地留着（started 为 0），照新起数说话就会回一句「运行时连接：0 条」
+        countSource(hit.index)
       : next
         ? // 用 enable:true 展开：expandConnections 对 enable === false 直接短路，
           // 照原样传进去，「停用了几个账号的连接」永远算出 0 条 —— 而这句话
@@ -570,9 +579,10 @@ export default class GsCoreAdmin extends plugin<"message"> {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
-    stopSource(hit.index, hit.conf.name || hit.conf.url)
-    // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移
-    shiftSourceIndex(hit.index)
+    // 不带 sourceIndex：被删的这条已经不在配置里，而删掉它会**释放**它占的路由，
+    // 后面某条被顶掉的连接这才起得来（路由仲裁是全局前项优先），那条的展开诊断也该照常打。
+    // 下标位移也不用自己推：收敛是按新计划整体覆盖 sourceIndex / name / account 的
+    applyConnections()
     // 没起名字的连接只有地址可报，别再拼一个 undefined 进去
     return e.reply(
       hit.conf.name
@@ -654,28 +664,33 @@ export default class GsCoreAdmin extends plugin<"message"> {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
 
+    // 开关两个方向都先收敛，且不看 clientMode()：适配器关着时目标计划本来就是空的
+    // （planClients 查总开关），无条件调才能保证「关掉适配器之后又拨了开关」不留幽灵客户端
+    const result = applyConnections({ sourceIndex: hit.index })
+
     if (on) {
       if (!clientMode())
         return e.reply(
           `已启用连接 ${sourceLabel(hit.conf, hit.index)}\n但适配器本体已禁用（enable: false），客户端未运行`,
         )
-      // 先停后起，和 add/edit 两处一致
+      // 报「现在有几条」而不是这次新起了几条
       // ------
-      // 不停就起的话，本来就在跑的连接会被 startClient 的同名去重挡掉
-      // （lifecycle.ts 那句 `clients.some(c => c.name === name)`），startSource 回 0，
-      // 于是「重复开启一条已连上的连接」会被报成「没有可起的运行时连接，请检查绑定
-      // 账号」—— 绑定明明是好的，把人打发去查一个不存在的问题
-      stopSource(hit.index, hit.conf.name || hit.conf.url)
-      const started = startSource(hit.index)
-      if (started)
-        return e.reply(`已启用连接 ${sourceLabel(hit.conf, hit.index)}，正在连接 ${started} 条`)
+      // 重复开启一条已经连着的连接，收敛会认出它没变而原地留着（ReconcileResult.started
+      // 是 0），照 started 说话就会走到下面那句「没有可起的运行时连接，请检查绑定账号」
+      // —— 绑定明明是好的，把人打发去查一个不存在的问题
+      const running = countSource(hit.index)
+      if (running)
+        return e.reply(`已启用连接 ${sourceLabel(hit.conf, hit.index)}，正在连接 ${running} 条`)
       // 真的 0 条：要么没有效账号，要么 ws 总开关关着，两者的下一步动作不一样
       return e.reply(
         `已启用连接 ${sourceLabel(hit.conf, hit.index)}，但没有可起的运行时连接` +
           (idleReason() || "\n请检查绑定账号（#早柚连接列表 可看）"),
       )
     }
-    const stopped = stopSource(hit.index, hit.conf.name || hit.conf.url)
+    // 用这次收敛真停掉的条数，而不是停之前 countSource 一把：后者会把「本来就没起来」
+    // 的也算成断开（停用一条从未连上的连接会回「断开 2 条」）。stopped 是全局计数，
+    // 理论上会掺进别条来源同时被收走的量，但一次拨开关只改这一条的 enable，两者相等
+    const stopped = result.stopped
     return e.reply(
       `已停用连接 ${sourceLabel(hit.conf, hit.index)}${stopped ? `，断开 ${stopped} 条` : ""}`,
     )

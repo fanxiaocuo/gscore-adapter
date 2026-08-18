@@ -20,8 +20,9 @@
  * 为什么不自己另写一套配置读写
  * -------------------------
  * 指令（apps/admin.ts）已经把「改配置 + 热生效」走通了，面板必须调同一批函数：
- * `saveConfig` 保留 yaml 注释，`stopSource` / `startSource` 按来源精确启停一条
- * 逻辑连接派生出的全部运行时连接。
+ * `saveConfig` 保留 yaml 注释，`applyConnections` 把跑着的客户端收敛到新配置。
+ * 面板尤其不能自己组合停起：它的每个开关都是**单条**操作，而路由仲裁是全局的
+ * （删掉冲突的那条会让被顶掉的另一条活过来），手工停起表达不了这种连带影响。
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
@@ -37,22 +38,13 @@ import {
   enabled,
   type ConnectionPatch,
 } from "@/config"
+import { applyConnections, clients, reloadClients } from "@/modules/client"
 import {
-  clients,
-  reloadClients,
-  shiftSourceIndex,
-  startSource,
-  stopClient,
-  stopSource,
-} from "@/modules/client"
-import {
-  accountRuntimeName,
   effectiveAccounts,
   expandConnections,
   isAutomaticEndpoint,
   readIds,
   requireAccounts,
-  sourceLabel,
 } from "@/modules/client/expand"
 import { findRouteConflict } from "@/modules/client/conflict"
 import { snapshot, forName } from "@/modules/stats/index.js"
@@ -191,9 +183,16 @@ function bindBots(conf: WsConnection): BotProfile[] {
 function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[]): ConnView {
   const enabled = conf.enable !== false
   const views: RuntimeConnView[] = runtime.map(rt => {
-    // 一条配置对应多个客户端，靠运行时名字找它自己那一个：
-    // 按 conf.name 找只会拿到第一个账号，另外几条的状态与计数全丢
-    const live = clients.find(c => c.name === rt.runtimeName)
+    // 活客户端按 runtimeKey 认，计数按 runtimeName 取 —— 相邻两行故意用两个键
+    // ------
+    // 一条配置对应多个客户端，所以必须逐条认；但认人的键不能是显示名：改名（面板
+    // 编辑、或删掉前面一条让 `连接 #N` 整体位移）之后收敛器会**留着**原客户端只换
+    // 元数据，若这里还按名字找，改名那一瞬就找不到自己那条，面板把一条连得好好的
+    // 连接显示成「未启动」，得等下一轮轮询、名字对上了才回来。runtimeKey 是规范化
+    // 路由，改名与位移都不动它。
+    // 计数那行相反：stats 的分桶键**就是**运行时名字（stats/index.ts 的 byName），
+    // 换成 runtimeKey 取不到桶，收发数恒为 0 且没有任何报错。
+    const live = clients.find(c => c.runtimeKey === rt.runtimeKey)
     const counters = forName(rt.runtimeName)
     return {
       account: rt.account ?? undefined,
@@ -270,7 +269,8 @@ function payload(): Payload {
   //
   // errors 必须一起回：一条启用中的连接派生不出任何运行时连接时（路由冲突、地址
   // 解析失败、没有有效账号……），面板上它只是一直停在「未启动」，原因过去只有
-  // 控制台日志能看到（lifecycle.ts 的 startSource 把 errors 打成 error 日志）。
+  // 控制台日志能看到（lifecycle.ts 的 logErrors，收敛时按 skipped 分 error / warn），
+  // 而且那份日志只在收敛那一刻打，后进来的人翻不到。
   // 这些话术里只有连接名、来源序号与 pathname，没有完整地址（expand.ts 的
   // errors.push 各处），所以可以直接回给前端。
   const { runtime, errors } = expandConnections(list)
@@ -397,6 +397,14 @@ function saveGlobal(body: PanelBody) {
   })
 
   // 心跳参数在建连时读，改了要重连才生效；其余项每条消息现读，即时生效
+  //
+  // 这里刻意不是 applyConnections：心跳是**全局**项，不在 behaviorChanged 的判据里
+  // （那个只比 runtimeUrl / token / inlineToken），收敛器会把每条客户端都原地留着，
+  // 面板上心跳数字变了、实际发的还是旧间隔。整体重连是唯一能让它生效的动作。
+  //
+  // enabled() 留着不是为了决定该起哪些连接（planClients 自己看总开关），而是为了
+  // 不在总开关关着时走 startClients —— 那一条路尾巴上会打一句「没有可用连接」警告，
+  // 而「一条都不连」正是用户刚选的状态，报出来像是出了故障。
   const touchedClient = changed.some(k => k.startsWith("client."))
   if (touchedClient && enabled()) reloadClients()
 
@@ -454,10 +462,8 @@ function addConnection(body: PanelBody) {
           config.bot_id_map,
         )
     })
-    stopSource(idx, existing.name || existing.url)
-    if (enabled()) startSource(idx)
-    // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据。
-    // 上一行 stopSource 收的仍是原值 —— 那是与 client.name 比较的键，不是给人看的串
+    applyConnections({ sourceIndex: idx })
+    // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
     return getWsConnections()[idx]?.name || label(existing)
   }
 
@@ -484,21 +490,23 @@ function addConnection(body: PanelBody) {
     for (const id of bind) writeAccountBotId(doc, id, explicit || undefined, config.bot_id_map)
   })
 
-  if (enabled()) startSource(getWsConnections().length - 1)
+  // sourceIndex 只用来把展开诊断收窄到刚加的这条：新连接撞了别人已占的路由时会被
+  // 跳过（前项优先），那句话才是用户此刻要看的；别条连接的历史冲突不该跟着重刷一遍
+  applyConnections({ sourceIndex: getWsConnections().length - 1 })
   return conf.name
 }
 
 /**
  * 改一条连接
  *
- * 改完先停后起：连接参数（url / token / bind）都是建连时读的，
- * 光改配置不重连的话面板显示已改、实际还连着老地址。
+ * 改完交给协调器决定要不要断线：地址与 token 是建连时读的，改了必须重连，
+ * 光写盘的话面板显示已改、实际还连着老地址；而 bind / exclude / 重连参数是每次
+ * 用时现读的，收敛器只换 conf 引用就生效 —— 为它们断线是白丢一次退避期的消息。
+ * 这个判断在 lifecycle 的 behaviorChanged 里统一做，入口不再自己猜。
  */
 function editConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
-
-  const oldName = hit.conf.name || hit.conf.url
 
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
@@ -617,12 +625,10 @@ function editConnection(body: PanelBody) {
     }
   })
 
-  stopSource(hit.index, oldName)
+  applyConnections({ sourceIndex: hit.index })
   const next = getWsConnections()[hit.index]
-  if (enabled()) startSource(hit.index)
   // 回包话术里的名字过 label()（脱敏，见 addConnection 处的说明），并且看**改完之后**
-  // 的那份配置：这次编辑可能刚好改了 name 或 url，报旧值等于告诉用户「改的是另一条」。
-  // stopSource 收的仍是 oldName —— 那是与 client.name 比较的键，必须是改之前的
+  // 的那份配置：这次编辑可能刚好改了 name 或 url，报旧值等于告诉用户「改的是另一条」
   return label(next || hit.conf)
 }
 
@@ -631,12 +637,16 @@ function delConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  const name = hit.conf.name || hit.conf.url
   removeConnection(hit.index)
-  stopSource(hit.index, name)
-  // 删除会让后面各条配置下标 -1，运行时来源序号必须跟着前移，
-  // 否则下一次停用第 3 条，停掉的是原来第 4 条派生的连接
-  shiftSourceIndex(hit.index)
+  // 收敛器不需要「下标前移」这一步：它按新配置整批重算元数据，删掉一条之后后面各条
+  // 的 sourceIndex 与 `连接 #N` 名字都是现算的。手工位移那套还漏了更要紧的一半 ——
+  // 删掉的这条可能正占着别条要用的路由，释放之后被顶掉的那条现在起得来了
+  // （前项优先的仲裁见 expand.ts 的 claim），而位移压根不会去起它，用户只看到
+  // 「删掉了冲突的那条，被顶掉的还是不连」。
+  //
+  // 这里不传 sourceIndex：这条来源已经没了，收窄到它等于把诊断全滤掉 —— 而删除恰好
+  // 是最可能让**别条**连接的展开结果发生变化的操作，那些话术要放出来
+  applyConnections()
   return label(hit.conf)
 }
 
@@ -647,11 +657,9 @@ function toggleConnection(body: PanelBody) {
 
   const on = bool(body.enable, true)
   updateConnection(hit.index, { enable: on })
-  const name = hit.conf.name || hit.conf.url
-  // 先停后起：本来就在跑的运行时连接会被 startClient 的同名去重挡掉
-  // （lifecycle.ts:33），不停就起的话「重复开启」什么也起不来
-  stopSource(hit.index, name)
-  if (on && enabled()) startSource(hit.index)
+  // 停用一条会释放它占的路由，被它顶掉的那条这才起得来；所以停用也要走整批收敛，
+  // 而不是只停这一条（理由同 delConnection）
+  applyConnections({ sourceIndex: hit.index })
   return label(hit.conf)
 }
 
@@ -699,29 +707,23 @@ function bindConnection(body: PanelBody): string {
 
   const name = label(hit.conf)
 
-  // 只动这一个账号的运行时连接
+  // 为什么这里不再分情况
   // ------
-  // stopSource 是按 sourceIndex 全停（lifecycle.ts:53-64），拨一个开关就会把这条
-  // 核心上已经连上的其他账号一起断掉再连回来 —— 而这个动作存在的理由正是「一个
-  // 开关只表达一个账号的意图」。自动端点上一个账号一条 ws、各自 bind 收窄成单账号
-  // （expand.ts 里 `bind: [account]`），改一个号不影响别的号：
-  //   开 → 只调 startSource，已在跑的同名客户端被 startClient 的同名去重挡掉
-  //        （lifecycle.ts:33），实际只新建了这个账号那一条
-  //   关 → 按名字停掉这个账号那一条。名字必须与展开器拼的一模一样，所以用
-  //        accountRuntimeName + sourceLabel 现算，而不是在这儿手拼字符串
+  // 拨一个开关只表达一个账号的意图，所以过去要小心：`stopSource` 是按 sourceIndex
+  // 全停，用它就会把这条核心上已经连上的其他账号一起断掉再连回来。于是分了三支
+  // （兼容连接全停全起 / 开只起 / 关按拼出来的运行时名字停一条），最后那支还得靠
+  // 手拼名字与展开器对齐 —— 名字一改口径就停错人。
   //
-  // 非根路径的兼容连接走不通这条精确路径：它只有一条运行时连接，bind 在那条连接上
-  // 是转发过滤器（GsCoreClient.accept 读 conf.bind），改了 bind 必须重建那条连接才
-  // 生效，而按账号名去停又找不到人（它的运行时名字就是 label，不带 [账号]）。
-  // 好在它本来就只有一条，全停全起没有连带损失。
-  if (!isAutomaticEndpoint(hit.conf)) {
-    stopSource(hit.index, hit.conf.name || hit.conf.url)
-    if (enabled()) startSource(hit.index)
-  } else if (on) {
-    if (enabled()) startSource(hit.index)
-  } else {
-    stopClient(accountRuntimeName(sourceLabel(hit.conf, hit.index), id))
-  }
+  // 收敛器按 runtimeKey 比目标与现状，这三种情况自然就是同一件事：
+  // - 自动端点上一个账号一条 ws（expand.ts 里 `bind: [account]`），别的账号的
+  //   runtimeKey 在新计划里原封不动 → 被原地留着，不断线；开的那个号是计划里多出来
+  //   的一个键 → 新建一条；关的那个号是计划里少了的一个键 → 只停它。
+  // - 非根路径的兼容连接只有一条运行时连接，bind 在它上头是转发过滤器
+  //   （GsCoreClient.accept 每条消息现读 conf.bind），而 runtimeUrl 不含账号、改 bind
+  //   不动 runtimeKey，也不在 behaviorChanged 的判据里 → 客户端被留着、conf 换成新的，
+  //   新过滤器**立刻**生效。这里刻意不重建：重建要付一次 5 秒起步的重连退避，期间
+  //   的上下行是真的丢了，而它换个引用就够。
+  applyConnections({ sourceIndex: hit.index })
   return `${name} ${on ? "已绑定" : "已取消绑定"} ${id}`
 }
 

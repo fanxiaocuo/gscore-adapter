@@ -50,8 +50,8 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 | :--- | :--- | :--- |
 | 逻辑连接 | `config/` 读 yaml | 只有核心地址与 `bind` / `exclude`，不含路径 |
 | 展开 | `expandConnections(list)` | 纯函数，回 `{ runtime, errors }`，不打日志 |
-| 运行时连接 | 同上 | 多出 `account` / `runtimeName` / `runtimeUrl` / `sourceIndex` / `automatic` |
-| 客户端 | `startClient(conf)` | **唯一**的 `new GsCoreClient` 处，按 `runtimeName` 去重 |
+| 运行时连接 | 同上 | 多出 `account` / `runtimeKey` / `runtimeName` / `runtimeUrl` / `sourceIndex` / `automatic` |
+| 客户端 | `startClient(conf)` | **唯一**的 `new GsCoreClient` 处，按 `runtimeKey` 去重 |
 
 展开这一步做的事：
 
@@ -62,21 +62,30 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 - 两种地址里内联的 `?token=` 都在这里被摘回 token 字段，运行时地址本身不带凭据
 - 全局按 `routeKey`（协议 + host + pathname）判重，撞上了先到先得，被跳过的那条记一条 error
 
-`errors` 由调用方决定怎么用：生命周期那条路径打日志，面板整包带回前端（`Payload.errors`），出图那条路径刻意不打——同一批错误在启停时已经报过一次。也因此**展开必须整表做**：路由冲突是全局裁决，逐条展开既拿不到上下文，又会把同一批错误算 n 遍。`startSource(i)` 同样先展开完整列表，再挑 `sourceIndex === i` 的那些启动。
+`errors` 由调用方决定怎么用：收敛那条路径打日志（`lifecycle.ts` 的 `logErrors`，按 `skipped` 分 error / warn），面板整包带回前端（`Payload.errors`），出图那条路径刻意不打——同一批错误在收敛时已经报过一次。也因此**展开必须整表做**：路由冲突是全局裁决，逐条展开既拿不到上下文，又会把同一批错误算 n 遍。
 
-### sourceIndex 是聚合键
+### 两个键：`runtimeKey` 认身份，`sourceIndex` 做聚合
 
-`sourceIndex` 就是这条运行时连接在 `client.connections` 里的下标，也是「运行时连接属于哪条配置」的唯一凭据：
+`runtimeKey` 是规范化后的运行时路由（协议 + host + pathname；query 不参与，协议与 host 归一到小写，**路径保留大小写**）。它是「这条客户端是谁」的唯一判据。
 
-| 用处 | 位置 |
-| :--- | :--- |
-| 面板把 N 条 ws 归到一张卡片 | `webadapter` 的 `connView` |
-| `#早柚状态` / `#早柚连接列表` 按来源聚合、逐账号列子行 | `render/pages.ts` 的 `collect` |
-| 按来源停起（启用 / 停用 / 改完重建） | `lifecycle.ts` 的 `stopSource` / `startSource` |
+为什么不用显示名：名字会变，路由不会。改个名字、或者删掉前面一条让 `连接 #N` 整体前移，按名字比对就会把一条没动过的连接判成「旧的不见了、多了个新的」，于是把一条正在正常收发的连接断掉重连一次——退避 5 秒起步，期间的消息是真的丢。反过来路径大小写必须保留：核心侧把 `/ws/<bot_id>` 整段当客户端标识，而 HTTP 路径大小写敏感，账号 `BotA` 与 `bota` 在核心眼里是两个客户端，两条连接都该起来。
 
-删掉一条配置会让后面各条的下标整体 -1，所以 `removeConnection` 之后必须调 `shiftSourceIndex`——不跟着移，下次停用第 3 条停掉的会是原来第 4 条派生的连接。直接拿逻辑连接 `new GsCoreClient` 的客户端 `sourceIndex` 是 `-1`，各处聚合都会把它排除在外。
+`sourceIndex` 是这条运行时连接在 `client.connections` 里的下标，管的是「归属」而不是「身份」：
 
-一个例外要记住：面板的绑定开关不走 `stopSource`。它只表达一个账号的意图，所以自动端点上按 `accountRuntimeName(label, account)` 精确停那一条 ws；名字与展开器拼得不一致就会停不掉，而 `stopClient` 找不到人只回 `false`，不报错。
+| 用处 | 位置 | 用哪个键 |
+| :--- | :--- | :--- |
+| 面板把 N 条 ws 归到一张卡片 | `webadapter` 的 `connView` | `sourceIndex` |
+| `#早柚状态` / `#早柚连接列表` 按来源聚合、逐账号列子行 | `render/pages.ts` 的 `collect` | `sourceIndex` |
+| 把展开诊断收窄到本次改动的那一条 | `lifecycle.ts` 的 `logErrors` | `sourceIndex` |
+| 停起、复用、路由冲突仲裁 | `lifecycle.ts` 的 `reconcileClients` | `runtimeKey` |
+| 面板与状态图认活客户端 | `connView` / `collect` | `runtimeKey` |
+| 收发计数分桶 | `stats` 的 `byName` | `runtimeName` |
+
+最后两行相邻却用两个键，是有意的：认人按路由（改名不该让面板把一条连着的连接印成「未启动」），取数按名字（分桶键**就是**运行时名字，换成路由取不到桶、计数恒为 0 且不报错）。
+
+删掉一条配置会让后面各条的下标整体 -1，但**不需要**谁去手工推算位移：收敛按新计划整批重算每条客户端的 `sourceIndex` 与显示名。早先是 `removeConnection` 之后手工调 `shiftSourceIndex`，那套还漏了更要紧的一半——被删的那条可能正占着别条要用的路由，释放之后被顶掉的那条本该起来，而位移压根不会去起它，用户只看到「删掉了冲突的那条，被顶掉的还是不连」。不经展开直传逻辑连接造出来的客户端 `sourceIndex` 是 `-1`（现在只有测试与直接调 `startClient` 会这样），各处聚合都会把它排除在外。
+
+面板的绑定开关也不再是例外。它只表达一个账号的意图，过去要靠「按 `accountRuntimeName` 拼出名字精确停那一条」来避免连带断线，而拼得与展开器不一致就停不掉、`stopClient` 找不到人还只回 `false` 不报错。现在它同样走整批收敛：别的账号的 `runtimeKey` 在新计划里原封不动，被原地留着；被拨的那个账号是计划里多出来或少掉的一个键，只有它被起或停。
 
 ## 配置写盘的分层
 

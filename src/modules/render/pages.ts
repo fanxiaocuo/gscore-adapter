@@ -109,7 +109,11 @@ function runtimeRow(
   rt: RuntimeWsConnection,
   detail: boolean,
 ): NonNullable<ConnRow["runtime"]>[number] {
-  const live = clients.find(x => x.name === rt.runtimeName)
+  // 认人按 runtimeKey，取数按 runtimeName —— 与 Web 面板（webadapter 的 connView）
+  // 同一套口径。名字会随改名与删除后的下标位移变，收敛器却把客户端原地留着，按名字
+  // 找会在改名那一瞬找不到自己那条，图上一条连着的连接印成「未启动」；而计数的分桶键
+  // **就是**运行时名字（stats/index.ts 的 byName），换成 runtimeKey 取不到桶、恒为 ↑0 ↓0
+  const live = clients.find(x => x.runtimeKey === rt.runtimeKey)
   const status = live?.status ?? 0
 
   const meta: string[] = []
@@ -148,11 +152,12 @@ function runtimeRow(
  *
  * 为什么要先展开一遍
  * ----------------
- * 配置里一条「核心地址 + 绑定账号」在运行时是 N 条 ws（一个账号一条），
- * 而客户端的名字是 `${连接名} [${账号}]`（expand.ts 的 accountRuntimeName）。
- * 拿逻辑 name 去比 client.name 永远配不上 —— 于是每条自动连接在这张图上都显示
- * 「未启动」、收发计数恒为 0，而它其实连着并且在转发。所以这里必须走同一套展开，
- * 用运行时名字去找客户端与计数。
+ * 配置里一条「核心地址 + 绑定账号」在运行时是 N 条 ws（一个账号一条），逻辑连接
+ * 自己既不是任何客户端的身份（客户端按 runtimeKey 认，那是**派生**地址的规范化路由）
+ * 也不是任何计数的键（计数按 `${连接名} [${账号}]` 分桶，见 expand 的
+ * accountRuntimeName）。不展开就只有逻辑那一层的 name 和 url 可用，两边都对不上 ——
+ * 于是每条自动连接在这张图上都显示「未启动」、收发计数恒为 0，而它其实连着并且在
+ * 转发。所以这里必须走与启停同一套展开，再按运行时连接去找客户端与计数。
  *
  * @param detail 是否往 meta 里加运行时明细（收发计数、心跳年龄）。
  *   只有 #早柚状态 要；#早柚连接列表 与 #早柚帮助 问的是「配了哪些连接」，
@@ -163,7 +168,7 @@ function collect(detail = false) {
   // 展开只做一次：expandConnections 是全局裁决（路由冲突先到先得），逐条各展开一次
   // 既拿不到全局上下文，也会把同一批错误重复算 n 遍。它是纯函数（errors 只是返回值，
   // 函数体内不打任何日志），渲染路径调它没有副作用 —— 也正因如此这里刻意**不**把
-  // errors 打进日志：启停那条路径（lifecycle 的 startSource）已经报过一次了，
+  // errors 打进日志：收敛那条路径（lifecycle 的 logErrors）已经报过一次了，
   // 出图再报一次只是重复噪音。要看原因去 Web 面板，那边整包带着 errors
   const { runtime } = expandConnections(list)
 
@@ -191,12 +196,16 @@ function collect(detail = false) {
     // 按来源序号收本条派生出的运行时连接。这一层只做「本条派生出的是哪几个」：
     // runtime 全都出自 expandConnections，里头的 sourceIndex 无条件就是 forEach 的
     // 下标，不会是 -1，所以它筛不掉任何「来路不明」的东西。真正把野客户端挡在外面的
-    // 是下一行 —— 按 runtimeName 去 clients 里认人，名字对不上的一概不算这条连接的
+    // 是下一行 —— 按 runtimeKey 去 clients 里认人，路由对不上的一概不算这条连接的
     const views = runtime.filter(r => r.sourceIndex === i)
     // 反过来从 clients 里筛而不是逐条 find：展开出来的连接与活着的客户端未必一一
     // 对应（#早柚重载 会整个重建 clients，某个账号也可能被单独停掉），从 clients
     // 出发得到的就是「此刻真的在跑的那些」，顺序也是启动顺序
-    const live = clients.filter(x => views.some(r => r.runtimeName === x.name))
+    //
+    // 比的是 runtimeKey 不是名字：改名与「删掉前面一条让 `连接 #N` 整体位移」都只改
+    // 显示名，收敛器把客户端原地留着（lifecycle 的 reconcileClients），按名字比会在
+    // 那一瞬认不出人 —— 主行状态塌成「未启动」、子行也全没了
+    const live = clients.filter(x => views.some(r => r.runtimeKey === x.runtimeKey))
     const enabled = c.enable !== false
     // 状态是聚合值：任一账号连上就算这个核心通了。规则与 Web 面板共用一份
     // （constants 的 pickByStatus），否则会出现「面板说通了、状态图说没连上」

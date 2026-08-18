@@ -8,7 +8,7 @@ import {
   deliveryComplete,
   deliveryDelivered,
 } from "@/utils"
-import { redactUrl } from "@/utils/url"
+import { redactUrl, routeKey } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
@@ -81,6 +81,13 @@ function passiveReady(target: SendTarget, type: "direct" | "group", targetId: st
 export class GsCoreClient {
   conf: WsConnection | RuntimeWsConnection
   name: string
+  /**
+   * 稳定身份，见 {@link RuntimeWsConnection.runtimeKey}
+   *
+   * reconcileClients 拿它跟目标计划比对，决定这条客户端是留着、原地改元信息、
+   * 还是停掉重起。名字与 sourceIndex 都会随「改名 / 删掉前面一条」变，只有它不变。
+   */
+  runtimeKey: string
   sourceIndex: number
   account: string | null
   target: string
@@ -103,6 +110,9 @@ export class GsCoreClient {
     // 退路里的地址过 redactUrl：name 会进日志，而逻辑连接的地址可能内联着 ?token=
     this.name = rt.runtimeName || conf.name || redactUrl(conf.url)
     this.target = rt.runtimeUrl || String(conf.url || "")
+    // 逻辑连接直传时自己算一次：手动重连那条路会拿裸 conf 造客户端，没有 key
+    // 的话它在下一次 reconcile 里会被判成「不在计划里」而被停掉
+    this.runtimeKey = rt.runtimeKey || routeKey(this.target)
     this.sourceIndex = typeof rt.sourceIndex === "number" ? rt.sourceIndex : -1
     this.account = rt.account ?? null
     /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */

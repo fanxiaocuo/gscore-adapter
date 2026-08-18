@@ -116,14 +116,86 @@ function reload() {
     }
 }
 
+/**
+ * online 之前不碰连接
+ *
+ * 理由与 src/index.ts 顶上那段是同一条：早于框架的 message 监听注册钩子会把我们排到
+ * 监听器队列最前，正是 e.isMaster 尚未定义的那个顺序；核心此时下发消息也只能落到还
+ * 没有登录号的全局 Bot 上，发错账号。而 watcher 在本模块求值时就装好了，登录要等几
+ * 秒到几十秒 —— 这中间存一次 yaml 就会把连接提前拉起来。
+ *
+ * 跳过不丢改动：online 那一刻的 startClients 读的是**当时**的配置，这次改的照样生效。
+ *
+ * 为什么由 src/index.ts 推过来，而不是本模块自己 `Bot.once("online")`
+ * ------
+ * 本模块是所有人都 import 的最底层，求值时机比插件入口更早，`globalThis.Bot` 未必
+ * 已经装好。自己注册就得写成 `globalThis.Bot?.once?.(…)`，而那个可选链在 Bot 还没
+ * 就绪时**静默什么也不做** —— 于是这个latch 永远是 false，watcher 从此再也不收敛，
+ * 没有任何一行日志指得到成因。src/index.ts 的 online 钩子是唯一权威的登录时点
+ * （它那里 `Bot` 必然已就绪，用的是裸 `Bot.once`），从那边推过来就不存在这个失败态，
+ * 也不用为同一件事装第二个监听器。
+ */
+let online = false
+
+/** 由 src/index.ts 的 online 钩子调用；见 {@link online} 上面的说明 */
+export function markOnline() {
+  online = true
+}
+
+/**
+ * 把跑着的连接收敛到刚重载的配置，并回一句「到底发生了什么」接在重载话术后面
+ *
+ * 为什么手改 yaml 也要收敛
+ * ------
+ * 原来这里只 reload()、然后回一句「连接变更需 #早柚重连」：配置是新的，跑着的连接还
+ * 是旧的 —— 改完地址还得记着再敲一次指令，而面板与状态图读的是新配置，那段时间里
+ * 「看到的」与「连着的」是两回事。手改文件是第四个配置入口（指令 / 面板 / 锅巴 /
+ * 手改），另外三个都在自己那头收敛了，只有它没人替它做。
+ *
+ * 为什么是动态 import
+ * ------
+ * lifecycle 静态 import 了本模块（config / enabled / getWsConnections），顶上再静态
+ * import 它就成环。本模块是所有人都 import 的最底层，环一成，谁先求值就成了 import
+ * 顺序的运气，症状是 lifecycle 读到还没赋值的 config。动态 import 把这条依赖推到
+ * 「真的有人改了文件」那一刻，那时两边早求值完了；ESM 有模块缓存，不会每次重新求值。
+ *
+ * 为什么不挂 onConfigReload
+ * ------
+ * 那套回调的语义是「配置变了就清缓存」，而 reload() 由 watcher **和 saveConfig** 共同
+ * 调用 —— 挂上去等于指令 / 面板每写一次盘都先收敛一遍，紧接着入口自己再收敛一遍。
+ * 更要紧的是挂在那里拿不到「本次改的是哪一条」，那多出来的一遍会把**所有**来源的展开
+ * 诊断重打一次：点一下与本次操作无关的开关，控制台就再刷一遍别条连接的冲突报错，看着
+ * 像刚出的新故障（logErrors 的 only 参数正是为了消掉这个）。所以收敛只留在这条唯一
+ * 没有入口替它做的路径上。
+ */
+async function converge(): Promise<string> {
+  if (!online) return "，连接等登录完成后按新配置拉起"
+  try {
+    const { applyConnections } = await import("@/modules/client/lifecycle.js")
+    const r = applyConnections()
+    // 不传 sourceIndex：手改 yaml 可以一次动任意多条，没有「本次那一条」可收窄
+    const moved: string[] = []
+    if (r.started) moved.push(`起 ${r.started}`)
+    if (r.stopped) moved.push(`停 ${r.stopped}`)
+    if (r.restarted) moved.push(`重起 ${r.restarted}`)
+    // 只改了名字 / bind 这类懒读字段时一条都不用停起（收敛器原地换 conf），
+    // 报「无需停起」而不是「起 0 停 0」—— 后者看着像什么都没生效
+    return moved.length ? `，连接已收敛（${moved.join("、")}）` : "，跑着的连接无需停起"
+  } catch (err) {
+    // 收敛失败不能连累重载本身：配置已经是新的了，那句话该照报
+    globalThis.Bot?.makeLog?.("error", ["按新配置收敛连接失败", err], "GsCore")
+    return "，但连接没能按新配置收敛"
+  }
+}
+
 // cfg.bot.file_watch 为 false 时框架已全局 stub 掉 chokidar.watch，此处自动尊重
-const watcher = chokidar.watch(userFile).on("change", () => {
+const watcher = chokidar.watch(userFile).on("change", async () => {
   if (selfWrite) {
     selfWrite = false
     return
   }
   reload()
-  globalThis.Bot?.makeLog?.("mark", "配置已重载（连接变更需 #早柚重连）", "GsCore")
+  globalThis.Bot?.makeLog?.("mark", `配置已重载${await converge()}`, "GsCore")
 })
 
 /**
