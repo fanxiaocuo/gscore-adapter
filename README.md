@@ -65,7 +65,7 @@ git checkout -B preview origin/preview   # 换成 release 即切回稳定版
 <details>
 <summary>Web 面板</summary>
 
-装了 **QQBot-Web-Adapter** 的话，它的控制台左侧会多一页「早柚核心适配器」🦊：连接的实时状态、今日/累计中转计数、连接的增删改与启停、全局设置，都能点着改。页面里用的是插件自己的图标；导航栏那颗只能是 emoji，宿主按纯文本渲染它。
+装了 **QQBot-Web-Adapter** 的话，它的控制台左侧会多一页「早柚核心适配器」☄️：连接的实时状态、今日/累计中转计数、连接的增删改与启停、全局设置，都能点着改。页面里用的是插件自己的图标；导航栏那颗只能是 emoji，宿主按纯文本渲染它。
 
 面板不自带服务器，是挂在那个宿主上的插件页 —— 它开机时扫 `webadapter/index.js` 并注册页面与接口，接口由宿主统一加登录鉴权（非内网直接 403）。宿主没装时这部分就是死代码，不影响插件其余功能。
 
@@ -87,7 +87,7 @@ client:
       enable: true
 ```
 
-重启后 `#早柚状态` 应显示「已连接」。也可以不碰配置文件，直接发 `#早柚添加连接 127.0.0.1:8765`：只填 `host:port` 时路径按发指令的账号补成 `/ws/Yunzai-<账号>`，多个机器人各发一次就能同连一个核心（原因见下）。
+重启后 `#早柚状态` 应显示「已连接」。也可以不碰配置文件，直接发 `#早柚添加连接 127.0.0.1:8765`：只填 `host:port` 时补成 `/ws/Yunzai`，多个机器人各发一次会并进同一条连接的 `bind`，每个账号单独写入 `bot_id_map`。
 
 | 配置项 | 说明 | 默认值 |
 | :--- | :--- | :--- |
@@ -118,9 +118,8 @@ client:
   enable_ws: true                         # 是否启用 WebSocket，默认 true
   connections:                            # WebSocket 连接列表
     - name: gsuid_core                    # 连接名，仅用于日志和 #早柚状态
-      url: ws://127.0.0.1:8765/ws/Yunzai  # WebSocket 地址，路径为 /ws/{bot_id}
+      url: ws://127.0.0.1:8765/ws/Yunzai  # WebSocket 地址
       token: ""                           # 核心以 ?token= 查询参数接收
-      bot_id: ""                          # 上报的平台标识，留空按 bot_id_map 推断
       enable: true
       reconnect_interval: 5               # 重连间隔（秒）
       max_reconnect_attempts: 5           # 默认 5 次，<=0 无限重连
@@ -130,21 +129,19 @@ client:
 
 `bind` / `exclude` 用于多账号场景：让 A 号走核心 1、B 号走核心 2。不必手改文件：`#早柚修改连接 1 bind+=<账号>` 可增删，Web 面板上点开连接卡片的「绑定」折叠区还能看到每个账号的头像、昵称与在线状态，一键增删；`#早柚连接列表` 出图时绑定账号也显示为头像胶囊。
 
-**多个机器人连同一个核心**，在每个号上各发一次 `#早柚添加连接 127.0.0.1:8765` 即可，插件会为每条连接配好 `bind` 与互不相同的 URL 路径。判重按「核心 + 账号」算，所以第二个号不会再被回「该地址已存在」，同一个号重复加仍然会被拦。
+**多个机器人连同一个核心**，在每个号上各发一次 `#早柚添加连接 127.0.0.1:8765` 即可：第二条不会新开 ws，而是把账号并进已有连接的 `bind`，并为该账号写入 `bot_id_map`。同一个号重复加仍然会被拦。
 
 `#早柚添加连接` 只收 `ws://` / `wss://`，填 `http://` 会被挡下来并把地址换算成 ws 形式提示重发。
 
-路径必须逐个不同：核心以 `/ws/{bot_id}` 里那一段作为连接字典的键（`GsServer.connect` 里 `active_ws[bot_id] = websocket`），两条连接共用一段的话，后连上的会把前一条的 socket 顶掉，前一个号从此收不到下行。手写配置时自己保证这一段唯一，例如 `/ws/Yunzai-2463381624`。
-
-这一段与协议里的 `bot_id` 是两件不同的东西，别混：
+URL 路径与协议里的 `bot_id` 是两件不同的东西，别混：
 
 | | 是什么 | 谁填 |
 |---|---|---|
-| URL 路径段 | 核心区分**连接**的键 | 连接的 `url` |
-| `bot_id` | **平台**标识（`onebot` / `qqgroup` …） | 连接的 `bot_id`，留空按 `bot_id_map` 推断 |
+| URL 路径段 | 核心区分**连接**的键，后台显示的名字 | 默认 `/ws/Yunzai` |
+| `bot_id` | **平台**标识（`onebot` / `qqgroup` …） | 每个账号一行，写在 `bot_id_map` |
 | `bot_self_id` | **账号** | 每条消息自动填，无需配置 |
 
-所以 `bot_id` 后面不接账号，也不需要写成数组——账号是逐条消息带的，一条连接服务哪些账号由 `bind` 决定。
+一条 ws 可以服务多个账号：账号由 `bind` 决定，平台标识按账号从 `bot_id_map` 取。两条连接不要共用同一路径，否则核心侧后连上的会把先连上的顶掉。
 
 重连采用指数退避（`reconnect_interval` 起步，封顶其 12 倍），默认 5 次约覆盖 2.3 分钟；用尽后发 `#早柚重连` 恢复，想一直重连把 `max_reconnect_attempts` 写 `0`。升级只补缺失项、不动已有值，所以老实例仍用自己文件里的那个数（早期默认 `0` 即无限重连）。
 
@@ -181,7 +178,7 @@ bot_id_map:
   default: onebot       # 兜底
 ```
 
-优先级：连接自身的 `bot_id` > `self_id` 精确匹配 > 频道特判 > `adapter.id` > `adapter.name` > `default`。
+优先级：`self_id` 精确匹配 > 频道特判 > `adapter.id` > `adapter.name` > **按账号形状推断** > `default`。
 
 框架填的 `adapter_id` 取自 `adapter.id`，而 ICQQ / OneBotv11 / OPQBot 三家的 `adapter.id` **全是 `QQ`**——只查 id 分不开它们，只查 name 则 `QQ` 这种粗粒度键写了没用。所以两者都查。
 
@@ -247,7 +244,7 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 | `#早柚更新日志` | 本地已有的提交记录（出图） |
 | `#早柚重连` | 重连全部客户端连接 |
 | `#早柚添加连接 <地址>` | 添加并立即启动，只填 `host:port` 即可；可追加 `n=名字` `t=token` `id=平台标识` `bind=账号1+账号2` `exclude=账号` |
-| `#早柚修改连接 <名字或序号> <key=value>` | 改已有连接。`bind+=账号` 追加、`bind-=账号` 移除、`bind=all` 不限账号，`exclude` 同语法 |
+| `#早柚修改连接 <名字或序号> <key=value>` | 改已有连接。`bind+=账号` 追加、`bind-=账号` 移除，`exclude` 同语法 |
 | `#早柚删除连接 <名字或序号>` | 也可 `开启` / `关闭` 连接 |
 | `#早柚设置` | 不带参数出图列出当前所有配置及各自的改法（`#早柚配置` 同义） |
 | `#早柚设置<项目><开启/关闭>` | 中文写法，可设 适配器 / 仅响应at / 私聊上报 / 群聊上报 / 事件上报 / 断线通知 / 更新检查 |
@@ -271,21 +268,21 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 <details>
 <summary>连不上，日志刷「连接错误」</summary>
 
-检查核心是否在跑、地址端口是否正确、`token` 是否匹配。路由要带 `/ws/{bot_id}`，只填 `host:port` 时插件会自动补。容器部署时别把地址写成容器内的 `127.0.0.1`。
+检查核心是否在跑、地址端口是否正确、`token` 是否匹配。URL 路径是核心区分**连接**的键（默认 `/ws/Yunzai`），与协议里的平台 `bot_id` 不是一回事；只填 `host:port` 时插件会自动补路径。容器部署时别把地址写成容器内的 `127.0.0.1`。
 
 </details>
 
 <details>
 <summary>另一个机器人连上后，这个号就收不到核心的回复了</summary>
 
-两条连接的 URL 路径段撞了。核心以那一段作为连接字典的键，后连上的会顶掉前一条的 socket。把每条连接的路径改成互不相同的，例如 `/ws/Yunzai-<账号>`，或者删掉重新用 `#早柚添加连接` 加一次（它会自动带账号）。
+两条连接的 URL 路径段撞了。核心以那一段作为连接字典的键，后连上的会顶掉前一条的 socket。同一个核心只保留一条连接，用 `bind` 挂多个账号；若确实要两条 ws，把路径改成互不相同的（例如 `/ws/Yunzai` 与 `/ws/Other`）。
 
 </details>
 
 <details>
 <summary>连上了但核心没反应</summary>
 
-核心侧看是否收到消息。若消息到了但插件没触发，多半是 `bot_id` 不对——核心用它区分平台，改 `bot_id_map` 或连接的 `bot_id`。
+核心侧看是否收到消息。若消息到了但插件没触发，多半是平台标识不对——给该账号在 `bot_id_map` 里单独写一行，或发 `#早柚修改连接 1 id=qqgroup`。
 
 </details>
 
@@ -510,6 +507,7 @@ pnpm test                         # 渲染层，node:test，直读 src/ 需 --im
 
 - **[XasYer/ws-plugin](https://github.com/XasYer/ws-plugin)** —— 早柚核心对接的主要对照实现，消息段转换与客户端连接的许多细节参考自它。
 - **[KaguyaJs/Yunzai-DF-Plugin](https://github.com/KaguyaJs/Yunzai-DF-Plugin)** —— 目录结构与工程约定的参考来源：`src/` 分层、`@/*` 路径别名、`index.js` 只做 re-export 的薄壳入口、`guoba.support.js` 转调 `lib/modules/guoba/`，以及 `tsc` + `tsc-alias` 逐文件输出、产物镜像 `src/` 的构建链。一处分了道：`modules/loader/` 用静态导入表而非扫目录动态 import——忘了注册在编译期就报错，而扫目录扫空只是静默地一个功能都不注册。
+- **[yeyang52/yenai-plugin](https://gitee.com/yeyang52/yenai-plugin)** —— 多 Bot 账号分流模型的参考来源：事件场景以 `e.self_id` 定位账号，汇总场景遍历 `Bot.uin`，再逐个通过 `Bot[i]` 读取对应实例。本插件沿用这一账号隔离语义，并进一步从 TRSS 的 `Bot.bots` 注册表做自有键精确读取，避免全局 Proxy 的兼容重定向导致串号。
 - **[xiowo/napcat-plugin-gscore-adapter](https://github.com/xiowo/napcat-plugin-gscore-adapter)**（MIT）—— 早柚核心适配的参考实现。
 - **[xiowo/yunzai-gscore-adapter](https://github.com/xiowo/yunzai-gscore-adapter)**（MIT）—— 同作者的云崽版。三处实现参照了它：`bot_id_map` 补上 `QQGuild` / `KOOK` / `Telegram` / `Discord` 四个平台标识（对照其 `ADAPTER_BOT_ID_MAP`）、`filter.report_*` 三个上报开关（对照其 `DEFAULT_CONFIG` 的 `reportPrivate` 等）、以及 QQBot 带原消息 id 回复的思路（对照其 `QQBOT_MESSAGE_ID_TTL` / `QQBOT_MESSAGE_ID_KEY_PREFIX`，单 id 回满 5 次即降级则对照其 `QQBOT_MESSAGE_ID_REPLY_LIMIT`）。落盘换成了 sqlite——本插件已为中转计数开了 sqlite，不必只为几行短命数据再引一个 redis 连接。
 - **[xiaoye12123/ws-plugin](https://gitee.com/xiaoye12123/ws-plugin)**（小叶，GPL-3.0）—— 多适配器 bot 查找与发送结果判定的思路来源。`utils/send.ts` 区分「抛错派」与「返回错误对象派」适配器：只 `await` 不看返回值会把 Milky / OneBot 那种「失败也不抛错」的情况误记成一次成功中转。

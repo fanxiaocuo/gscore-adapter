@@ -22,23 +22,26 @@ client:
   connections:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
-      # 早柚核心 WebSocket 地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名
-      url: ws://127.0.0.1:8765/ws/Yunzai
+      # 早柚核心地址，只填到 host:port。
+      # 运行时按下面 bind 里的每个账号连成 /ws/Yunzai-<账号>，
+      # 每个账号在核心侧是独立客户端，不会互相顶掉。
+      url: ws://127.0.0.1:8765
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
       token: ""
-      # 上报时填入 MessageReceive.bot_id 的平台标识
-      # 留空则按下方 bot_id_map 自动推断
-      bot_id: ""
-      # 是否启用本连接
-      enable: true
+      # 是否启用本连接。出厂示例尚未绑定账号，先保持停用；
+      # 填好 bind 后改为 true，或用 #早柚启用连接 gsuid_core 打开。
+      enable: false
       # 重连间隔（秒）
       reconnect_interval: 5
       # 最大重连次数，<=0 为无限重连。
       # 默认 5 次：配合上面的指数退避约覆盖 2.3 分钟，核心重启够用；
       # 而地址写错时不会整夜刷日志。停了发 #早柚重连 即可恢复
       max_reconnect_attempts: 5
-      # 只转发这些 self_id 的消息，留空表示全部
-      # 例：["2463381624", "3889017463"]
+      # 要接入早柚核心的机器人账号，**必须至少填一个**。
+      # 这里留空则整条连接被跳过（启动日志：「没有可用的绑定账号，已跳过」），
+      # 地址填得再对也连不上 —— 账号是核心侧的客户端身份，插件不替你猜。
+      # 不想改文件：在要接入的那个号上发 #早柚添加连接 127.0.0.1:8765，
+      # 会把发指令的账号绑进来；别的号各自再发一次，并进同一条连接。
       bind: []
       # 排除这些 self_id（优先级高于 bind）
       exclude: []
@@ -76,8 +79,9 @@ filter:
 # ---------- 平台标识映射 ----------
 # 把云崽适配器映射为早柚核心认识的 bot_id。
 #
-# 查找顺序：连接自身的 bot_id > self_id 精确匹配 > 频道特判(QQGuild) >
-#           adapter.id > adapter.name > default
+# 查找顺序：self_id 精确匹配 > 频道特判(QQGuild) >
+#           adapter.id > adapter.name > 按账号形状推断 > default
+# 每个 bind 过的机器人账号都应在这里有自己的一行。
 #
 # 键既可以写 adapter.id，也可以写 adapter.name，还可以直接写 self_id 精确覆盖。
 # 两者都查是因为本机实测 id 会撞车：ICQQ / OneBotv11 / OPQBot 的 adapter.id
