@@ -1,10 +1,11 @@
 /**
- * 引用回复的 message_id 解析
+ * 引用回复的 message_id 与正文解析
  *
  * 为什么需要专门一层
  * ------------------
- * 各适配器表达「这条消息引用了谁」的方式完全不统一，而早柚核心只要一个
- * message_id 字符串（当键用，见 toGscore.ts 里那段注释）：
+ * 各适配器表达「这条消息引用了谁」以及「被引用消息的内容」的方式完全不统一。
+ * 新协议要求上报两段：reply_id 放 message_id，reply 放引用正文；引用图片另作
+ * image 段上报。这里把 id 解析与原消息获取收敛到同一处。
  *
  *   适配器            引用信息在哪                             有 message_id 吗
  *   ICQQ-Plugin       e.source = {user_id,time,seq,rand,...}   **没有**
@@ -36,12 +37,68 @@
  * 会是 0，算出的 id 与真实 message_id 不符。这种情况下核心查不到缓存，
  * 行为退化成「没有引用」—— 与修复前一致，不会更糟。
  */
-import type { AdapterEvent } from "@/types"
+import type { AdapterEvent, YunzaiSegment } from "@/types"
 import { makeLog } from "./compat.js"
+
+type ReplyMessagePart = string | YunzaiSegment
+
+/** 把 getReply / getChatHistory 的不同返回形状拍平成消息段数组。 */
+function appendReplyParts(out: ReplyMessagePart[], raw: any): void {
+  if (raw == null) return
+  if (Array.isArray(raw)) {
+    for (const item of raw) appendReplyParts(out, item)
+    return
+  }
+  if (typeof raw === "string") {
+    out.push(raw)
+    return
+  }
+  if (typeof raw === "object" && raw.message != null) {
+    appendReplyParts(out, raw.message)
+    return
+  }
+  if (typeof raw === "object" && raw.type) out.push(raw as YunzaiSegment)
+}
+
+/**
+ * 获取被引用消息的原始消息段。
+ *
+ * TRSS 优先走框架的 getReply；ICQQ 没有该路径时，按 Common.js 的做法从当前
+ * Group/Friend 的聊天记录取一条。失败只丢引用正文，不影响 reply_id 与当前消息。
+ */
+export async function resolveReplyMessage(e: AdapterEvent): Promise<ReplyMessagePart[]> {
+  if (typeof e?.getReply === "function") {
+    try {
+      const out: ReplyMessagePart[] = []
+      appendReplyParts(out, await e.getReply())
+      if (out.length) return out
+    } catch (err) {
+      makeLog("debug", ["通过 getReply 获取引用消息失败", err], "GsCore", true)
+    }
+  }
+
+  const src = e?.source
+  const group = e?.isGroup || e?.message_type === "group"
+  const target = group ? e?.group : e?.friend
+  const cursor = group ? src?.seq : src?.time
+  if (cursor == null || typeof target?.getChatHistory !== "function") return []
+
+  try {
+    const history = await target.getChatHistory(cursor, 1)
+    const latest = Array.isArray(history) ? history.at(-1) : history
+    const out: ReplyMessagePart[] = []
+    appendReplyParts(out, latest)
+    return out
+  } catch (err) {
+    makeLog("debug", ["从聊天记录获取引用消息失败", err], "GsCore", true)
+    return []
+  }
+}
 
 /** 从消息数组里找 reply 段的 id */
 function fromReplySegment(e: AdapterEvent): string {
-  for (const i of Array.isArray(e?.message) ? e.message : []) {
+  const list = Array.isArray(e?.message) ? e.message : e?.message != null ? [e.message] : []
+  for (const i of list) {
     if (typeof i !== "object" || i?.type !== "reply") continue
     const id = i.id ?? i.message_id
     if (id != null && id !== "") return String(id)

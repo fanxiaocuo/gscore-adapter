@@ -22,9 +22,9 @@ src/
 ├── types/          协议与配置的类型声明（无运行时代码）
 ├── constants/      状态文案、回环缓存上限、日志正则
 ├── config/         配置读写、热重载、bot_id 解析、连接增删改的写盘封装
-├── utils/          日志 / 媒体 / 会话判定 / 引用 id 反算 / 发送结果判定 / 能力探测 / 机器人档案
+├── utils/          日志 / 媒体 / 地址规范化 / 会话判定 / 引用 id 反算 / 发送结果判定 / 能力探测 / 机器人档案
 ├── modules/
-│   ├── convert/    消息段双向转换      ├── client/    连接类、生命周期、回环缓存
+│   ├── convert/    消息段双向转换      ├── client/    连接类、展开、生命周期、回环缓存
 │   ├── notice/     meta event 转换     ├── render/    出图
 │   ├── stats/      中转计数            ├── update/    检查更新与拉取
 │   ├── passive/    QQBot 被动回复窗口  ├── guoba/     锅巴面板
@@ -32,6 +32,60 @@ src/
 │   └── loader/     apps 静态导入表
 └── apps/           status / admin / update 三组指令
 ```
+
+## 连接的两段式启动
+
+配置里的一条连接不是一条 ws。中间隔着一次**展开**：
+
+```
+逻辑连接                展开                运行时连接              客户端
+WsConnection    →   expandConnections   →   RuntimeWsConnection  →  GsCoreClient
+（配置的一项）      （client/expand.ts）    （+ 账号、名字、地址）   （client/lifecycle.ts）
+
+url:  ws://host:8765                        /ws/Yunzai-账号A        连接名 [账号A]
+bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连接名 [账号B]
+```
+
+| 阶段 | 谁产出 | 关键点 |
+| :--- | :--- | :--- |
+| 逻辑连接 | `config/` 读 yaml | 只有核心地址与 `bind` / `exclude`，不含路径 |
+| 展开 | `expandConnections(list)` | 纯函数，回 `{ runtime, errors }`，不打日志 |
+| 运行时连接 | 同上 | 多出 `account` / `runtimeKey` / `runtimeName` / `runtimeUrl` / `sourceIndex` / `automatic` |
+| 客户端 | `startClient(conf)` | **唯一**的 `new GsCoreClient` 处，按 `runtimeKey` 去重 |
+
+展开这一步做的事：
+
+- 停用的（`enable === false`）直接跳过
+- 有效账号 = `bind` 减 `exclude`，去重保序；两边都写了的账号按 `exclude` 处理并记一条 error
+- 地址 pathname 为空或根 → **自动端点**，按每个有效账号派生一条，地址由 `materializeAccountUrl` 拼成 `/ws/Yunzai-<账号>`（账号只当一个 path segment，`/`、`?`、`#` 都被编码掉），运行时 `bind` 收窄成该单账号；一个有效账号都没有则整条跳过并记 error
+- 非根路径 → **兼容连接**，路径原样不动、只派生一条，`bind` 在它上头是转发过滤器（最终由 `GsCoreClient.accept` 判）
+- 两种地址里内联的 `?token=` 都在这里被摘回 token 字段，运行时地址本身不带凭据
+- 全局按 `routeKey`（协议 + host + pathname）判重，撞上了先到先得，被跳过的那条记一条 error
+
+`errors` 由调用方决定怎么用：收敛那条路径打日志（`lifecycle.ts` 的 `logErrors`，按 `skipped` 分 error / warn），面板整包带回前端（`Payload.errors`），出图那条路径刻意不打——同一批错误在收敛时已经报过一次。也因此**展开必须整表做**：路由冲突是全局裁决，逐条展开既拿不到上下文，又会把同一批错误算 n 遍。
+
+### 两个键：`runtimeKey` 认身份，`sourceIndex` 做聚合
+
+`runtimeKey` 是规范化后的运行时路由（协议 + host + pathname；query 不参与，协议与 host 归一到小写，**路径保留大小写**）。它是「这条客户端是谁」的唯一判据。
+
+为什么不用显示名：名字会变，路由不会。改个名字、或者删掉前面一条让 `连接 #N` 整体前移，按名字比对就会把一条没动过的连接判成「旧的不见了、多了个新的」，于是把一条正在正常收发的连接断掉重连一次——退避 5 秒起步，期间的消息是真的丢。反过来路径大小写必须保留：核心侧把 `/ws/<bot_id>` 整段当客户端标识，而 HTTP 路径大小写敏感，账号 `BotA` 与 `bota` 在核心眼里是两个客户端，两条连接都该起来。
+
+`sourceIndex` 是这条运行时连接在 `client.connections` 里的下标，管的是「归属」而不是「身份」：
+
+| 用处 | 位置 | 用哪个键 |
+| :--- | :--- | :--- |
+| 面板把 N 条 ws 归到一张卡片 | `webadapter` 的 `connView` | `sourceIndex` |
+| `#早柚状态` / `#早柚连接列表` 按来源聚合、逐账号列子行 | `render/pages.ts` 的 `collect` | `sourceIndex` |
+| 把展开诊断收窄到本次改动的那一条 | `lifecycle.ts` 的 `logErrors` | `sourceIndex` |
+| 停起、复用、路由冲突仲裁 | `lifecycle.ts` 的 `reconcileClients` | `runtimeKey` |
+| 面板与状态图认活客户端 | `connView` / `collect` | `runtimeKey` |
+| 收发计数分桶 | `stats` 的 `byName` | `runtimeName` |
+
+最后两行相邻却用两个键，是有意的：认人按路由（改名不该让面板把一条连着的连接印成「未启动」），取数按名字（分桶键**就是**运行时名字，换成路由取不到桶、计数恒为 0 且不报错）。
+
+删掉一条配置会让后面各条的下标整体 -1，但**不需要**谁去手工推算位移：收敛按新计划整批重算每条客户端的 `sourceIndex` 与显示名。早先是 `removeConnection` 之后手工调 `shiftSourceIndex`，那套还漏了更要紧的一半——被删的那条可能正占着别条要用的路由，释放之后被顶掉的那条本该起来，而位移压根不会去起它，用户只看到「删掉了冲突的那条，被顶掉的还是不连」。不经展开直传逻辑连接造出来的客户端 `sourceIndex` 是 `-1`（现在只有测试与直接调 `startClient` 会这样），各处聚合都会把它排除在外。
+
+面板的绑定开关也不再是例外。它只表达一个账号的意图，过去要靠「按 `accountRuntimeName` 拼出名字精确停那一条」来避免连带断线，而拼得与展开器不一致就停不掉、`stopClient` 找不到人还只回 `false` 不报错。现在它同样走整批收敛：别的账号的 `runtimeKey` 在新计划里原封不动，被原地留着；被拨的那个账号是计划里多出来或少掉的一个键，只有它被起或停。
 
 ## 配置写盘的分层
 
@@ -41,14 +95,14 @@ src/
 | :--- | :--- | :--- |
 | 通用 | `saveConfig(fn)` | 拿到 yaml `Document` 任意改，保留注释、写盘、热重载一步完成 |
 | 连接 | `appendConnection` / `updateConnection` / `removeConnection` | 连接的增 / 改 / 删。内部自带「文件里没有 `connections` 键时把运行时列表物化进文件」的兜底 |
-| 迁移 | `upgrade.ts` | 启动时补缺失的顶层键、把旧键名 `ws_connections` 迁回 `connections`，只在首次改动前留一份 `.bak` |
+| 补全 | `upgrade.ts` | 仅模块首次加载时跑：补缺失顶层键、把 `ws_connections` 键名换成 `connections`、给每个绑定账号补一行 `bot_id_map`。**不动已有的项** —— 尤其不改写用户写的连接地址 |
 
 两条约定：
 
 - **校验留在调用方**。指令要回中文短句、面板要回 400 JSON，错误的措辞与时机不同；连接层只负责「条目存在」这一个不变量（`连接序号 X 不存在`）。
 - **写盘出口统一过 `unflow`**（`config/yaml.ts`）：`createNode` 产出的 flow 风格集合在这里拍回块状，新加写入点不必各自记这件事。
 
-`updateConnection` 的 patch 语义：`undefined` 跳过、`null` 写成 YAML null（显式清空，如 `bot_id=` 清掉连接级平台标识）、数组自动 `createNode`。
+`updateConnection` 的 patch 语义：`undefined` 跳过、`null` 删除该键、数组自动 `createNode`。每个 bind 账号的平台标识写在 `bot_id_map`。
 
 ## 只有面板走打包器
 

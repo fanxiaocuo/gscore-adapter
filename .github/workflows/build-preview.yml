@@ -47,7 +47,8 @@ jobs:
         run: pnpm install --frozen-lockfile=false
 
       # 出包前先过关卡。产物分支是用户直接 clone 的东西，
-      # 编译不过或测试不过就不该推出去。
+      # 编译不过或 lint 不过就不该推出去。
+      # （测试不在这里把关——test/ 不入库，见下面「构建」前的说明。）
       - name: 类型检查
         run: pnpm run typecheck
 
@@ -59,7 +60,10 @@ jobs:
       # 若日后把 test/ 改回入库，记得在这里补回：
       #   - name: 测试
       #     run: pnpm test
-      # 顺序上必须排在「构建」之后，test/run.js 跑的是 lib/ 下的编译产物。
+      # 顺序上必须排在「构建」之后。注意原因不是「测试跑产物」——测试读的是 src/，
+      # 靠 node --import tsx 现场转译（见 test/fixtures.mjs 的说明），不碰 lib/；
+      # 要 build 是因为 classes.test.mjs 断言 Tailwind 产物
+      # resources/template/css/tailwind.css 真被内联进了 CSS，那份产物由 build:css 出。
       - name: 构建
         run: pnpm run build
 

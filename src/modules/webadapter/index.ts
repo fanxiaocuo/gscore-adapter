@@ -20,11 +20,14 @@
  * 为什么不自己另写一套配置读写
  * -------------------------
  * 指令（apps/admin.ts）已经把「改配置 + 热生效」走通了，面板必须调同一批函数：
- * `saveConfig` 保留 yaml 注释，`startClient` / `stopClient` 精确启停单条连接。
+ * `saveConfig` 保留 yaml 注释，`applyConnections` 把跑着的客户端收敛到新配置。
+ * 面板尤其不能自己组合停起：它的每个开关都是**单条**操作，而路由仲裁是全局的
+ * （删掉冲突的那条会让被顶掉的另一条活过来），手工停起表达不了这种连带影响。
  * 参考实现 xiowo/yunzai-gscore-adapter 的面板是 `YAML.stringify(config)` 整份覆盖，
  * 用户写在配置里的注释会被抹掉，这里不学。
  */
 import {
+  accountPlatform,
   config,
   configFile,
   saveConfig,
@@ -35,18 +38,33 @@ import {
   enabled,
   type ConnectionPatch,
 } from "@/config"
-import { clients, startClient, stopClient, reloadClients } from "@/modules/client"
+import { applyConnections, clients, reloadClients } from "@/modules/client"
+import {
+  effectiveAccounts,
+  expandConnections,
+  isAutomaticEndpoint,
+  readIds,
+  requireAccounts,
+} from "@/modules/client/expand"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
-import { findDuplicate, requireWsUrl } from "@/utils/url"
+import {
+  findSameCore,
+  inlineToken,
+  mergeEndpointQuery,
+  normalizeEndpoint,
+  redactUrl,
+  requireWsUrl,
+} from "@/utils/url"
+import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { botProfile, onlineBots } from "@/utils/bots.js"
-import { DEFAULT_MAX_RECONNECT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
-import type { WsConnection } from "@/types"
-import type { ConnView, Payload } from "@/webui/api.js"
+import type { RuntimeWsConnection, WsConnection } from "@/types"
+import type { BotProfile, ConnView, Payload, RuntimeConnView } from "@/webui/api.js"
 import fs from "node:fs"
 import path from "node:path"
 
@@ -104,6 +122,52 @@ type PanelBody = Record<string, unknown>
 const BAD_KEYS = ["__proto__", "prototype", "constructor"]
 
 /**
+ * 档案叠加平台标识
+ *
+ * bot_id_map 的显式映射优先于适配器推断（accountPlatform 内部就是这个顺序）：
+ * 用户手写的映射才是上报时真正用的值，被在线实例的猜测盖掉就成了假显示。
+ */
+function withPlatform(p: BotProfile): BotProfile {
+  const platform = accountPlatform(p.id)
+  return platform ? { ...p, platform } : p
+}
+
+/**
+ * 面板与回包话术里显示的连接名
+ *
+ * 没起名字的连接只能拿地址当名字，而**凭据可能只存在于地址里**：normalizeEndpoint
+ * 只砍 fragment，查询串一律留着（根路径也留，否则 `ws://h:8765/?token=x` 的凭据
+ * 在规范化时就丢了），所以 `?token=xxx` 写在地址里的连接 conf.token 是空的。
+ * 这个串会进面板卡片、也会进 POST 回包的 message，所以一律先过 redactUrl。
+ *
+ * locate() 定位比的是配置里的原值（`c.name || c.url`），与这里的显示串是两条路径；
+ * 面板发的动作都带 index（webui/main.tsx 一律 `key: c.index`）。
+ */
+function label(conf: WsConnection): string {
+  return conf.name || redactUrl(conf.url)
+}
+
+/**
+ * 一条连接的绑定候选
+ *
+ * 面板要为每个候选画一个开关，所以候选集是「在线的全部机器人 ∪ 本连接已绑定的
+ * 账号」：只给已绑定的就没法在面板上绑一个新号，只给在线的又没法解绑一个已经
+ * 离线的号。其他连接绑过、本连接没绑又不在线的账号不塞进来 —— 那是别人的号，
+ * 出现在这里只会让人误点。
+ *
+ * exclude 刻意不在这里减掉：被排除的账号仍要留在候选里，否则面板上就没有任何
+ * 地方能把它放回来（绑定开关打开时会把它从 exclude 里删掉，见 bindConnection）。
+ * 前端也不是把它画成一个普通的绿开关就完事 —— 这一行会额外挂「已被排除，不会转发」
+ * 标记（main.tsx 按 {@link ConnView.conflicts} 判），所以「绑了但不会连」是看得见的；
+ * 反过来若在这里按 exclude 过滤掉，那个号会从列表里整条消失，用户会以为自己没绑过它。
+ */
+function bindBots(conf: WsConnection): BotProfile[] {
+  // 在线的排前面：union 的顺序就是显示顺序，先在线后离线才好扫
+  const ids = [...new Set([...onlineBots().map(p => p.id), ...readIds(conf.bind)])]
+  return ids.map(id => withPlatform(botProfile(id)))
+}
+
+/**
  * 连接的可序列化视图
  *
  * **不要整个 conf 扔给前端** —— 里面有 token。这里逐字段挑，token 只回一个
@@ -112,39 +176,111 @@ const BAD_KEYS = ["__proto__", "prototype", "constructor"]
  *
  * 返回类型标成 {@link ConnView}（与前端共用的那份声明）：字段改了名，
  * 编译期就在这里报，而不是等到面板上显示成 undefined
+ *
+ * @param runtime 本条连接派生出的运行时连接，由 payload() 一次展开后按 sourceIndex 分好
  */
-function connView(conf: WsConnection, i: number): ConnView {
-  const live = clients.find(c => c.name === (conf.name || conf.url))
+function connView(conf: WsConnection, i: number, runtime: RuntimeWsConnection[]): ConnView {
   const enabled = conf.enable !== false
-  const counters = forName(conf.name || conf.url)
+  const views: RuntimeConnView[] = runtime.map(rt => {
+    // 活客户端按 runtimeKey 认，计数按 runtimeName 取 —— 相邻两行故意用两个键
+    // ------
+    // 一条配置对应多个客户端，所以必须逐条认；但认人的键不能是显示名：改名（面板
+    // 编辑、或删掉前面一条让 `连接 #N` 整体位移）之后收敛器会**留着**原客户端只换
+    // 元数据，若这里还按名字找，改名那一瞬就找不到自己那条，面板把一条连得好好的
+    // 连接显示成「未启动」，得等下一轮轮询、名字对上了才回来。runtimeKey 是规范化
+    // 路由，改名与位移都不动它。
+    // 计数那行相反：stats 的分桶键**就是**运行时名字（stats/index.ts 的 byName），
+    // 换成 runtimeKey 取不到桶，收发数恒为 0 且没有任何报错。
+    const live = clients.find(c => c.runtimeKey === rt.runtimeKey)
+    const counters = forName(rt.runtimeName)
+    return {
+      account: rt.account ?? undefined,
+      name: rt.runtimeName,
+      // 只给 pathname：runtimeUrl 本身已净化，但仍不取整串，免得哪天
+      // 上游又把鉴权参数放回地址里，面板就直接把它显示出去了
+      path: new URL(rt.runtimeUrl).pathname || "/",
+      status: live?.status ?? 0,
+      // 只给状态名，不用 client.statusText —— 那个为文字指令服务，把重连次数拼进了
+      // 括号里（`断线重连中(已重连3次)`），而面板另有一个 retry 字段、前端已经单独
+      // 渲了一个「已重连 N 次」标签。用它就成了同一行里把同一个数写两遍
+      status_text: !enabled ? "已停用" : live ? STATUS_TEXT[live.status] : "未启动",
+      retry: live?.retry ?? 0,
+      up: counters.up + counters.event,
+      down: counters.down,
+    }
+  })
+  // exclude 优先级高于 bind（expand.ts 的 effectiveAccounts），所以「配了哪些账号」
+  // 与「哪些账号真会连」不是一回事：两边都写了的号留在 bind 里却永远派生不出运行时
+  // 连接。前端只看 bind 的话会把它画成一个绿着却不连的开关，所以两个集合都回。
+  const { accounts, conflicts } = effectiveAccounts(conf)
+  // 顶行只能显示一个状态，按 STATUS_ORDER 挑代表：不让一条 0 盖掉另一条正在连的 2。
+  // 规则与状态图（render/pages.ts 的 collect）共用 —— 两处各写一遍就会出现
+  // 「面板说这条核心通了、状态图说没连上」
+  const lead = pickByStatus(views)
   return {
     index: i,
-    name: conf.name || conf.url,
-    url: conf.url || "",
-    bot_id: conf.bot_id || "",
+    name: label(conf),
+    // 地址脱敏后再回：token 可能只内联在 url 里，见 label() 的说明
+    url: conf.url ? redactUrl(conf.url) : "",
     enable: enabled,
-    /** 只说明有没有配，不回原值 */
-    has_token: !!conf.token,
+    /**
+     * 只说明有没有配，不回原值；内联在地址里的也算配了
+     *
+     * 不看运行时那层的内联标志：停用的连接根本不展开（expand.ts 里
+     * `conf.enable === false` 直接 return），零条运行时连接时那个标志恒为 false，
+     * 而配置里的凭据仍在 —— 那样这里会对一条配过 token 的连接报「没配 token」。
+     */
+    has_token: !!conf.token || inlineToken(conf.url) !== null,
     reconnect_interval: Number(conf.reconnect_interval) || 5,
     // 字段缺失时回默认次数而不是 0：面板上那个数字就是运行时真正用的值
     // （GsCoreClient.scheduleReconnect 同样 ?? 默认值），回 0 会显示成「无限重连」
     max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
-    // 每个绑定账号带上头像/昵称/在线状态，面板的折叠区直接可视化
-    bind_bots: (Array.isArray(conf.bind) ? conf.bind : []).map(botProfile),
-    status: live?.status ?? 0,
+    accounts,
+    conflicts,
+    bind_bots: bindBots(conf),
+    // 自动端点与兼容连接在「关掉最后一个绑定」上的后果完全不同（前者被
+    // requireAccounts 拒、后者变成不限账号），前端要能分辨，所以这个判定跟着视图回。
+    // 不让前端自己看 url 猜：那等于把 normalizeEndpoint 的规则抄一份到浏览器里
+    automatic: isAutomaticEndpoint(conf),
+    runtime: views,
+    // 逻辑连接的状态是聚合值：任一账号连上就算这个核心通了，
+    // 不让某一条的状态盖掉其他账号（明细在 runtime 里逐条给）
+    status: lead?.status ?? 0,
     // 「已停用」与「未启动」在状态码上都是 0，但成因不同，前端要分开显示
-    status_text: !enabled ? "已停用" : live ? live.statusText : "未启动",
-    retry: live?.retry ?? 0,
-    up: counters.up + counters.event,
-    down: counters.down,
+    status_text: !enabled ? "已停用" : (lead?.status_text ?? "未启动"),
+    // 各账号里最差的那个重连次数。与 status 同时看会显得矛盾（A 已连接、B 在重连时
+    // 是「已连接 + 已重连 5 次」），但这一行的用途正是「这条核心有账号在挣扎」；
+    // 逐账号的准确值在 runtime 里
+    retry: views.reduce((n, v) => Math.max(n, v.retry), 0),
+    up: views.reduce((n, v) => n + v.up, 0),
+    down: views.reduce((n, v) => n + v.down, 0),
   }
 }
 
 /** GET 回的整包 */
 function payload(): Payload {
   const stats = snapshot()
+  const list = getWsConnections()
+  // 展开只做一次：expandConnections 是全局裁决（路由冲突先到先得），
+  // 每条连接各展开一次既拿不到全局上下文，也会把同一批错误重复算 n 遍
+  //
+  // errors 必须一起回：一条启用中的连接派生不出任何运行时连接时（路由冲突、地址
+  // 解析失败、没有有效账号……），面板上它只是一直停在「未启动」，原因过去只有
+  // 控制台日志能看到（lifecycle.ts 的 logErrors，收敛时按 skipped 分 error / warn），
+  // 而且那份日志只在收敛那一刻打，后进来的人翻不到。
+  // 这些话术里只有连接名、来源序号与 pathname，没有完整地址（expand.ts 的
+  // errors.push 各处），所以可以直接回给前端。
+  const { runtime, errors } = expandConnections(list)
+  const connections = list.map((c, i) =>
+    connView(
+      c,
+      i,
+      runtime.filter(r => r.sourceIndex === i),
+    ),
+  )
+  const flat = connections.flatMap(c => c.runtime)
   return {
     ok: true,
     plugin: { name: PluginName, version: versionLabel(), configFile },
@@ -161,9 +297,23 @@ function payload(): Payload {
         only_reply_at: config.filter?.only_reply_at === true,
       },
     },
-    connections: getWsConnections().map(connView),
+    connections,
+    // 只把话术上线：ExpandError 的 sourceIndex 是给 lifecycle 挑「属于我这条」用的，
+    // 前端目前把错误统一列在顶部一个块里，不逐卡显示，多一个下标只是没人读的字段
+    //
+    // 但 skipped 必须分开：前端那个红框的标题是「有连接没能启动」，而 bind/exclude
+    // 撞与共享 /ws/Yunzai 这两条之后连接照常跑。混在一起，一条正在正常收发的连接
+    // 就会绿着点、顶着红框说自己没能启动。分成两个数组而不是把 skipped 带上去 ——
+    // 前端要的是「渲哪个框」，那正是两个数组本身回答的问题
+    errors: errors.filter(e => e.skipped).map(e => e.message),
+    warnings: errors.filter(e => !e.skipped).map(e => e.message),
+    totals: {
+      logical: connections.length,
+      runtime: flat.length,
+      connected: flat.filter(r => r.status === 1).length,
+    },
     // 在线机器人清单：面板「添加绑定」的候选，含头像与昵称
-    bots: onlineBots(),
+    bots: onlineBots().map(withPlatform),
     stats: {
       total: stats.total,
       today: stats.today,
@@ -246,6 +396,14 @@ function saveGlobal(body: PanelBody) {
   })
 
   // 心跳参数在建连时读，改了要重连才生效；其余项每条消息现读，即时生效
+  //
+  // 这里刻意不是 applyConnections：心跳是**全局**项，不在 behaviorChanged 的判据里
+  // （那个只比 runtimeUrl / token / inlineToken），收敛器会把每条客户端都原地留着，
+  // 面板上心跳数字变了、实际发的还是旧间隔。整体重连是唯一能让它生效的动作。
+  //
+  // enabled() 留着不是为了决定该起哪些连接（planClients 自己看总开关），而是为了
+  // 不在总开关关着时走 startClients —— 那一条路尾巴上会打一句「没有可用连接」警告，
+  // 而「一条都不连」正是用户刚选的状态，报出来像是出了故障。
   const touchedClient = changed.some(k => k.startsWith("client."))
   if (touchedClient && enabled()) reloadClients()
 
@@ -256,19 +414,66 @@ function saveGlobal(body: PanelBody) {
 function addConnection(body: PanelBody) {
   const list = getWsConnections()
   const bind = (Array.isArray(body.bind) ? body.bind : []).map(String)
-  // 恰好绑一个账号时把它带进补出来的路径段，理由见 normalizeUrl。
-  // 协议校验也在这一步（http:// 会带着换算好的 ws 地址抛出来）
-  const url = requireWsUrl(String(body.url ?? ""), bind.length === 1 ? bind[0] : null)
+  // requireWsUrl 而不是裸 normalizeEndpoint：协议校验只有那一处，http:// 会带着
+  // 换算好的 ws 地址抛出来，guard 转成 400 后那句话本身就是可用的建议
+  const url = requireWsUrl(String(body.url ?? ""))
+  const explicit = String(body.bot_id || "").trim()
+  const exclude = (Array.isArray(body.exclude) ? body.exclude : []).map(String)
 
-  // 与指令入口同一套判重：(地址, 账号)，不是只看地址。面板这边 bind 是多选框，
-  // 能一次填多个账号，交集判断正好覆盖「其中一个已经加过」的情形
-  const dup = findDuplicate(list, url, bind)
-  if (dup)
-    throw new Error(
-      `这个核心已经加过了（${dup.name}），绑定：${
-        dup.bind?.length ? dup.bind.join("、") : "不限账号"
-      }。改绑其他账号可再加一条`,
+  // 同一核心已有自动路径的连接 → 合并 bind，不再新开一条 ws
+  const existing = findSameCore(list, url)
+  if (existing) {
+    const idx = list.indexOf(existing)
+    const prev = Array.isArray(existing.bind) ? existing.bind.map(String) : []
+    const nextBind = [...new Set([...prev, ...bind])]
+    // 已有配置值走 normalizeEndpoint：它不做协议校验，只把地址收成核心 origin
+    const nextUrl = normalizeEndpoint(existing.url || url)
+
+    // 明确要绑的账号必须从 existing.exclude 里放出来
+    // ------
+    // 合并只改 bind、existing.exclude 原样留着的话，落盘的组合是谁都没校验过的
+    // 那份：exclude 优先级更高，这个号永远派生不出运行时连接，面板上却显示已绑定。
+    // 与绑定开关同一套语义（拨开就等于绑上，不能绿着却不连），也与 admin.ts 一致
+    const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
+    const freed = readIds(existing.exclude).length !== nextExclude.length
+
+    const err = existing.enable === false
+      ? undefined
+      : requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
+    if (err) throw new Error(err)
+
+    const patch: ConnectionPatch = { bind: nextBind }
+    if (freed) patch.exclude = nextExclude.length ? nextExclude : null
+    if (nextUrl !== existing.url) patch.url = nextUrl
+    if (existing.bot_id) patch.bot_id = null
+    updateConnection(
+      idx,
+      patch,
+      doc => {
+        for (const id of nextBind) {
+          // 判据是 bind（本次请求点明要绑的那几个）而不是 nextBind：后者含已在这条连接上
+          // 的老账号，那些不是这次表态的对象，替他们改平台标识是越权。
+          //
+          // 这一支必须 force：老连接上多半已经有一行自动推断出来的映射（加连接、开绑定
+          // 开关都会顺手补），writeAccountBotId 默认「有值就不写」，于是用户在面板里明确
+          // 填了 bot_id、回包说保存成功，表里还是推断值 —— 而推断值恰恰是他填这一栏要
+          // 纠正的东西（QQBot 的 appid 被推成 qqgroup、实际要 qqguild 之类）。
+          // 反过来不带 explicit 的那一支保持不覆盖：那是推断，凭什么盖掉用户的记录。
+          if (explicit && bind.includes(String(id)))
+            writeAccountBotId(doc, id, explicit, undefined, true)
+          else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+        }
+      },
+      existing.enable === false
+        ? []
+        : bind.length
+          ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
+          : undefined,
     )
+    applyConnections({ sourceIndex: idx })
+    // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
+    return getWsConnections()[idx]?.name || label(existing)
+  }
 
   let name = String(body.name || "").trim() || `core${list.length + 1}`
   if (list.some(c => (c.name || c.url) === name)) name = `${name}-${Date.now().toString(36)}`
@@ -277,43 +482,131 @@ function addConnection(body: PanelBody) {
     name,
     url,
     token: String(body.token || ""),
-    bot_id: String(body.bot_id || ""),
     enable: bool(body.enable, true),
     reconnect_interval: Number(body.reconnect_interval) || 5,
-    // 留空（面板清掉输入框会送空串）按默认次数算；显式填 0 仍是无限重连。
-    // Number("") === 0，所以不能只看 Number.isFinite
     max_reconnect_attempts: num(body.max_reconnect_attempts, DEFAULT_MAX_RECONNECT),
     bind,
-    exclude: Array.isArray(body.exclude) ? body.exclude : [],
+    exclude,
   }
 
-  appendConnection(conf)
+  // 落盘前拦：自动端点没有明确账号就派生不出任何运行时连接，存下来只会变成
+  // 一条永远不连的死配置。话术与指令层共用，两处说法不会漂
+  const err = conf.enable === false ? undefined : requireAccounts(conf)
+  if (err) throw new Error(err)
 
-  if (enabled() && conf.enable) startClient(conf)
+  const addedSourceIndex = list.length
+  appendConnection(
+    conf,
+    doc => {
+      // 新建也要 force：连接是新的，bot_id_map 是全局的 —— 这个账号可能早就因为别条
+      // 连接留下了一行。不 force 的话「新建连接时填的 bot_id」在这些账号上静默失效，
+      // 而这是最没道理失效的一处：整条连接都是他现在建的。
+      for (const id of bind) {
+        if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
+        else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+      }
+    },
+    conf.enable === false
+      ? []
+      : bind.length
+        ? bind.map(account => ({ sourceIndex: addedSourceIndex, account, action: "新增" }))
+        : undefined,
+  )
+
+  // sourceIndex 只用来把展开诊断收窄到刚加的这条：新连接撞了别人已占的路由时会被
+  // 跳过（前项优先），那句话才是用户此刻要看的；别条连接的历史冲突不该跟着重刷一遍
+  applyConnections({ sourceIndex: getWsConnections().length - 1 })
   return conf.name
 }
 
 /**
  * 改一条连接
  *
- * 改完先停后起：连接参数（url / token / bind）都是建连时读的，
- * 光改配置不重连的话面板显示已改、实际还连着老地址。
+ * 改完交给协调器决定要不要断线：地址与 token 是建连时读的，改了必须重连，
+ * 光写盘的话面板显示已改、实际还连着老地址；而 bind / exclude / 重连参数是每次
+ * 用时现读的，收敛器只换 conf 引用就生效 —— 为它们断线是白丢一次退避期的消息。
+ * 这个判断在 lifecycle 的 behaviorChanged 里统一做，入口不再自己猜。
  */
 function editConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  const oldName = hit.conf.name || hit.conf.url
-
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
-  if (body.url !== undefined) patch.url = requireWsUrl(String(body.url))
-  if (body.name !== undefined) patch.name = String(body.name).trim()
-  if (body.bot_id !== undefined) patch.bot_id = String(body.bot_id)
+  if (body.url !== undefined) {
+    const next = requireWsUrl(String(body.url))
+    // 面板看到的地址是脱敏过的（connView 的 url 过了 redactUrl），编辑弹层又会把
+    // 它原样回填、原样提交（webui/main.tsx 的 Modal 只跳过 token）。要判断用户是不是
+    // 真动了这一栏，得把「我们显示给他的那个串」按同一套规则规范化，再与他提交回来的
+    // 比 —— requireWsUrl 内部就是 normalizeEndpoint。
+    // 只比 redactUrl(conf.url) 不够：规范化还会补协议、把主机小写、去掉默认端口
+    // （normalizeEndpoint 经 new URL() 重新序列化），于是 `h:8765/ws/X`、
+    // `ws://HOST:8765/...`、`ws://h:80/...` 这些配置即便一个字没动也「看起来变了」，
+    // 白写一次 patch.url —— 而写 url 就会丢查询串里的凭据（下面那段搬运是兜底）
+    if (next !== normalizeEndpoint(redactUrl(hit.conf.url)))
+      // 搬参数发生在协议门之后、并且发生在「这一栏动过没有」判完之后
+      // ------
+      // 门在前：mergeEndpointQuery 解析不了旧地址时会静默退回新串（那是它刻意的容错，
+      // 见 utils/url.ts），把它垫在 requireWsUrl 前面就等于让协议门去校验一个派生串；
+      // 而这条路的入参是任意 HTTP 请求体，不能像指令那样默认对面大致会写对。派生串是
+      // 哪来的、将来新加的回退分支会不会改写它，没有一处签名说得清 —— 门放行的范围就
+      // 跟着 merge 悄悄变了。（拒 http:// 那句建议不受顺序影响：requireWsUrl 给建议前
+      // 已过 redactUrl，查询串整段被砍，先搬也漏不进去。）
+      //
+      // 判据在前：合并结果必然带着旧地址的查询串，而我们回填给面板的是**脱敏**地址
+      // （查询串已被 redactUrl 砍掉）。拿合并后的串去比，一条带 `?tenant=` 的连接
+      // 无论用户动没动这一栏都「看起来变了」，上面那整段「没动就不写」的收敛全废。
+      // 多写一次的后果不只是白写：patch.url 一写，下面那段「搬内联凭据」就跟着触发，
+      // 于是用户只改了个名字，地址却被重写成不带 `?token=` 的形状、凭据被挪进 token
+      // 字段。功能上还能连，但他手写的地址行被动了，而回包只说改名成功。
+      //
+      // 反过来放在门后不削弱校验：合并只往 searchParams 里补名字，协议、主机、路径
+      // 一概不碰，门已经定了协议就不会再被改回 http。
+      patch.url = mergeEndpointQuery(hit.conf.url, next)
+  } else {
+    // normalizeEndpoint 做的是：没写协议就补 ws://、砍掉 fragment、经 new URL()
+    // 重新序列化（主机小写、默认端口消失）。**不改写用户写的路径** —— 老配置里的
+    // `/ws/Yunzai-123`、`/ws/Yunzai` 原样留下；干净的根路径收成 origin，带查询串时
+    // 把查询串接回去（凭据可能就在里面，见 utils/url.ts 的 normalizeEndpoint）。
+    // 所以这一支同样可能产出 patch.url：路径没动，序列化结果也可能与原值不同字
+    const normalized = normalizeEndpoint(String(hit.conf.url || ""))
+    if (normalized !== hit.conf.url) patch.url = normalized
+  }
+  /**
+   * 未命名连接：别把它的地址落成名字
+   * ------
+   * 卡片标题走 label()（`conf.name || redactUrl(conf.url)`），未命名时显示的就是脱敏
+   * 地址；编辑弹层把标题当 name 回填、原样提交回来。照收就等于替用户取了个名字，
+   * 而这个名字是**旧地址** —— 之后改地址，标题会一直停在改之前的那个地址上。
+   * 判据与上面 url 那一栏同理：把「我们显示给他的那个串」比一次，相同就当没动过。
+   */
+  if (body.name !== undefined) {
+    const submitted = String(body.name).trim()
+    if (hit.conf.name || submitted !== label(hit.conf)) patch.name = submitted
+  }
+  if (body.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
   // token 留空表示「不改」，不是「清空」—— 面板拿不到原值（GET 只回 has_token），
   // 把空串当清空会让每次保存都把 token 抹掉。要清空走 clear_token
   if (body.token) patch.token = String(body.token)
   if (body.clear_token) patch.token = ""
+  /**
+   * 覆写 url 时把内联凭据搬进 token 字段
+   * ------
+   * 上面那个「没动这一栏就不写」只挡住了「真没动」。用户确实改了地址时 patch.url
+   * 必须写，而面板回填的是脱敏地址、提交回来的新地址不带查询串 —— 只存在于
+   * `?token=` 里的凭据就跟着消失了。而且面板没有任何字段能把它填回来：token 输入框
+   * 留空表示「不改」，has_token 会从「已配」翻成「没配」，下一次握手直接无凭据，
+   * 全程不报错。改 url 前是能连的、改完连不上，症状和地址本身毫无关系。
+   *
+   * 搬而不是把查询串留着：凭据本来就该待在 token 字段，运行时也是这么摆的
+   * （expand.ts 的 detachInlineToken 把它摘出来，运行时地址不带凭据），顺手收正。
+   * body 自己带了 token（改密）或显式 clear_token（清空）时不搬 —— 那是用户的意图。
+   * 新地址里内联了凭据时同理不搬；空写的 `?token=` 两边都不算凭据（见 utils/url.ts）。
+   */
+  if (patch.url !== undefined && patch.token === undefined) {
+    const carried = inlineToken(hit.conf.url)
+    if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
+  }
   if (body.enable !== undefined) patch.enable = bool(body.enable, true)
   for (const k of ["reconnect_interval", "max_reconnect_attempts"] as const) {
     if (body[k] === undefined) continue
@@ -327,12 +620,50 @@ function editConnection(body: PanelBody) {
     patch[k] = body[k] as (string | number)[]
   }
 
-  updateConnection(hit.index, patch)
+  const nextBind = (
+    body.bind !== undefined ? (patch.bind as (string | number)[]) : hit.conf.bind || []
+  ).map(String)
+  const nextExclude = (
+    body.exclude !== undefined ? (patch.exclude as (string | number)[]) : hit.conf.exclude || []
+  ).map(String)
+  const explicit = body.bot_id !== undefined ? String(body.bot_id || "").trim() : ""
+  if (explicit && !nextBind.length)
+    throw new Error("当前连接未绑定账号，无法按账号写入平台标识。请先填写绑定账号")
 
-  stopClient(oldName)
+  // 改成「自动端点 + 没有有效账号」等于把连接改死，写盘前就拦掉
+  const nextEnable = patch.enable ?? hit.conf.enable ?? true
+  const err = nextEnable
+    ? requireAccounts({
+        ...hit.conf,
+        url: patch.url ?? hit.conf.url,
+        bind: nextBind,
+        exclude: nextExclude,
+      })
+    : undefined
+  if (err) throw new Error(err)
+
+  updateConnection(
+    hit.index,
+    patch,
+    doc => {
+      if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
+      else {
+        if (hit.conf.bot_id) for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
+        if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
+      }
+    },
+    !nextEnable
+      ? []
+      : body.bind !== undefined && nextBind.length
+        ? nextBind.map(account => ({ sourceIndex: hit.index, account, action: "绑定" }))
+        : [{ sourceIndex: hit.index, action: "修改" }],
+  )
+
+  applyConnections({ sourceIndex: hit.index })
   const next = getWsConnections()[hit.index]
-  if (enabled() && next?.enable !== false) startClient(next)
-  return next?.name || oldName
+  // 回包话术里的名字过 label()（脱敏，见 addConnection 处的说明），并且看**改完之后**
+  // 的那份配置：这次编辑可能刚好改了 name 或 url，报旧值等于告诉用户「改的是另一条」
+  return label(next || hit.conf)
 }
 
 /** 删一条 */
@@ -340,10 +671,17 @@ function delConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  const name = hit.conf.name || hit.conf.url
   removeConnection(hit.index)
-  stopClient(name)
-  return name
+  // 收敛器不需要「下标前移」这一步：它按新配置整批重算元数据，删掉一条之后后面各条
+  // 的 sourceIndex 与 `连接 #N` 名字都是现算的。手工位移那套还漏了更要紧的一半 ——
+  // 删掉的这条可能正占着别条要用的路由，释放之后被顶掉的那条现在起得来了
+  // （前项优先的仲裁见 expand.ts 的 claim），而位移压根不会去起它，用户只看到
+  // 「删掉了冲突的那条，被顶掉的还是不连」。
+  //
+  // 这里不传 sourceIndex：这条来源已经没了，收窄到它等于把诊断全滤掉 —— 而删除恰好
+  // 是最可能让**别条**连接的展开结果发生变化的操作，那些话术要放出来
+  applyConnections()
+  return label(hit.conf)
 }
 
 /** 开关一条 */
@@ -352,12 +690,84 @@ function toggleConnection(body: PanelBody) {
   if (!hit) throw new Error("找不到该连接")
 
   const on = bool(body.enable, true)
-  updateConnection(hit.index, { enable: on })
-  const name = hit.conf.name || hit.conf.url
+  updateConnection(
+    hit.index,
+    { enable: on },
+    undefined,
+    on ? [{ sourceIndex: hit.index, action: "启用" }] : [],
+  )
+  // 停用一条会释放它占的路由，被它顶掉的那条这才起得来；所以停用也要走整批收敛，
+  // 而不是只停这一条（理由同 delConnection）
+  applyConnections({ sourceIndex: hit.index })
+  return label(hit.conf)
+}
+
+/**
+ * 面板绑定开关：on 表示绑定，off 表示取消绑定
+ *
+ * 为什么单独一个动作，不复用 edit
+ * ---------------------------
+ * 面板上一个账号一个开关，一次只表达「这个号要不要接这条核心」。走 edit 就得把
+ * 整份 bind 数组回传，两个人同时点两个开关时后一个请求会把前一个的结果覆盖掉。
+ */
+function bindConnection(body: PanelBody): string {
+  const hit = locate(body.key ?? body.index ?? body.name)
+  if (!hit) throw new Error("找不到该连接")
+  const id = String(body.id || "").trim()
+  if (!id) throw new Error("缺少账号")
+  const on = bool(body.on, false)
+
+  const bind = readIds(hit.conf.bind).filter(x => x !== id)
+  const exclude = readIds(hit.conf.exclude)
+  let freed = false
   if (on) {
-    if (enabled()) startClient({ ...hit.conf, enable: true })
-  } else stopClient(name)
-  return name
+    bind.push(id)
+    // 「开」必须真的等于绑定：exclude 优先级更高，留在里面会让开关绿着却不连
+    const i = exclude.indexOf(id)
+    if (i >= 0) {
+      exclude.splice(i, 1)
+      freed = true
+    }
+  }
+  // 关只删 bind：不写 exclude（那是高级过滤项，面板一关就写进去等于替用户做决定），
+  // 也不删 bot_id_map（平台映射与绑定无关，下次绑回来还能用）
+
+  // 与指令同一套校验、同一句话术
+  const nextEnable = hit.conf.enable !== false
+  const err = nextEnable ? requireAccounts({ ...hit.conf, bind, exclude }) : undefined
+  if (err) throw new Error(err)
+
+  const patch: ConnectionPatch = { bind }
+  // 只在真的放出了账号时才动 exclude：没改的键不重写，免得把用户写成数字的
+  // 账号悄悄规范成字符串
+  if (freed) patch.exclude = exclude.length ? exclude : null
+  updateConnection(
+    hit.index,
+    patch,
+    doc => (on ? writeAccountBotId(doc, id, accountPlatform(id)) : undefined),
+    nextEnable && on ? [{ sourceIndex: hit.index, account: id, action: "绑定" }] : [],
+  )
+
+  const name = label(hit.conf)
+
+  // 为什么这里不再分情况
+  // ------
+  // 拨一个开关只表达一个账号的意图，所以过去要小心：`stopSource` 是按 sourceIndex
+  // 全停，用它就会把这条核心上已经连上的其他账号一起断掉再连回来。于是分了三支
+  // （兼容连接全停全起 / 开只起 / 关按拼出来的运行时名字停一条），最后那支还得靠
+  // 手拼名字与展开器对齐 —— 名字一改口径就停错人。
+  //
+  // 收敛器按 runtimeKey 比目标与现状，这三种情况自然就是同一件事：
+  // - 自动端点上一个账号一条 ws（expand.ts 里 `bind: [account]`），别的账号的
+  //   runtimeKey 在新计划里原封不动 → 被原地留着，不断线；开的那个号是计划里多出来
+  //   的一个键 → 新建一条；关的那个号是计划里少了的一个键 → 只停它。
+  // - 非根路径的兼容连接只有一条运行时连接，bind 在它上头是转发过滤器
+  //   （GsCoreClient.accept 每条消息现读 conf.bind），而 runtimeUrl 不含账号、改 bind
+  //   不动 runtimeKey，也不在 behaviorChanged 的判据里 → 客户端被留着、conf 换成新的，
+  //   新过滤器**立刻**生效。这里刻意不重建：重建要付一次 5 秒起步的重连退避，期间
+  //   的上下行是真的丢了，而它换个引用就够。
+  applyConnections({ sourceIndex: hit.index })
+  return `${name} ${on ? "已绑定" : "已取消绑定"} ${id}`
 }
 
 /**
@@ -417,7 +827,11 @@ export function init(ctx: WebCtx) {
       }
     }
 
-  registerApi("get", "/gscore-adapter/config", guard(() => payload(), 500))
+  registerApi(
+    "get",
+    "/gscore-adapter/config",
+    guard(() => payload(), 500),
+  )
 
   /**
    * 插件图标
@@ -474,10 +888,20 @@ export function init(ctx: WebCtx) {
         case "toggle":
           name = toggleConnection(body)
           break
+        case "bind":
+          name = bindConnection(body)
+          break
         default:
           throw new Error(`未知操作 ${action}`)
       }
-      return { ...payload(), message: `连接 ${name} 已${{ add: "添加", edit: "保存", del: "删除", toggle: "更新" }[action]}` }
+      return {
+        ...payload(),
+        // bind 回的已经是整句（含账号），再套一层就成了「连接 xx 已绑定 111 已更新」
+        message:
+          action === "bind"
+            ? name
+            : `连接 ${name} 已${{ add: "添加", edit: "保存", del: "删除", toggle: "更新" }[action]}`,
+      }
     }),
   )
 

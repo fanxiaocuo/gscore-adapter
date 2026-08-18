@@ -79,6 +79,8 @@ jobs:
       # test/ 不入库（见 .gitignore），CI 克隆不到，故无测试步骤。
       # 发版产物的把关靠 typecheck / lint / build 三道加下面的完整性自检。
       # 若日后把 test/ 改回入库，在「构建」之后补回 `- name: 测试 / run: pnpm test`。
+      # 必须在「构建」之后：classes.test.mjs 要断言 build:css 出的
+      # resources/template/css/tailwind.css 已内联（测试本身读 src/，不读 lib/）。
       - name: 构建
         run: pnpm run build
 

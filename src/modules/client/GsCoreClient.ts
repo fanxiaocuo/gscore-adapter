@@ -1,7 +1,14 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
 import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT } from "@/constants"
-import { logStr, sendError, sendMessageId } from "@/utils"
+import {
+  logStr,
+  sendMessageId,
+  classifyDelivery,
+  deliveryComplete,
+  deliveryDelivered,
+} from "@/utils"
+import { redactUrl, routeKey } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
@@ -14,13 +21,76 @@ import type {
   SendBot,
   SendTarget,
   WsConnection,
+  RuntimeWsConnection,
   SendSegment,
 } from "@/types"
+import { getBot } from "@/utils/bots.js"
 import { echoKey, markSent } from "./echo.js"
 
+/**
+ * 段类型摘要，例如 "image×1,text×1"
+ *
+ * 只统计类型与个数。下行日志里绝不能出现媒体正文或鉴权信息：图片走 base64
+ * 时一条消息就是几十万字符，外链形态又可能带查询参数形式的凭据。
+ * 而排查「图片没发出去」真正需要的只是「这条消息里有没有 image 段」。
+ */
+function segSummary(message: any[]): string {
+  const n = new Map<string, number>()
+  for (const s of message) {
+    const t = typeof s === "string" ? "text" : String(s?.type || "unknown")
+    n.set(t, (n.get(t) || 0) + 1)
+  }
+  return [...n].map(([t, c]) => `${t}×${c}`).join(",")
+}
+
+/**
+ * 被动发送要的是「完整的会话上下文」
+ *
+ * QQBot-Plugin 的各条发送函数直接从 target 上取字段，缺一项就在插件内部抛出来 ——
+ * 那时异常信息指向 QQBot-Plugin，很难看出是这边 pick 出来的对象不完整。
+ *
+ * 逐条对应实际读的字段，不能笼统查 group_id：
+ *   sendGroupMsg   data.group_id   （index.js:1051 一带）
+ *   sendFriendMsg  data.user_id
+ *   sendGuildMsg   data.channel_id （index.js:1022-1024）
+ * 频道尤其要紧 —— pickGuild（index.js:1333-1350）显式给的是 guild_id/channel_id，
+ * group_id 只可能从 `...gl.get()` 展开里捎来。查 group_id 等于查了个与该发送函数
+ * 无关的字段：真正要用的 channel_id 没查，可能缺的 group_id 反倒成了硬条件，
+ * 于是频道的被动回复会被静默降级成普通发送，日志里只写「无被动窗口」。
+ */
+function passiveReady(target: SendTarget, type: "direct" | "group", targetId: string): boolean {
+  // 直接读字段，不再 `as Record<string, unknown>`：那个断言等于 any，
+  // 这几项现在在 SendTarget 上有声明（见 types/Bot.ts）
+  if (!target.self_id || !target.bot) return false
+  if (type === "direct") return !!target.user_id
+  return targetId.startsWith("qg_") ? !!target.channel_id : !!target.group_id
+}
+
+/*
+ * 下行投递判定见 utils/send.ts 的 classifyDelivery
+ * ------
+ * 这里曾有一个本地的 qqbotDelivered()：`data.length > 0` 就算「投出去了」。
+ * doSend 拿它决定回不回退、onMessage 拿它决定要不要降级成 warn —— 同一个返回值
+ * 两处各判一套，顶层数组形状在两边还得出相反结论。而「至少一个分组成功」既不能
+ * 回答「要不要重发」也不能回答「算不算完整成功」，它把半条消息计成了一次完整中转。
+ *
+ * 现在两条路径共用 classifyDelivery + deliveryDelivered / deliveryComplete，
+ * 判据只有一份。
+ */
+
 export class GsCoreClient {
-  conf: WsConnection
+  conf: WsConnection | RuntimeWsConnection
   name: string
+  /**
+   * 稳定身份，见 {@link RuntimeWsConnection.runtimeKey}
+   *
+   * reconcileClients 拿它跟目标计划比对，决定这条客户端是留着、原地改元信息、
+   * 还是停掉重起。名字与 sourceIndex 都会随「改名 / 删掉前面一条」变，只有它不变。
+   */
+  runtimeKey: string
+  sourceIndex: number
+  account: string | null
+  target: string
   /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
   status: 0 | 1 | 2 | 3
   retry: number
@@ -33,9 +103,18 @@ export class GsCoreClient {
   aliveTimer?: NodeJS.Timeout
   lastPong: number
 
-  constructor(conf: WsConnection) {
+  constructor(conf: WsConnection | RuntimeWsConnection) {
     this.conf = conf
-    this.name = conf.name || conf.url
+    const rt = conf as Partial<RuntimeWsConnection>
+    // 运行时连接自带唯一名称与最终地址；直接传逻辑连接时退回旧行为。
+    // 退路里的地址过 redactUrl：name 会进日志，而逻辑连接的地址可能内联着 ?token=
+    this.name = rt.runtimeName || conf.name || redactUrl(conf.url)
+    this.target = rt.runtimeUrl || String(conf.url || "")
+    // 逻辑连接直传时自己算一次：手动重连那条路会拿裸 conf 造客户端，没有 key
+    // 的话它在下一次 reconcile 里会被判成「不在计划里」而被停掉
+    this.runtimeKey = rt.runtimeKey || routeKey(this.target)
+    this.sourceIndex = typeof rt.sourceIndex === "number" ? rt.sourceIndex : -1
+    this.account = rt.account ?? null
     /** 0 未连接/已停止 1 已连接 2 连接中 3 断线待重连 */
     this.status = 0
     this.retry = 0
@@ -47,22 +126,33 @@ export class GsCoreClient {
     this.lastPong = 0
   }
 
-  /** 可读状态，供 apps 显示 */
+  /**
+   * 可读状态，供**文字**指令显示（#早柚状态 / #早柚连接列表 的文本回复）
+   *
+   * 重连次数拼在括号里是因为那些回复只有一行、没有别的地方放。措辞跟出图与面板
+   * 对齐成「已重连」：写「重连 N 次」会被读成「还要重连 N 次」，而这里说的是已经
+   * 重连过的次数。三处话术一旦分叉，同一个数在三个界面上像三种计量。
+   *
+   * 面板不用这个 getter —— 它另有 retry 字段并单独渲一个标签，用了就是把同一个数
+   * 在一行里写两遍（见 webadapter 的 status_text）。
+   */
   get statusText() {
-    return (STATUS_TEXT[this.status] || String(this.status)) + (this.retry ? `(重连${this.retry}次)` : "")
+    return STATUS_TEXT[this.status] + (this.retry ? `(已重连${this.retry}次)` : "")
   }
 
   /** 早柚核心用 ?token= 查询参数鉴权，不使用请求头 */
   get url() {
-    const url = String(this.conf.url || "")
-    if (!this.conf.token) return url
+    const url = this.target
+    const inlineToken = (this.conf as Partial<RuntimeWsConnection>).inlineToken === true
+    const token = String(this.conf.token ?? "")
+    if (!inlineToken && !token) return url
     try {
       const u = new URL(url)
-      if (!u.searchParams.has("token")) u.searchParams.set("token", this.conf.token)
+      if (inlineToken || !u.searchParams.has("token")) u.searchParams.set("token", token)
       return u.toString()
     } catch {
       if (/[?&]token=/.test(url)) return url
-      return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.conf.token)}`
+      return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`
     }
   }
 
@@ -348,7 +438,7 @@ export class GsCoreClient {
             ? bot.pickFriend?.(Number(data.target_id) || data.target_id)
             : bot.pickGroup?.(Number(data.target_id) || data.target_id)
         const fn = target?.recallMsg || bot.recallMsg
-        if (!fn) return this.log("warn", "当前适配器不支持撤回消息"), true
+        if (!fn) return (this.log("warn", "当前适配器不支持撤回消息"), true)
         await fn.call(target?.recallMsg ? target : bot, id)
         this.log("info", `已撤回消息 ${id}`)
       } catch (err) {
@@ -362,9 +452,12 @@ export class GsCoreClient {
       const duration = Number(d.duration) || 0
       try {
         const group: SendTarget | undefined = bot.pickGroup?.(Number(d.group_id) || d.group_id)
-        if (!group?.muteMember) return this.log("warn", "当前适配器不支持禁言"), true
+        if (!group?.muteMember) return (this.log("warn", "当前适配器不支持禁言"), true)
         await group.muteMember(Number(d.user_id) || d.user_id, duration)
-        this.log("info", `${duration ? `禁言 ${duration}s` : "解除禁言"}：${d.user_id}@${d.group_id}`)
+        this.log(
+          "info",
+          `${duration ? `禁言 ${duration}s` : "解除禁言"}：${d.user_id}@${d.group_id}`,
+        )
       } catch (err) {
         this.log("error", ["禁言操作失败", err])
       }
@@ -400,30 +493,44 @@ export class GsCoreClient {
     data: MessageSend,
     targetId: string,
   ) {
-    if (!isQQBot(bot)) return await target.sendMsg(message)
-
+    // 摘要在三条路径上共用：走了哪条、有没有回退，日后只看日志就能复盘
+    const summary = segSummary(message)
     const type = data.target_type === "direct" ? "direct" : "group"
+    const brief = `${this.name} => ${data.bot_self_id}, ${type} ${targetId}, ${summary}`
 
-    // 先确认有能收 event 的发送函数，再去 take —— take 会记一次使用次数，
-    // 顺序反了会在「这条路径不支持被动回复」时白白耗掉一次额度
+    if (!isQQBot(bot)) {
+      this.log("debug", `下行发送：${brief}`)
+      return await target.sendMsg(message)
+    }
+
+    // 先确认有能收 event 的发送函数、且目标带齐上下文，再去 take —— take 会记一次
+    // 使用次数（同一个 id 只能带 5 次），顺序反了会在「这条路径走不通」时白耗额度，
+    // 后面那几段本来还能挂到原消息上的回复反而掉出引用形态
     const fn = this.passiveSender(bot.adapter, type, targetId)
-    if (!fn) return await target.sendMsg(message)
-
-    const msgId = take(data.bot_self_id, type, targetId)
-    if (!msgId) return await target.sendMsg(message)
+    const msgId =
+      fn && passiveReady(target, type, targetId) ? take(data.bot_self_id, type, targetId) : ""
+    if (!fn || !msgId) {
+      this.log("debug", `下行发送（无被动窗口）：${brief}`)
+      return await target.sendMsg(message)
+    }
 
     try {
       const ret = await fn(target, message, { id: msgId })
-      // 返回派的失败（Milky/OneBot 那种不抛错的）在外层统一判，这里只看抛没抛，
-      // 以及返回值里是否已经明确失败 —— 后者要回退，不能当成功
-      if (!sendError(ret)) {
-        this.log("debug", "已按被动回复发送（挂到原消息上）")
+      // 只在「一条都没投出去」时才回退。QQBot 内部四级阶梯自愈过的发送带着陈旧
+      // error 回来，照 sendError 判会重发整条；部分成功的也不能重发，那会复制
+      // 已经投出去的分组 —— 详见 utils/send.ts 的 classifyDelivery
+      if (deliveryDelivered(classifyDelivery(ret))) {
+        this.log("debug", `下行发送（被动回复）：${brief}`)
         return ret
       }
-      this.log("debug", "被动回复失败，改为不带 id 发送")
+      this.log("debug", `被动回复未投出，改为不带 id 发送：${brief}`)
     } catch (err) {
-      this.log("debug", ["被动回复异常，改为不带 id 发送", err])
+      this.log("debug", [`被动回复异常，改为不带 id 发送：${brief}`, err])
     }
+    // 回退复用同一个 message 引用是安全的：QQBot-Plugin 的 makeMsg(index.js:699-804)、
+    // makeRawMarkdownMsg(293-460)、makeGuildMsg(883-970) 都先 `i = {...i}` 浅拷贝段
+    // 再改，并往新建数组 push，不回写入参。唯一按引用透传的是 raw 段（758/392），
+    // 而本插件下行从不产出 raw（convert/toYunzai.ts:56-100），该例外不可达。
     return await target.sendMsg(message)
   }
 
@@ -470,11 +577,11 @@ export class GsCoreClient {
       return this.log("error", ["解码数据失败", String(raw).slice(0, 300), err])
     }
 
-    const bot: SendBot = Bot.bots[data.bot_self_id] || Bot
+    const bot: SendBot | null = getBot(data.bot_self_id)
 
     // 控制指令优先，它们不走消息转换，也不需要回执
     try {
-      if (await this.handleControl(data, bot)) return
+      if (bot && (await this.handleControl(data, bot))) return
     } catch (err) {
       return this.log("error", ["处理控制指令错误", err])
     }
@@ -486,6 +593,11 @@ export class GsCoreClient {
     // 无论找不到目标、内容为空还是发送抛错，都必须回一帧。
     let recallId: string | string[] | null = null
     try {
+      if (!bot) {
+        const account = String(data.bot_self_id ?? "").trim() || "(空)"
+        this.log("error", `找不到机器人账号 ${account}`)
+        return
+      }
       // 纯日志帧要在 pick 之前挡掉：核心下发 log 段时 target_id 常是占位值，
       // 走到下面 pick 不到目标就会误报「找不到发送目标」。
       // 这里只判类型不做转换 —— gscoreToYunzai 会写日志、上传转发，跑两遍就重复了。
@@ -545,9 +657,26 @@ export class GsCoreClient {
       // { retcode: -1, status: "failed", error }（Milky.js:424-434）而从不抛，
       // OneBot 系同理。只 await 不看返回值会把失败记成成功中转，
       // 而「连着但不通」恰是这个计数该抓到的情况。判定见 utils/send.ts。
-      const err = sendError(ret)
-      if (err) {
-        this.log("error", `发送失败：${err}`)
+      const delivery = classifyDelivery(ret)
+
+      // 部分投出：不能计完整成功，也不能当整条失败
+      // ------
+      // QQBot 把一条下行拆成多个分组逐个发，`data` 与 `error` 同时非空时
+      // 分不清「它自己重试成功了」还是「有一组永久失败」——证不出整条完成。
+      // 处置取两者的交集：撤回 id 照回（消息确实出去了，漏回会让核心侧的定时
+      // 撤回失效），但不计一次完整中转（宁可少计，不能把半条当整条）。
+      // 日志记 error 级并带上已投出的分组数，方便对着用户实收的内容核。
+      if (delivery.kind === "partial") {
+        const n = delivery.delivered == null ? "" : `已投出 ${delivery.delivered} 组，`
+        this.log("error", `发送部分失败：${delivery.error}（${n}${segSummary(message)}）`)
+        recallId = sendMessageId(ret)
+        return
+      }
+
+      if (!deliveryComplete(delivery)) {
+        // 带上段类型摘要：「发送失败」最常见的成因是某类段被平台拒收（图片尤甚），
+        // 有摘要才分得清是整条没发出去还是某种段不被接受
+        this.log("error", `发送失败：${delivery.error}（${segSummary(message)}）`)
         // 不计数，但仍要走 finally 里的回执 —— 漏回会被核心 latch 成「不支持撤回」
         return
       }

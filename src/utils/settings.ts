@@ -38,9 +38,7 @@ export const ON_WORDS = ["开启", "启用", "打开", "true", "on", "开"]
 export const OFF_WORDS = ["关闭", "停用", "禁用", "false", "off", "关"]
 
 /** 内部字段名 → 中文名，用于结果图里的成功/失败行 */
-export const CN_LABEL: Record<string, string> = Object.fromEntries(
-  CN_KEYS.map(k => [k.key, k.cn]),
-)
+export const CN_LABEL: Record<string, string> = Object.fromEntries(CN_KEYS.map(k => [k.key, k.cn]))
 
 /** 可设项的中文名清单，用于用法提示与「未知项」的报错 */
 export const CN_NAMES = CN_KEYS.map(k => k.cn).join(" / ")

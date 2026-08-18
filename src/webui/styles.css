@@ -12,14 +12,18 @@
  * 产物是 webadapter/page.css，路径与文件名都不能改：宿主的静态白名单只放行
  * 描述符里列过的那个 style 文件名（见 modules/webadapter 的 registerPage）。
  *
- * @source 相对本文件解析，扫的是同目录的 tsx。glob 失配不报错，只会让 utilities
- * 层静默变空（页面整体掉样式），改本文件位置时记得一起改。
+ * @source 相对本文件解析，两处都不能省：
+ *   `**`      —— `./*.tsx` 只匹配同目录一层，components/ 下的组件会整个扫不到；
+ *   `{ts,tsx}` —— className 常量抽进 `ui.ts` 之后就落在 .ts 里了，只扫 tsx 会让
+ *                 `font-[family-name:…]` 这种「只在常量里出现一次」的 utility 整个丢掉。
+ * glob 失配不报错，只会让 utilities 层静默变空（那些组件掉样式），所以改本文件位置、
+ * 新增子目录、或把 className 挪进非 tsx 文件时，都记得一起看这里。
  */
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities) source(none);
 
-@source "./*.tsx";
+@source "./**/*.{ts,tsx}";
 
 /*
  * 配色
@@ -40,6 +44,26 @@
   --warning: #f59e0b;
   --danger: #ef4444;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  /*
+   * Apple 系统开关的两个态色，与状态色刻意分开
+   *
+   * 绿开关表达的是「用户选择了启用/绑定」，连接通不通由状态点与文字说（--success
+   * 那批）。两者同色会让「开关绿着但连不上」看起来像自相矛盾。
+   * 深浅两套值只出现在这一段与下面的 dark 块里，别在组件里再写一次十六进制。
+   */
+  --switch-off: #e5e5ea;
+  --switch-on: #34c759;
+  /*
+   * 开关的边界描边，深浅必须分开给（实测值，见 test/switch-contrast.mjs）
+   *
+   * 关态轨道对卡片底只有 1.26:1（浅）/ 2.69:1（深），控件几乎看不见，所以补一圈描边。
+   * 但同一个黑色描边在深色下是**反效果**：压在 #636366 上再对 #1e2127 比只有 1.69:1，
+   * 比不描边还糟。浅色压黑、深色提白，两边才都过 3:1（SC 1.4.11 的非文本对比度）。
+   */
+  --switch-edge: rgb(0 0 0 / 40%);
+  /* 平台标签（QQBot / onebot…）：淡蓝底深蓝字，不用 --primary —— 那是按钮色 */
+  --chip: #edf4ff;
+  --chip-fg: #1663bd;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -50,6 +74,11 @@
     --fg: #e6e8eb;
     --muted: #9aa3af;
     --shadow: none;
+    --switch-off: #636366;
+    --switch-on: #30d158;
+    --switch-edge: rgb(255 255 255 / 22%);
+    --chip: #12345b;
+    --chip-fg: #6eb4ff;
   }
 }
 
@@ -64,25 +93,112 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-chip: var(--chip);
+  --color-chip-fg: var(--chip-fg);
 }
 
 /*
- * 只留三条自定义规则，其余全走 utility
+ * 三处自定义规则，其余全走 utility
  *
- * body 与 #app 是「页面级」的东西，写在 JSX 上没有落点（body 不由 React 渲染）。
+ * body 是「页面级」的东西，写在 JSX 上没有落点（body 不由 React 渲染），
+ * 移动端收窄内边距同理 —— 断点也只能写在这儿。
  * 状态灯的 box-shadow 用了颜色变量做光晕，utility 写出来是
  * [box-shadow:0_0_8px_var(--success)] 这种长串，不如留一条规则。
+ * 开关是 appearance-none + ::after 滑块 + :checked 换色 + prefers-reduced-motion
+ * 四件事的组合，逐条写成任意值 utility 会长到读不出意图，整组留在这里。
  */
 body {
   margin: 0;
   padding: 20px;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font:
+    14px/1.6 system-ui,
+    -apple-system,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+}
+
+/* 窄屏把 20px 内边距收掉一半：390px 宽下那 40px 会把设置行挤到换行。
+   断点写成 `width < 720px` 而不是 `max-width: 720px`：Tailwind v4 的 `max-[720px]:`
+   编出来的正是前者（不含 720），两种写法混用时 720px 整宽会一半收一半不收 */
+@media (width < 720px) {
+  body {
+    padding: 12px;
+  }
 }
 
 /* 状态灯：亮起时带同色光晕，对应 constants/index.ts 的 STATUS_TEXT 四个状态码 */
 .dot-on {
   background: var(--success);
   box-shadow: 0 0 8px var(--success);
+}
+
+/*
+ * Apple 风格开关（用在 components/Switch.tsx 的原生 checkbox 上）
+ *
+ * 尺寸取设计稿定值：46×28 轨道 + 24px 滑块 + 2px 内缩，于是开合两态的滑块位置是
+ * left: 2px / 20px（46 - 24 - 2），两侧留白对称。
+ * 用原生 checkbox 而不是 div[role=switch]：Space 切换与 Tab 聚焦都是浏览器给的。
+ */
+.sw {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex: none;
+  appearance: none;
+  border-radius: 999px;
+  background: var(--switch-off);
+  /*
+   * 关态必须有可见边界
+   *
+   * 浅色下 --switch-off(#e5e5ea) 对 --surface(#fff) 只有 1.26:1，白滑块对轨道同样是
+   * 1.26:1 —— 整个控件几乎只靠滑块那点投影才看得出来。这圈内描边给的是「组件边界」
+   * 而不是填充色对比，开态一起留着（两态都要能看见边界）。颜色按主题取，理由见
+   * --switch-edge；实测脚本 test/switch-contrast.mjs。
+   */
+  box-shadow: inset 0 0 0 1px var(--switch-edge);
+  transition: background-color 0.18s ease;
+}
+
+/*
+ * 把可点区域补到 44px 高
+ *
+ * 伪元素的命中等于命中它的宿主元素，所以这 8px 真的可点。外层那个 span 只撑布局
+ * 高度 —— 它没有 handler、也不是 label，点上去什么都不会发生（原注释把两者说反了）。
+ */
+.sw::before {
+  content: "";
+  position: absolute;
+  inset: -8px 0;
+}
+
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgb(0 0 0 / 28%);
+  transition: left 0.18s ease;
+}
+
+.sw:checked {
+  background: var(--switch-on);
+}
+
+.sw:checked::after {
+  left: 20px;
+}
+
+/* 前庭功能障碍者把「减少动态效果」打开就是不想看东西滑动，滑块直接跳位 */
+@media (prefers-reduced-motion: reduce) {
+  .sw,
+  .sw::after {
+    transition: none;
+  }
 }

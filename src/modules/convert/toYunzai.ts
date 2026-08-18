@@ -58,7 +58,32 @@ export async function gscoreToYunzai(
         if (i.data !== "" && i.data != null) message.push(String(i.data))
         break
 
+      /**
+       * 空 markdown 不透传，并把「核心侧可能丢了图」这条线索说出来
+       * ------
+       * 核心 bot.send_option(图片, 按钮) 在平台命中按钮白名单时会走 to_markdown
+       * （core segment.py:478）把图文压成一段 markdown。那里取图片 URL 的前提是
+       * 消息里带 image_size 段，而 image_size 只有 _image_to_url 走「转链接」分支
+       * 才会产出（core segment.py:278/308）；一旦「图片发送方式=link」却没启用图床，
+       * _image_to_url 落到 `else: return [message]`，图片仍是 bytes、没有 image_size，
+       * 于是 to_markdown 的 `if url and size` 不成立 —— 图片既没写进 markdown 文本，
+       * 也没留在消息里，被静默丢弃，核心那边一句日志都不打。纯图片响应（如 ww帮助）
+       * 因此只剩一个空 markdown 加一组按钮。
+       *
+       * 空 markdown 发出去对用户没有任何信息量，QQ 侧还可能因空内容直接报错，
+       * 顺带把按钮也拖没。跳过它，让按钮自己发出去，并留一条 warn 指向核心配置 ——
+       * 这类问题从现象上看只是「帮助没图了」，不给线索就得去翻核心源码。
+       */
       case "markdown":
+        if (String(i.data ?? "").trim() === "") {
+          makeLog(
+            "warn",
+            "核心下发了空 markdown，已跳过；若本该是图片，检查核心「图片发送方式」与图床配置",
+            "GsCore",
+            true,
+          )
+          break
+        }
         message.push(segment.markdown(i.data))
         break
 
@@ -97,6 +122,7 @@ export async function gscoreToYunzai(
         break
 
       case "reply":
+      case "reply_id":
         // 由调用方 unshift(segment.reply(quote))
         quote = String(i.data)
         break

@@ -109,7 +109,9 @@ export async function open(): Promise<boolean> {
   try {
     fs.mkdirSync(dbDir, { recursive: true })
     db = await new Promise<SqliteDatabase>((resolve, reject) => {
-      const d = new sqlite3.Database(dbFile, (err: Error | null) => (err ? reject(err) : resolve(d)))
+      const d = new sqlite3.Database(dbFile, (err: Error | null) =>
+        err ? reject(err) : resolve(d),
+      )
     })
 
     // WAL：写不阻塞读。这里的写是后台定时回写，读是出图时的一次性查询，

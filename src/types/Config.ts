@@ -4,16 +4,24 @@
  * 对应 resources/config/default_config.yaml
  */
 
-
 /** WebSocket 连接配置 */
 export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */
   name?: string
-  /** 早柚核心 WebSocket 地址，路由为 /ws/{bot_id}，bot_id 为本机器人平台名 */
+  /** 早柚核心 WebSocket 地址，默认路由 /ws/Yunzai */
   url: string
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
-  /** 上报时填入 MessageReceive.bot_id；留空则按 bot_id_map 推断 */
+  /**
+   * 旧字段，上报只读 bot_id_map，不读这里
+   *
+   * 启动时会迁移掉：按 bind 减 exclude 后的每个账号各写一行 bot_id_map（已有账号级
+   * 值优先），再删掉这个字段。编辑这条连接也做同一件事。
+   *
+   * 之所以破例改用户的连接项：这个字段现在**不生效**，留着它就是「配置里写着一个平台、
+   * 实际按另一个上报」，用户从配置里看不出哪儿错了。完整理由见 config/upgrade.ts 的
+   * seedAccountBotIds。关联不到账号（bind 为空或全被 exclude）时保留并告警，不静默丢。
+   */
   bot_id?: string
   /** 是否启用本连接 */
   enable?: boolean
@@ -25,6 +33,31 @@ export interface WsConnection {
   bind?: (string | number)[]
   /** 排除这些 self_id（优先级高于 bind） */
   exclude?: (string | number)[]
+}
+
+/** 展开到具体账号或兼容路径后的运行时 WebSocket 连接 */
+export interface RuntimeWsConnection extends WsConnection {
+  /** 来源逻辑连接在 getWsConnections() 中的下标 */
+  sourceIndex: number
+  /** 自动端点对应的唯一账号；自定义路径为 null */
+  account: string | null
+  /**
+   * 稳定身份：规范化后的运行时路由（见 utils/url.ts 的 routeKey）
+   *
+   * 停起、复用、冲突仲裁都按它比，而不是按 {@link runtimeName}。名字会随
+   * 「改名」「删掉前面一条导致 连接 #N 整体位移」变化 —— 按名字比就会把一条
+   * 没动过的连接判成「删掉旧的再起一条新的」，用户那头是一次无谓的断线重连。
+   * 路由才是「连到核心的哪个客户端」这件事本身，改名不影响它。
+   */
+  runtimeKey: string
+  /** 日志 / 状态 / 统计用的显示名称。仅用于展示，不做身份 */
+  runtimeName: string
+  /** 最终连接地址（不含 token 查询参数） */
+  runtimeUrl: string
+  /** 地址原本是否显式携带 token 参数（含空值）；根路径与自定义路径都可能带 */
+  inlineToken?: boolean
+  /** 是否由 origin + bind 派生 */
+  automatic: boolean
 }
 
 /** 消息过滤，仅影响 client 方向的上报 */

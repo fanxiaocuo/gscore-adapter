@@ -104,7 +104,10 @@ export function About(data: AboutData) {
         {/* 顶部一行小字，取代其他页的巨型 Header——这页的主视觉是版本号 */}
         <div className="mb-[40px] flex items-center justify-between gap-[24px]">
           <div className="flex items-center gap-[14px] text-[24px] font-extrabold leading-none tracking-[.18em] text-muted">
-            <span className="size-[11px] flex-none rounded-[9999px]" style={{ background: p.rotate[0] }} />
+            <span
+              className="size-[11px] flex-none rounded-[9999px]"
+              style={{ background: p.rotate[0] }}
+            />
             <span>运行诊断</span>
             <span className="opacity-50">·</span>
             <span className="font-mono">RUNTIME REPORT</span>
@@ -243,7 +246,9 @@ export function About(data: AboutData) {
               </div>
               {r.sub && (
                 // break-keep：sub 是中文说明，逐字断点会把词劈开（同 Help 的说明文字）
-                <div className="text-[21px] leading-[1.5] break-words break-keep text-muted">{r.sub}</div>
+                <div className="text-[21px] leading-[1.5] break-words break-keep text-muted">
+                  {r.sub}
+                </div>
               )}
             </div>
           ))}
@@ -328,7 +333,10 @@ export function About(data: AboutData) {
                     {g.items.map((it, ii) => (
                       /* 圆点用 flex-none + mt 手动对齐首行视觉中线：
                          items-center 在条目折行时会把点带到两行之间，看着像挂错了行 */
-                      <li className="flex items-start gap-[16px] text-[25px] leading-[1.5]" key={ii}>
+                      <li
+                        className="flex items-start gap-[16px] text-[25px] leading-[1.5]"
+                        key={ii}
+                      >
                         <i
                           className="mt-[14px] size-[9px] flex-none rounded-[9999px] opacity-[.85]"
                           style={{ background: p.rotate[gi % p.rotate.length] }}
@@ -367,7 +375,9 @@ export function About(data: AboutData) {
               </span>
               {/* break-all 而不是 break-words：取值是 URL，没有空格可断，
                   break-words 只在整词放不下时才断，那会让长地址整条溢出列宽 */}
-              <span className="min-w-0 font-mono leading-[1.5] break-all text-muted">{l.value}</span>
+              <span className="min-w-0 font-mono leading-[1.5] break-all text-muted">
+                {l.value}
+              </span>
             </div>
           ))}
         </div>

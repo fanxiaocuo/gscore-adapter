@@ -94,7 +94,7 @@
  * padding 与描边全丢，而 CSS 里查不到任何痕迹。所以某个词一旦成为真类名，就从这里删掉。
  */
 @source not inline("contents hidden visible fixed filter container");
-@source not inline("blur tabular-nums -mt-[7px]");
+@source not inline("blur tabular-nums -mt-[7px] [align-items:start]");
 
 
 /*

@@ -27,8 +27,7 @@ export const baseSchemas = [
   {
     field: "file_max_size",
     label: "文件大小上限",
-    bottomHelpMessage:
-      "file 段必须内联 base64（协议无 URL 形式），超过此大小直接拒绝发送（字节）",
+    bottomHelpMessage: "file 段必须内联 base64（协议无 URL 形式），超过此大小直接拒绝发送（字节）",
     component: "InputNumber",
     componentProps: { min: 0, step: 1048576 },
   },

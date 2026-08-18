@@ -1,7 +1,13 @@
 /**
  * 云崽 -> 早柚核心
  */
-import { toGscoreMedia, toGscoreFile, isChannel, resolveReplyId } from "@/utils"
+import {
+  toGscoreMedia,
+  toGscoreFile,
+  isChannel,
+  resolveReplyId,
+  resolveReplyMessage,
+} from "@/utils"
 import type {
   MessageReceive,
   UserPm,
@@ -12,6 +18,64 @@ import type {
 } from "@/types"
 import { buttonsToGscore } from "./buttons.js"
 import { toStr } from "@/utils/compat"
+
+const NODE_MARK = "[合并转发]"
+
+function replyTextValue(value: unknown): string {
+  if (typeof value !== "string") return ""
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed?.type === "markdown" && parsed?.data?.content) return String(parsed.data.content)
+  } catch {
+    // 普通文本不是 JSON，按原样返回。
+  }
+  return value
+}
+
+/** 从被引用消息中提取正文，不把 at / media 等上下文误当成当前命令。 */
+function replyText(message: YunzaiMessage): string {
+  const list = Array.isArray(message) ? message : [message]
+  const parts: string[] = []
+  for (const item of list) {
+    if (item == null) continue
+    if (typeof item !== "object") {
+      const text = replyTextValue(String(item))
+      if (text) parts.push(text)
+      continue
+    }
+
+    if (item.type === "text") {
+      const text = replyTextValue(item.text ?? item.data)
+      if (text) parts.push(text)
+      continue
+    }
+
+    if (item.type === "markdown" || item.type === "json") {
+      const data = item.data
+      const value =
+        typeof data === "object" && data !== null
+          ? (data.content ?? data.text ?? data.data)
+          : data
+      const text = replyTextValue(value)
+      if (text) parts.push(text)
+    }
+  }
+  return parts.join("")
+}
+
+function nodePreview(items: MessageSegment[]): string {
+  const lines = [NODE_MARK]
+  for (const item of items) {
+    if (item.type === "text" && item.data != null) {
+      const text = String(item.data).trim()
+      if (text) lines.push(text)
+    } else if (item.type === "image") lines.push("[图片]")
+    else if (item.type === "record") lines.push("[语音]")
+    else if (item.type === "video") lines.push("[视频]")
+    else if (item.type === "file") lines.push("[文件]")
+  }
+  return lines.join("\n")
+}
 
 /** 云崽 message 数组 -> 早柚核心 Message[] */
 export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]> {
@@ -79,9 +143,11 @@ export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]>
         break
       }
 
-      case "reply":
-        out.push({ type: "reply", data: String(i.id ?? i.message_id) })
+      case "reply": {
+        const id = i.id ?? i.message_id
+        if (id != null && id !== "") out.push({ type: "reply_id", data: String(id) })
         break
+      }
 
       case "button":
         out.push({ type: "buttons", data: buttonsToGscore(i.data) })
@@ -91,8 +157,7 @@ export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]>
         // 协议禁止 node 嵌套，这里拍平
         const arr: Exclude<MessageSegment, { type: "node" }>[] = []
         for (const n of Array.isArray(i.data) ? i.data : []) {
-          for (const s of await msgToGscore(n?.message ?? n))
-            if (s.type !== "node") arr.push(s)
+          for (const s of await msgToGscore(n?.message ?? n)) if (s.type !== "node") arr.push(s)
         }
         out.push({ type: "node", data: arr })
         break
@@ -122,27 +187,41 @@ export async function yunzaiToGscore(
 ): Promise<MessageReceive | false> {
   const content: MessageSegment[] = []
 
-  // 引用消息放最前。
-  //
-  // 只传 message_id，不去把被引用消息的图片抓下来一并发过去 —— 核心
-  // handler.py:773 只做 `event.reply = _msg.data`，而唯一的消费者
-  // GenshinUID/genshinuid_enka/__init__.py:268-269 拿它当**键**去查核心自己
-  // 缓存的 TEMP_PATH/{reply}.jpg（"原图"功能），并非当图片内容用；
-  // ai_core 的字段说明（capability_agents/profiles.py:781）也写的是"回复的消息ID"。
-  // 额外塞 image 段不但帮不到这个消费者，还会污染 event.image / image_list
-  // （handler.py:763-766），让"引用了一张图"在所有插件眼里变成"刚发了一张图"。
-  //
-  // id 的取法各适配器不一，ICQQ 更是两种常规字段都没有，需由 e.source 反算 ——
-  // 全部收敛到 utils/reply.ts 的 resolveReplyId，理由见那里。
+  // 先上报当前消息，引用上下文放在末尾，避免 reply/node 影响命令匹配。
+  // 引用 id 与正文是两个不同字段；引用图片和合并转发节点也一并保留。
+  const current = await msgToGscore(e.message || [])
+  content.push(...current.filter(i => i.type !== "reply" && i.type !== "reply_id"))
+
   const replyId = resolveReplyId(e)
-  // 消息段里已经有 reply 时不再补：msgToGscore 会把那一段转成 reply，
-  // 两处都加就会出现两个 reply 段
-  const segs = Array.isArray(e.message) ? e.message : []
-  if (replyId && !segs.some(i => typeof i === "object" && i?.type === "reply")) {
-    content.push({ type: "reply", data: replyId })
+  if (replyId) {
+    content.push({ type: "reply_id", data: replyId })
+
+    const quotedMessage = await resolveReplyMessage(e)
+    if (quotedMessage.length) {
+      const quoted = await msgToGscore(quotedMessage)
+      const nodes: MessageSegment[] = []
+      for (const item of quoted) {
+        if (item.type === "node") nodes.push(...item.data)
+      }
+
+      let quotedText = replyText(quotedMessage)
+      if (nodes.length) {
+        quotedText = quotedText
+          ? quotedText.includes(NODE_MARK)
+            ? quotedText
+            : `${NODE_MARK}\n${quotedText}`
+          : nodePreview(nodes)
+      }
+      if (quotedText) content.push({ type: "reply", data: quotedText })
+
+      // 核心新协议要求引用图片作为普通 image 段上报；node 同样保持独立段。
+      for (const item of quoted) {
+        if (item.type === "image" || item.type === "image_size" || item.type === "node")
+          content.push(item)
+      }
+    }
   }
 
-  content.push(...(await msgToGscore(e.message || [])))
   if (!content.length) return false
 
   // user_pm 越小权限越高；主人恒为 1（短路，主人在群里也是 1）

@@ -47,21 +47,15 @@ export const clientSchemas = [
           field: "url",
           label: "地址",
           bottomHelpMessage:
-            "早柚核心地址。路由为 /ws/{bot_id}，{bot_id} 是本机器人平台名，可自定义",
+            "早柚核心地址，只填到 host:port。运行时按绑定账号生成 /ws/Yunzai-<账号>，不用自己写路径",
           component: "Input",
-          componentProps: { placeholder: "ws://127.0.0.1:8765/ws/Yunzai" },
+          componentProps: { placeholder: "ws://127.0.0.1:8765" },
         },
         {
           field: "token",
           label: "Token",
           bottomHelpMessage: "早柚核心以 ?token= 查询参数接收，留空则不发送",
           component: "InputPassword",
-        },
-        {
-          field: "bot_id",
-          label: "平台标识",
-          bottomHelpMessage: "上报时填入 MessageReceive.bot_id，留空则按平台标识映射自动推断",
-          component: "Input",
         },
         {
           field: "enable",
@@ -84,7 +78,7 @@ export const clientSchemas = [
         {
           field: "bind",
           label: "仅转发",
-          bottomHelpMessage: "只转发这些 self_id 的消息，留空表示全部",
+          bottomHelpMessage: "要接入早柚核心的机器人账号，至少填一个。每个账号会生成一条独立连接",
           component: "GTags",
           componentProps: { allowAdd: true, allowDel: true },
         },

@@ -40,16 +40,43 @@ lib/
 # 那个目录是要入库的，由 .github/workflows/docs.yml 发到 gh-pages。
 notes/
 
+# 实施计划与头脑风暴草稿：留在本地，不入库
+#
+# 两条都带前导 / 锚定，理由同上：docs/ 整体是要入库的，只排掉 plans 这一个子目录。
+# 设计文档（docs/superpowers/specs/）仍然入库 —— 那是要留档的设计决策；
+# 计划是「怎么落地」的过程稿，改一次就重写一遍，入库只会刷无意义 diff。
+# 注意 gitignore 管不住 VitePress：它按文件系统扫 docs/，本地 pnpm docs:dev
+# 仍会把留在这里的计划渲染成页面。要连本地预览一起排掉得改 config.mts 的 srcExclude。
+/docs/superpowers/plans/
+/.superpowers/
+
+# graphify 的知识图谱产物：每次 /graphify 都整体重写，是索引而不是源码，
+# 入库只会让每次重建都带一个全量 diff。前导 / 锚定到仓库根，理由同上。
+/graphify-out/
+
 # 测试：留在本地，不入库
 #
 # 因此 CI 里没有「测试」步骤 —— 流水线从仓库克隆，克隆不到 test/ 就跑不了
 # pnpm test。改回入库时记得把两个 workflow 的测试步骤加回来。
-# 本地仍可 pnpm test（跑的是 lib/ 编译产物，先 pnpm build）。
+#
+# 本地跑法是 pnpm build && pnpm test，顺序不能颠倒。测试读的是 src/——顶层
+# await import("../src/**.ts")，由 tsx 现场转译，不读 lib/（见 test/fixtures.mjs
+# 的说明）。build 是另一个原因：classes.test.mjs 断言 Tailwind 产物
+# resources/template/css/tailwind.css 真被内联了，那份产物由 build:css 生成。
+#
+# 真要改回入库的话先看一眼 geom / vars / shot / panel-check / panel-verify /
+# probe-height：这几个 puppeteer 脚本里写死了 D:/bot/... 与本机用户名下的
+# chrome 路径，直接入库既在别人机器上跑不起来，也把本地路径发到公开仓库。
 test/
 
 # Claude Code / Cursor 本地会话与工作树
 /.claude/
 /.cursor/
+
+# 代理指令文件：内容是本机装了哪些 MCP server、该优先用哪个工具探索代码，
+# 与插件本身无关，且随本机安装的工具变。入库会把「你必须用 jCodeMunch」这类
+# 只对我这台机器成立的规矩强加给克隆仓库的人。前导 / 锚定到仓库根。
+/AGENTS.md
 
 # 编辑器 / 系统
 .vscode/

@@ -1,7 +1,10 @@
 /**
  * 媒体转换工具
  *
- * 云崽文件字段 <-> 早柚核心媒体串（base64:// 与 link:// 两种形式）
+ * 云崽文件字段 <-> 早柚核心媒体串
+ *
+ * 上行（toGscoreMedia）用裸 http(s) URL 或 base64://；下行
+ *（fromGscoreMedia）额外兼容核心 MessageSegment 使用的 link:// 外链标记。
  */
 import { join, isAbsolute } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -108,8 +111,9 @@ export function resetUploadHook() {
 onConfigReload(resetUploadHook)
 
 /**
- * 云崽文件字段 -> 早柚核心媒体串
- * 小文件走 base64://，http 外链或超限文件走 link://
+ * 云崽文件字段 -> 早柚核心入站媒体串
+ * 小文件走 base64://；HTTP 外链或超限文件走裸 http(s) URL。
+ * link:// 是核心构造下行 MessageSegment 时使用的标记，不能用于上行事件媒体。
  */
 export async function toGscoreMedia(
   input: MediaInput | null | undefined,
@@ -125,15 +129,15 @@ export async function toGscoreMedia(
   if (Buffer.isBuffer(data)) return `base64://${data.toString("base64")}`
 
   const s = toStr(data)
-  if (/^https?:\/\//.test(s)) return `link://${s}`
+  if (/^https?:\/\//.test(s)) return s
 
   // file:// 路径：转成云崽自身的文件服务外链
   try {
-    return `link://${await fileToUrl(s, { name, time: linkExpire() })}`
+    return await fileToUrl(s, { name, time: linkExpire() })
   } catch (err) {
     // 框架没有文件服务（Miao）时依次降级：内置文件服务 -> 用户图床
     const url = await viaFallback(s, name)
-    if (url) return `link://${url}`
+    if (url) return url
 
     makeLog("error", ["生成外链失败", s, err], "GsCore")
     return ""

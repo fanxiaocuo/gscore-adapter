@@ -3,7 +3,8 @@
  *
  * 为什么不直接用 @types/trss-yunzai 的 Client / Group / Friend
  * ---------------------------------------------------------
- * 下行发送这条路径拿到的 bot 是 `Bot.bots[self_id] || Bot`，两种形状并存：
+ * 下行发送这条路径拿到的 bot 是 `getBot(self_id)`（TRSS 即底层注册表的该账号），
+ * Miao 仅在 self_id 与根 Bot.uin 相等时返回全局 Bot；错号同样空着。
  *
  *   Client（单个 bot 实例）   adapter 是 Adapter
  *   Yunzai（全局 Bot 兜底）   adapter 是 Adapter[]
@@ -37,10 +38,24 @@ export interface SendTarget {
   makeForwardMsg?: (...args: any[]) => any
   /** 禁言，仅群对象有 */
   muteMember?: (...args: any[]) => any
+  /*
+   * QQBot-Plugin 被动发送要从会话对象上读的上下文字段
+   * ----
+   * 显式列出来而不是全靠下面那条索引签名：passiveReady 逐条查这几项，而靠索引签名
+   * 时它们的类型是 any —— 字段名写错、判据写错都不报错，代价是频道的被动回复被静默
+   * 降级成普通发送（见 GsCoreClient 的 passiveReady 注释）。索引签名仍然留着：
+   * 各适配器 pick 出来的对象字段远不止这些，本插件也不该去穷举。
+   */
+  self_id?: string | number
+  /** 该会话所属的 Bot 实例。这里只判它在不在，不调它，所以不给具体形状 */
+  bot?: unknown
+  user_id?: string | number
+  group_id?: string | number
+  channel_id?: string | number
   [k: string]: any
 }
 
-/** 下行发送用到的 bot（`Bot.bots[self_id]`，取不到时是全局 Bot） */
+/** 下行发送用到的账号实例（TRSS 精确注册表；Miao 仅同 uin 返回根 Bot） */
 export interface SendBot {
   /** Client 上是 Adapter，全局 Bot 上是 Adapter[]，只交给能力探测用 */
   adapter?: any

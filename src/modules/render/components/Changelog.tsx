@@ -77,7 +77,9 @@ export function Changelog(data: ChangelogData) {
                 <div className="flex min-w-0 flex-1 flex-col gap-[8px]">
                   {/* break-words + break-keep：提交标题多为中文，前者防长串溢出，
                       后者禁掉 CJK 逐字断点，断行落在标点与空格上 */}
-                  <div className="text-[30px] font-bold leading-[1.45] break-words break-keep">{c.subject}</div>
+                  <div className="text-[30px] font-bold leading-[1.45] break-words break-keep">
+                    {c.subject}
+                  </div>
                   <div className="font-mono text-[21px] text-muted">{c.date}</div>
                 </div>
               </div>

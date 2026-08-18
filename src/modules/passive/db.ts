@@ -92,7 +92,9 @@ export async function open(): Promise<boolean> {
   try {
     fs.mkdirSync(dbDir, { recursive: true })
     db = await new Promise<SqliteDatabase>((resolve, reject) => {
-      const d = new sqlite3.Database(dbFile, (err: Error | null) => (err ? reject(err) : resolve(d)))
+      const d = new sqlite3.Database(dbFile, (err: Error | null) =>
+        err ? reject(err) : resolve(d),
+      )
     })
     await run("PRAGMA journal_mode = WAL")
     await run("PRAGMA synchronous = NORMAL")

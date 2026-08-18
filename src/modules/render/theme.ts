@@ -125,7 +125,6 @@ export function pickPalette(hour = new Date().getHours()): Palette {
   return hour >= 6 && hour < 18 ? LIGHT : DARK
 }
 
-
 /**
  * 调色板 -> CSS 自定义属性
  *
