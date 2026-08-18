@@ -4,6 +4,11 @@ import YAML from "yaml"
 import type { Document, ParsedNode, YAMLSeq } from "yaml"
 import chokidar from "chokidar"
 import { PluginPath, ConfigPath } from "@/dir"
+import {
+  validateConnections,
+  type RuntimeExpectation,
+  type ValidationResult,
+} from "@/modules/client/validate.js"
 import type { AdapterEvent, Config, WsConnection } from "@/types"
 import { isChannel } from "@/utils/session.js"
 import { guessPlatform, isQQBotAppId } from "@/utils/platform.js"
@@ -80,6 +85,13 @@ function load(migrate = false) {
   return merge(read(defFile), read(userFile, true)) as Config
 }
 
+/** Read a reload candidate without converting parse failures into an empty config. */
+function loadStrict() {
+  const defaults = YAML.parse(fs.readFileSync(defFile, "utf8")) || {}
+  const user = fs.existsSync(userFile) ? YAML.parse(fs.readFileSync(userFile, "utf8")) || {} : {}
+  return merge(defaults, user) as Config
+}
+
 /**
  * 配置对象。热重载时原地更新（delete + assign），
  * 保证其它模块已 import 的引用同步生效。
@@ -104,8 +116,7 @@ export function onConfigReload(fn: () => void) {
   invalidators.push(fn)
 }
 
-function reload() {
-  const next = load()
+function replaceConfig(next: Config) {
   for (const k of Object.keys(config)) delete (config as Partial<Config>)[k as keyof Config]
   Object.assign(config, next)
   for (const fn of invalidators)
@@ -114,6 +125,10 @@ function reload() {
     } catch {
       // 清缓存失败不该影响重载本身
     }
+}
+
+function reload() {
+  replaceConfig(load())
 }
 
 /**
@@ -194,8 +209,23 @@ const watcher = chokidar.watch(userFile).on("change", async () => {
     selfWrite = false
     return
   }
-  reload()
-  globalThis.Bot?.makeLog?.("mark", `配置已重载${await converge()}`, "GsCore")
+  try {
+    const next = loadStrict()
+    const list = Array.isArray(next.client?.connections) ? next.client.connections : []
+    const result = validateConnections(list)
+    if (!result.ok) {
+      globalThis.Bot?.makeLog?.(
+        "error",
+        ["配置重载校验失败", new ConnectionValidationError(result)],
+        "GsCore",
+      )
+      return
+    }
+    replaceConfig(next)
+    globalThis.Bot?.makeLog?.("mark", `配置已重载${await converge()}`, "GsCore")
+  } catch (err) {
+    globalThis.Bot?.makeLog?.("error", ["配置重载校验失败", err], "GsCore")
+  }
 })
 
 /**
@@ -242,6 +272,34 @@ export function saveConfig(fn: (doc: ConfigDoc) => void) {
   fs.writeFileSync(userFile, unflow(doc).toString({ lineWidth: 0 }))
   reload()
   return config
+}
+
+export class ConnectionValidationError extends Error {
+  constructor(public readonly result: ValidationResult) {
+    super(result.errors.map(issue => issue.message).join("\n"))
+    this.name = "ConnectionValidationError"
+  }
+}
+
+/**
+ * Apply a connection-related edit to an in-memory YAML document, validate the
+ * complete resulting connection set, and only then replace the on-disk config.
+ */
+export function saveConnectionConfig(
+  fn: (doc: ConfigDoc) => void,
+  expectations: RuntimeExpectation[] = [],
+): ValidationResult {
+  let result: ValidationResult | undefined
+
+  saveConfig(doc => {
+    fn(doc)
+    const next = merge(read(defFile), doc.toJS() || {}) as Config
+    const list = Array.isArray(next.client?.connections) ? next.client.connections : []
+    result = validateConnections(list, expectations)
+    if (!result.ok) throw new ConnectionValidationError(result)
+  })
+
+  return result as ValidationResult
 }
 
 /** 读取 WebSocket 连接列表（保证是数组） */
@@ -298,11 +356,19 @@ export type ConnectionPatch = { [K in keyof WsConnection]?: WsConnection[K] | nu
  */
 
 /** 追加一条连接并写盘。extra 在同一次保存里执行（如添加时顺手记 bot_id_map） */
-export function appendConnection(conf: WsConnection, extra?: (doc: ConfigDoc) => void) {
-  saveConfig(doc => {
-    ensureWsConnections(doc).add(doc.createNode(conf))
-    extra?.(doc)
-  })
+export function appendConnection(
+  conf: WsConnection,
+  extra?: (doc: ConfigDoc) => void,
+  expectations?: RuntimeExpectation[],
+) {
+  const sourceIndex = getWsConnections().length
+  return saveConnectionConfig(
+    doc => {
+      ensureWsConnections(doc).add(doc.createNode(conf))
+      extra?.(doc)
+    },
+    expectations ?? [{ sourceIndex, action: "新增" }],
+  )
 }
 
 /**
@@ -315,25 +381,29 @@ export function updateConnection(
   index: number,
   patch: ConnectionPatch,
   extra?: (doc: ConfigDoc) => void,
+  expectations?: RuntimeExpectation[],
 ) {
-  saveConfig(doc => {
-    const item = ensureWsConnections(doc).get(index, true)
-    if (!item || !YAML.isMap(item)) throw new Error(`连接序号 ${index + 1} 不存在`)
-    for (const [key, value] of Object.entries(patch)) {
-      if (value === undefined) continue
-      if (value === null) {
-        item.delete(key)
-        continue
+  return saveConnectionConfig(
+    doc => {
+      const item = ensureWsConnections(doc).get(index, true)
+      if (!item || !YAML.isMap(item)) throw new Error(`连接序号 ${index + 1} 不存在`)
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined) continue
+        if (value === null) {
+          item.delete(key)
+          continue
+        }
+        item.set(key, Array.isArray(value) ? doc.createNode(value) : value)
       }
-      item.set(key, Array.isArray(value) ? doc.createNode(value) : value)
-    }
-    extra?.(doc)
-  })
+      extra?.(doc)
+    },
+    expectations ?? [],
+  )
 }
 
 /** 删除一条连接并写盘 */
 export function removeConnection(index: number) {
-  saveConfig(doc => {
+  return saveConnectionConfig(doc => {
     const seq = ensureWsConnections(doc)
     if (!seq.get(index, true)) throw new Error(`连接序号 ${index + 1} 不存在`)
     seq.delete(index)

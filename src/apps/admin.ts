@@ -12,11 +12,9 @@ import {
 } from "@/config"
 import { applyConnections, clients, countSource } from "@/modules/client"
 import { expandConnections, readIds, requireAccounts, sourceLabel } from "@/modules/client/expand"
-import { findRouteConflict } from "@/modules/client/conflict"
 import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import {
-  findDuplicate,
   findSameCore,
   inlineToken,
   mergeEndpointQuery,
@@ -289,20 +287,15 @@ export default class GsCoreAdmin extends plugin<"message"> {
     } else bind = selfId ? [selfId] : []
     const exclude = kv.exclude ? splitIds(kv.exclude) : []
 
-    const bindErr = requireAccounts({ url, bind, exclude })
+    if (kv.enable !== undefined && !["true", "false"].includes(kv.enable.toLowerCase()))
+      return e.reply("enable ֻ���� true �� false")
+    const enable = kv.enable === undefined || kv.enable.toLowerCase() === "true"
+    const bindErr = enable ? requireAccounts({ url, bind, exclude }) : undefined
     if (bindErr) return e.reply(bindErr)
 
     // 每个账号的平台标识单独记进 bot_id_map。
     const existing = findSameCore(list, url)
     if (existing) {
-      if (findDuplicate([existing], url, bind)) {
-        const had = existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
-        return e.reply(
-          `这个核心已经加过了：${existing.name || safeUrl(existing.url)}\n` +
-            `已绑定：${had}\n` +
-            `本次要绑 ${bind.join("、") || "（无账号）"}，与它重复。`,
-        )
-      }
       const idx = list.indexOf(existing)
       const prevBind = Array.isArray(existing.bind) ? existing.bind.map(String) : []
       const nextBind = [...new Set([...prevBind, ...bind])]
@@ -340,7 +333,9 @@ export default class GsCoreAdmin extends plugin<"message"> {
               writeAccountBotId(doc, id, explicit, undefined, true)
             else writeAccountBotId(doc, id, undefined, config.bot_id_map)
           }
-        })
+        }, bind.length
+          ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
+          : undefined)
       } catch (err) {
         makeLog("error", ["写入配置失败", err], "GsCore")
         return e.reply(`保存失败：${errorMessage(err)}`)
@@ -378,7 +373,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
       name,
       url,
       token: kv.token || null,
-      enable: true,
+      enable,
       reconnect_interval: Number(kv.reconnect_interval) || 5,
       // retry=0 要能写进去（那是「无限重连」的显式选择），所以不能用 `|| 默认值` ——
       // Number("0") 是 0、falsy，会被兜回默认值
@@ -390,6 +385,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
     }
 
     const explicit = kv.bot_id || ""
+    const addedSourceIndex = list.length
     try {
       appendConnection(conf, doc => {
         for (const id of bind) {
@@ -400,7 +396,11 @@ export default class GsCoreAdmin extends plugin<"message"> {
           if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
           else writeAccountBotId(doc, id, undefined, config.bot_id_map)
         }
-      })
+      }, enable
+        ? bind.length
+          ? bind.map(account => ({ sourceIndex: addedSourceIndex, account, action: "新增" }))
+          : undefined
+        : [])
     } catch (err) {
       makeLog("error", ["写入配置失败", err], "GsCore")
       return e.reply(`保存失败：${errorMessage(err)}`)
@@ -465,11 +465,13 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const hit = this.find(target)
     if (!hit) return e.reply(`找不到连接「${target}」，用 #早柚连接列表 查看`)
     let nextBind = Array.isArray(hit.conf.bind) ? hit.conf.bind.map(String) : []
+    let requestedBind: string[] = []
     if (kv.bind !== undefined) {
       const ids = parseBind(kv.bind)
       if (ids === null) return e.reply("bind=all 已不再支持：请写明要接入的账号")
       if (kv.bind_op === "add" && !ids.length) return e.reply("bind+= 需要填写至少一个账号")
       if (kv.bind_op === "remove" && !ids.length) return e.reply("bind-= 需要填写要移除的账号")
+      requestedBind = ids
       nextBind = applyListOp(nextBind, ids, kv.bind_op)
     }
     let nextExclude = Array.isArray(hit.conf.exclude) ? hit.conf.exclude.map(String) : []
@@ -504,19 +506,12 @@ export default class GsCoreAdmin extends plugin<"message"> {
     } catch (err) {
       return e.reply(errorMessage(err))
     }
-    const bindErr = requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
+    const nextEnable =
+      kv.enable === undefined ? hit.conf.enable !== false : kv.enable.toLowerCase() === "true"
+    const bindErr = nextEnable
+      ? requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
+      : undefined
     if (bindErr) return e.reply(bindErr)
-
-    // 改完之后会不会有连接哑掉。判据与「为什么不是 findDuplicate」见 findRouteConflict：
-    // 这里原先也用它，同一核心上另有一条自定义路径的连接时会误判成重复，连改个名字都存不了
-    const conflict = findRouteConflict(getWsConnections(), hit.index, {
-      url: nextUrl,
-      bind: nextBind,
-      exclude: nextExclude,
-      enable:
-        kv.enable !== undefined ? kv.enable.toLowerCase() === "true" : hit.conf.enable !== false,
-    })
-    if (conflict) return e.reply(`${conflict}，已取消保存`)
 
     // 字段校验都在写盘之前做完：报错要作为一句话回给用户，不能等 updateConnection
     // 写到一半才抛。patch 的键序即回复里「xx 已更新」的顺序
@@ -556,14 +551,23 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.bot_id && !ids.length) return e.reply("请先 bind=<账号> 再设平台")
 
     try {
-      updateConnection(hit.index, patch, doc => {
-        if (kv.bot_id) {
-          for (const id of ids) writeAccountBotId(doc, id, kv.bot_id, undefined, true)
-        } else {
-          if (hit.conf.bot_id) for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
-          if (kv.bind !== undefined) writeAccountBotIds(doc, ids, config.bot_id_map)
-        }
-      })
+      updateConnection(
+        hit.index,
+        patch,
+        doc => {
+          if (kv.bot_id) {
+            for (const id of ids) writeAccountBotId(doc, id, kv.bot_id, undefined, true)
+          } else {
+            if (hit.conf.bot_id) for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
+            if (kv.bind !== undefined) writeAccountBotIds(doc, ids, config.bot_id_map)
+          }
+        },
+        !nextEnable
+          ? []
+          : kv.bind !== undefined && kv.bind_op !== "remove" && requestedBind.length
+            ? requestedBind.map(account => ({ sourceIndex: hit.index, account, action: "绑定" }))
+            : [{ sourceIndex: hit.index, action: "修改" }],
+      )
     } catch (err) {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }
@@ -702,7 +706,12 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (!hit) return e.reply(`找不到连接「${key}」，用 #早柚连接列表 查看`)
 
     try {
-      updateConnection(hit.index, { enable: on })
+      updateConnection(
+        hit.index,
+        { enable: on },
+        undefined,
+        on ? [{ sourceIndex: hit.index, action: "启用" }] : [],
+      )
     } catch (err) {
       return e.reply(`保存失败：${errorMessage(err)}`)
     }

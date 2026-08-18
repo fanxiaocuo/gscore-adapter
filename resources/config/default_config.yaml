@@ -28,8 +28,9 @@ client:
       url: ws://127.0.0.1:8765
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送
       token: ""
-      # 是否启用本连接
-      enable: true
+      # 是否启用本连接。出厂示例尚未绑定账号，先保持停用；
+      # 填好 bind 后改为 true，或用 #早柚启用连接 gsuid_core 打开。
+      enable: false
       # 重连间隔（秒）
       reconnect_interval: 5
       # 最大重连次数，<=0 为无限重连。

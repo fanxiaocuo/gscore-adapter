@@ -92,15 +92,22 @@ export function str(v: unknown): string {
  * 所以结果是字符串而非数组对象；但显式转一次，免得下游拿到 number 又去比字符串。
  */
 export function resolveSelfId(e: AdapterEvent): string {
-  const own = e?.self_id
-  if (own != null && String(own)) return String(own)
+  const id = (value: unknown): string => {
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "bigint") return ""
+    const result = String(value)
+    return result || ""
+  }
 
-  const byBot = e?.bot?.uin
-  if (byBot != null && String(byBot)) return String(byBot)
+  const own = id(e?.self_id)
+  if (own) return own
+
+  const byBot = id(e?.bot?.uin)
+  if (byBot) return byBot
 
   // 只有一个 Bot 在线时才兜，理由见上
   const uin = globalThis.Bot?.uin
-  if (Array.isArray(uin) && uin.length === 1 && uin[0] != null) return String(uin[0])
+  if (Array.isArray(uin) && uin.length === 1) return id(uin[0])
+  if (!Array.isArray(uin)) return id(uin)
 
   return ""
 }

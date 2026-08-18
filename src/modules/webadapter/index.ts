@@ -46,12 +46,10 @@ import {
   readIds,
   requireAccounts,
 } from "@/modules/client/expand"
-import { findRouteConflict } from "@/modules/client/conflict"
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { PluginName, ResPath } from "@/dir"
 import {
-  findDuplicate,
   findSameCore,
   inlineToken,
   mergeEndpointQuery,
@@ -425,14 +423,6 @@ function addConnection(body: PanelBody) {
   // 同一核心已有自动路径的连接 → 合并 bind，不再新开一条 ws
   const existing = findSameCore(list, url)
   if (existing) {
-    if (findDuplicate([existing], url, bind))
-      throw new Error(
-        // label() 而不是裸 name：没起名字的连接 name 是空的，原来这句会显示成
-        // 「这个核心已经加过了（）」；label 退回地址且过 redactUrl，不会把凭据带出去
-        `这个核心已经加过了（${label(existing)}），绑定：${
-          existing.bind?.length ? existing.bind.join("、") : "未绑定账号"
-        }`,
-      )
     const idx = list.indexOf(existing)
     const prev = Array.isArray(existing.bind) ? existing.bind.map(String) : []
     const nextBind = [...new Set([...prev, ...bind])]
@@ -447,28 +437,39 @@ function addConnection(body: PanelBody) {
     const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
     const freed = readIds(existing.exclude).length !== nextExclude.length
 
-    const err = requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
+    const err = existing.enable === false
+      ? undefined
+      : requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
     if (err) throw new Error(err)
 
     const patch: ConnectionPatch = { bind: nextBind }
     if (freed) patch.exclude = nextExclude.length ? nextExclude : null
     if (nextUrl !== existing.url) patch.url = nextUrl
     if (existing.bot_id) patch.bot_id = null
-    updateConnection(idx, patch, doc => {
-      for (const id of nextBind) {
-        // 判据是 bind（本次请求点明要绑的那几个）而不是 nextBind：后者含已在这条连接上
-        // 的老账号，那些不是这次表态的对象，替他们改平台标识是越权。
-        //
-        // 这一支必须 force：老连接上多半已经有一行自动推断出来的映射（加连接、开绑定
-        // 开关都会顺手补），writeAccountBotId 默认「有值就不写」，于是用户在面板里明确
-        // 填了 bot_id、回包说保存成功，表里还是推断值 —— 而推断值恰恰是他填这一栏要
-        // 纠正的东西（QQBot 的 appid 被推成 qqgroup、实际要 qqguild 之类）。
-        // 反过来不带 explicit 的那一支保持不覆盖：那是推断，凭什么盖掉用户的记录。
-        if (explicit && bind.includes(String(id)))
-          writeAccountBotId(doc, id, explicit, undefined, true)
-        else writeAccountBotId(doc, id, undefined, config.bot_id_map)
-      }
-    })
+    updateConnection(
+      idx,
+      patch,
+      doc => {
+        for (const id of nextBind) {
+          // 判据是 bind（本次请求点明要绑的那几个）而不是 nextBind：后者含已在这条连接上
+          // 的老账号，那些不是这次表态的对象，替他们改平台标识是越权。
+          //
+          // 这一支必须 force：老连接上多半已经有一行自动推断出来的映射（加连接、开绑定
+          // 开关都会顺手补），writeAccountBotId 默认「有值就不写」，于是用户在面板里明确
+          // 填了 bot_id、回包说保存成功，表里还是推断值 —— 而推断值恰恰是他填这一栏要
+          // 纠正的东西（QQBot 的 appid 被推成 qqgroup、实际要 qqguild 之类）。
+          // 反过来不带 explicit 的那一支保持不覆盖：那是推断，凭什么盖掉用户的记录。
+          if (explicit && bind.includes(String(id)))
+            writeAccountBotId(doc, id, explicit, undefined, true)
+          else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+        }
+      },
+      existing.enable === false
+        ? []
+        : bind.length
+          ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
+          : undefined,
+    )
     applyConnections({ sourceIndex: idx })
     // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
     return getWsConnections()[idx]?.name || label(existing)
@@ -490,18 +491,27 @@ function addConnection(body: PanelBody) {
 
   // 落盘前拦：自动端点没有明确账号就派生不出任何运行时连接，存下来只会变成
   // 一条永远不连的死配置。话术与指令层共用，两处说法不会漂
-  const err = requireAccounts(conf)
+  const err = conf.enable === false ? undefined : requireAccounts(conf)
   if (err) throw new Error(err)
 
-  appendConnection(conf, doc => {
-    // 新建也要 force：连接是新的，bot_id_map 是全局的 —— 这个账号可能早就因为别条
-    // 连接留下了一行。不 force 的话「新建连接时填的 bot_id」在这些账号上静默失效，
-    // 而这是最没道理失效的一处：整条连接都是他现在建的。
-    for (const id of bind) {
-      if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
-      else writeAccountBotId(doc, id, undefined, config.bot_id_map)
-    }
-  })
+  const addedSourceIndex = list.length
+  appendConnection(
+    conf,
+    doc => {
+      // 新建也要 force：连接是新的，bot_id_map 是全局的 —— 这个账号可能早就因为别条
+      // 连接留下了一行。不 force 的话「新建连接时填的 bot_id」在这些账号上静默失效，
+      // 而这是最没道理失效的一处：整条连接都是他现在建的。
+      for (const id of bind) {
+        if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
+        else writeAccountBotId(doc, id, undefined, config.bot_id_map)
+      }
+    },
+    conf.enable === false
+      ? []
+      : bind.length
+        ? bind.map(account => ({ sourceIndex: addedSourceIndex, account, action: "新增" }))
+        : undefined,
+  )
 
   // sourceIndex 只用来把展开诊断收窄到刚加的这条：新连接撞了别人已占的路由时会被
   // 跳过（前项优先），那句话才是用户此刻要看的；别条连接的历史冲突不该跟着重刷一遍
@@ -523,9 +533,6 @@ function editConnection(body: PanelBody) {
 
   // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
   const patch: ConnectionPatch = {}
-  // 判重要用「改完之后的地址」，而 patch.url 只在真动过时才写，拿不到它。
-  // 两个分支各自算出的那个规范化地址在这儿收敛成一个变量
-  let nextUrl: string
   if (body.url !== undefined) {
     const next = requireWsUrl(String(body.url))
     // 面板看到的地址是脱敏过的（connView 的 url 过了 redactUrl），编辑弹层又会把
@@ -556,7 +563,6 @@ function editConnection(body: PanelBody) {
       // 反过来放在门后不削弱校验：合并只往 searchParams 里补名字，协议、主机、路径
       // 一概不碰，门已经定了协议就不会再被改回 http。
       patch.url = mergeEndpointQuery(hit.conf.url, next)
-    nextUrl = patch.url ?? next
   } else {
     // normalizeEndpoint 做的是：没写协议就补 ws://、砍掉 fragment、经 new URL()
     // 重新序列化（主机小写、默认端口消失）。**不改写用户写的路径** —— 老配置里的
@@ -565,7 +571,6 @@ function editConnection(body: PanelBody) {
     // 所以这一支同样可能产出 patch.url：路径没动，序列化结果也可能与原值不同字
     const normalized = normalizeEndpoint(String(hit.conf.url || ""))
     if (normalized !== hit.conf.url) patch.url = normalized
-    nextUrl = normalized
   }
   /**
    * 未命名连接：别把它的地址落成名字
@@ -626,36 +631,33 @@ function editConnection(body: PanelBody) {
     throw new Error("当前连接未绑定账号，无法按账号写入平台标识。请先填写绑定账号")
 
   // 改成「自动端点 + 没有有效账号」等于把连接改死，写盘前就拦掉
-  const err = requireAccounts({
-    ...hit.conf,
-    url: patch.url ?? hit.conf.url,
-    bind: nextBind,
-    exclude: nextExclude,
-  })
+  const nextEnable = patch.enable ?? hit.conf.enable ?? true
+  const err = nextEnable
+    ? requireAccounts({
+        ...hit.conf,
+        url: patch.url ?? hit.conf.url,
+        bind: nextBind,
+        exclude: nextExclude,
+      })
+    : undefined
   if (err) throw new Error(err)
 
-  /**
-   * 别让这次编辑把哪条连接弄哑
-   * ------
-   * 指令侧编辑拦过这一道，面板这边原先没有：两条连接落到同一条路由时不报错，只会被
-   * 仲裁掉，用户看到「保存成功」之后某条连接一直停在未启动。判据与理由见 findRouteConflict。
-   */
-  const conflict = findRouteConflict(getWsConnections(), hit.index, {
-    url: nextUrl,
-    bind: nextBind,
-    exclude: nextExclude,
-    // 传改完之后的启用状态：「把停用的一条打开」最容易撞上别人，不能跳过检查
-    enable: patch.enable !== undefined ? patch.enable : hit.conf.enable !== false,
-  })
-  if (conflict) throw new Error(`${conflict}\n保存已取消。`)
-
-  updateConnection(hit.index, patch, doc => {
-    if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
-    else {
-      if (hit.conf.bot_id) for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
-      if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
-    }
-  })
+  updateConnection(
+    hit.index,
+    patch,
+    doc => {
+      if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
+      else {
+        if (hit.conf.bot_id) for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
+        if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
+      }
+    },
+    !nextEnable
+      ? []
+      : body.bind !== undefined && nextBind.length
+        ? nextBind.map(account => ({ sourceIndex: hit.index, account, action: "绑定" }))
+        : [{ sourceIndex: hit.index, action: "修改" }],
+  )
 
   applyConnections({ sourceIndex: hit.index })
   const next = getWsConnections()[hit.index]
@@ -688,7 +690,12 @@ function toggleConnection(body: PanelBody) {
   if (!hit) throw new Error("找不到该连接")
 
   const on = bool(body.enable, true)
-  updateConnection(hit.index, { enable: on })
+  updateConnection(
+    hit.index,
+    { enable: on },
+    undefined,
+    on ? [{ sourceIndex: hit.index, action: "启用" }] : [],
+  )
   // 停用一条会释放它占的路由，被它顶掉的那条这才起得来；所以停用也要走整批收敛，
   // 而不是只停这一条（理由同 delConnection）
   applyConnections({ sourceIndex: hit.index })
@@ -726,15 +733,19 @@ function bindConnection(body: PanelBody): string {
   // 也不删 bot_id_map（平台映射与绑定无关，下次绑回来还能用）
 
   // 与指令同一套校验、同一句话术
-  const err = requireAccounts({ ...hit.conf, bind, exclude })
+  const nextEnable = hit.conf.enable !== false
+  const err = nextEnable ? requireAccounts({ ...hit.conf, bind, exclude }) : undefined
   if (err) throw new Error(err)
 
   const patch: ConnectionPatch = { bind }
   // 只在真的放出了账号时才动 exclude：没改的键不重写，免得把用户写成数字的
   // 账号悄悄规范成字符串
   if (freed) patch.exclude = exclude.length ? exclude : null
-  updateConnection(hit.index, patch, doc =>
-    on ? writeAccountBotId(doc, id, accountPlatform(id)) : undefined,
+  updateConnection(
+    hit.index,
+    patch,
+    doc => (on ? writeAccountBotId(doc, id, accountPlatform(id)) : undefined),
+    nextEnable && on ? [{ sourceIndex: hit.index, account: id, action: "绑定" }] : [],
   )
 
   const name = label(hit.conf)

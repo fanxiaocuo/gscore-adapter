@@ -7,7 +7,7 @@
  * 因此默认配置里的注释不会因为过一遍面板就被冲掉。
  */
 import { PluginPath, PluginName, ResPath } from "@/dir"
-import { config, configFile, saveConfig } from "@/config"
+import { config, configFile, saveConfig, saveConnectionConfig } from "@/config"
 import { syncConnectionAccounts } from "@/config/botmap.js"
 import { applyConnections, reloadClients } from "@/modules/client"
 import { baseSchemas } from "./schemas/base.js"
@@ -75,8 +75,13 @@ export function supportGuoba() {
         let touchedHeartbeat = false
 
         try {
-          saveConfig(doc => {
-            let connectionsTouched = false
+          const connectionsTouched =
+            data["client.connections"] !== undefined &&
+            JSON.stringify(getValue("client.connections")) !==
+              JSON.stringify(data["client.connections"])
+          const persist = connectionsTouched ? saveConnectionConfig : saveConfig
+
+          persist(doc => {
             for (const [field, value] of Object.entries(data)) {
               if (value === undefined) continue
               const path = field.split(".")
@@ -85,7 +90,6 @@ export function supportGuoba() {
               if (path[0] === "client") touchedClient = true
               if (field === "client.heartbeat" || field === "client.heartbeat_timeout")
                 touchedHeartbeat = true
-              if (field === "client.connections") connectionsTouched = true
               doc.setIn(path, value)
             }
             // 锅巴整表写回连接列表，不会走指令那条 writeAccountBotId
