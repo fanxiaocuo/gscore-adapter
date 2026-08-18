@@ -58,9 +58,20 @@ export interface SegAt {
   data: string
 }
 
-/** 引用回复，data 为被引用的消息 id */
+/**
+ * 引用回复
+ *
+ * 上行（适配器 -> 核心）时 data 为被引用消息正文；
+ * 下行（核心 -> 适配器）时兼容旧协议，data 为被引用消息 id。
+ */
 export interface SegReply {
   type: "reply"
+  data: string
+}
+
+/** 引用消息 id（上行使用；下行也接受该新字段） */
+export interface SegReplyId {
+  type: "reply_id"
   data: string
 }
 
@@ -142,6 +153,7 @@ export type MessageSegment =
   | SegFile
   | SegAt
   | SegReply
+  | SegReplyId
   | SegRecord
   | SegVideo
   | SegButtons
@@ -380,7 +392,14 @@ export interface Event extends MessageReceive {
   image_list?: string[]
   at_list?: string[]
   is_tome?: boolean
+  /** 被引用消息正文（上行 reply 段） */
   reply?: string
+  /** 被引用消息 id（上行 reply_id 段） */
+  reply_id?: string
+  /** 被引用消息的合并转发节点（不允许嵌套 node） */
+  node?: Exclude<MessageSegment, SegNode>[]
+  /** 文件/媒体数据的传输形式 */
+  file_type?: "url" | "base64"
   file_name?: string
   file?: string
 }

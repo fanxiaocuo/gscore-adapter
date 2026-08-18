@@ -142,9 +142,15 @@ export interface AdapterEvent {
    * `MessageEvent` 会赋不进来（icqq.d.ts:1864 / :2204 的签名就是这四个值）。
    */
   member?: { getAvatarUrl?: (size?: 0 | 40 | 100 | 140) => string; [k: string]: any }
-  /** 好友对象（PrivateEvent 有，可调 getAvatarUrl） */
+  /** 群对象（ICQQ 引用正文回退时可调 getChatHistory） */
+  group?: {
+    getChatHistory?: (cursor: number, count: number) => Promise<any>
+    [k: string]: any
+  }
+  /** 好友对象（PrivateEvent 有，可调 getAvatarUrl / getChatHistory） */
   friend?: {
     getAvatarUrl?: (size?: 0 | 40 | 100 | 140, history?: number) => string
+    getChatHistory?: (cursor: number, count: number) => Promise<any>
     [k: string]: any
   }
   /** 引用消息元信息（ICQQ 的 Quotable） */
@@ -161,6 +167,8 @@ export interface AdapterEvent {
   // ---- 引用回复 ----
   /** 引用的消息 id（框架从 reply 段派生） */
   reply_id?: string
+  /** TRSS 获取被引用消息正文与媒体的能力。 */
+  getReply?: () => Promise<any>
 
   // ---- notice 事件专有字段 ----
   /** 操作者（踢人者 / 邀请者） */

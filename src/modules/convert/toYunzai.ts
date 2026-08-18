@@ -122,6 +122,7 @@ export async function gscoreToYunzai(
         break
 
       case "reply":
+      case "reply_id":
         // 由调用方 unshift(segment.reply(quote))
         quote = String(i.data)
         break
