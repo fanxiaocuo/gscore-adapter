@@ -12,9 +12,23 @@
  *        chrome（导航/侧栏）  blur 20px + saturate，透明度最低
  *        card（卡片/弹层）    blur 16px，中等透明度
  *        content（代码/表格） blur 10px，透明度最高 —— 正文可读性优先
- *   3. 液态强调。主色保持插件的 #5b7cfa（与产品界面同源），但允许它以渐变
- *      出现：主按钮、hero 标题、标题下的记号条。这是与旧版（MekaVerse 极简、
- *      禁彩色禁阴影）最大的方向差，按用户要求整体换向。
+ *   3. 盐系强调。主色是低饱和的双档：浅色「抹茶雾绿」（accent #5E7A56，
+ *      画布 #EEF5EA），深色「奶雾蓝灰」（accent #738FA3，画布 #1E2A33）。
+ *      允许它以渐变出现：主按钮、hero 标题、标题下的记号条、各类指示线。
+ *      渐变跨度收在同色相两档内 —— 低饱和色一旦大跨度渐变就糊成灰。
+ *
+ *      注意 --color-accent 定义在无条件的 :root（那是浅色的绿），.dark 必须
+ *      覆盖它，否则蓝灰底上会冒出绿按钮。
+ *
+ *      历史：初版是 MekaVerse 极简（禁彩色禁阴影），后按要求换成蓝紫（#5b7cfa）
+ *      液态玻璃，现在换到盐系双档。玻璃三层结构保留，但状态指示按
+ *      karin-plugin-kkk 文档站的路子收敛 —— 见下条。
+ *
+ *   4. 状态指示用「线」不用「面」。导航链接、侧栏条目的 hover/active 一律是
+ *      2px 指示线 + 文字色，不再是整片半透明色块。两个理由：色块比文字宽出
+ *      一截、视觉重量压过内容；半透明色叠在流动色斑上颜色会跟着背景漂。
+ *      过渡统一 0.15s / cubic-bezier(.4,0,.2,1)（kkk 全站用这一条）。
+ *      点击反馈统一是 1px 位移，hover 抬起、active 压下。
  *
  * 从旧版**保留**的中文可读性适配（这些与风格无关，是硬约束）：
  *   - 正文 16px/1.8，窄屏回 15px；代码 13.5px/1.7
@@ -51,11 +65,17 @@
   --text-nav: 15px;
   --tracking-chrome: -0.02em;
 
-  /* 强调色与产品界面同源（src/webui/styles.css 的 --primary），
-     液态渐变从它出发挑一个相邻色相收尾 */
-  --color-accent: #5b7cfa;
-  --color-accent-2: #8b5cf6;
-  --accent-gradient: linear-gradient(135deg, #5b7cfa 0%, #8b5cf6 100%);
+  /*
+   * 强调色：盐系双档 —— 浅色走「抹茶雾绿」，深色走「奶雾蓝灰」。
+   *
+   * 这里不再与产品界面的 #5b7cfa 同源：那套蓝紫饱和度高，和盐系低饱和的静态
+   * 气质冲突。改成两组各自成立的低饱和色，浅深各挑自己那档的中段做 accent。
+   * 渐变仍保留，但跨度收窄到同色相的两档（原来是蓝→紫跨色相），因为盐系一旦
+   * 大跨度渐变就显脏。
+   */
+  --color-accent: #5e7a56;
+  --color-accent-2: #829e77;
+  --accent-gradient: linear-gradient(135deg, #5e7a56 0%, #829e77 100%);
 
   /* 三档玻璃的模糊量 */
   --blur-chrome: 20px;
@@ -70,60 +90,72 @@
  * 浅色下就没有来源了，所以默认那套要落在 :root，.dark 只做覆盖。
  */
 :root {
-  /* 画布基底与色斑。浅色玻璃要压得住白字下的内容，色斑用高明度低饱和的粉彩 */
-  --canvas-base: #eef1f9;
-  --blob-1: rgb(133 156 250 / 42%);
-  --blob-2: rgb(178 140 250 / 34%);
-  --blob-3: rgb(110 200 235 / 32%);
-  --blob-4: rgb(244 173 220 / 24%);
+  /*
+   * 画布基底与色斑 —— 抹茶雾绿。
+   *
+   * 色斑饱和度比旧版粉彩压了一档：盐系是「静」的，色斑一旦鲜艳就和它打架。
+   * 四个斑取自同一梯度的四档（#829E77 / #A9C19D / #CFE0C3 / #5E7A56），
+   * 不再跨色相 —— 跨色相的低饱和渐变会糊成灰。
+   */
+  --canvas-base: #eef5ea;
+  --blob-1: rgb(130 158 119 / 30%);
+  --blob-2: rgb(169 193 157 / 28%);
+  --blob-3: rgb(207 224 195 / 34%);
+  --blob-4: rgb(94 122 86 / 16%);
 
   /* 玻璃面三档：底色 / 描边 / 顶部内高光 / 环境阴影 */
   --glass-chrome-bg: rgb(255 255 255 / 58%);
   --glass-card-bg: rgb(255 255 255 / 48%);
   --glass-content-bg: rgb(255 255 255 / 62%);
   --glass-border: rgb(255 255 255 / 72%);
-  --glass-edge: rgb(31 38 90 / 10%);
+  --glass-edge: rgb(40 56 34 / 10%);
   --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 85%);
-  --glass-shadow: 0 8px 32px rgb(31 38 90 / 10%);
-  --glass-shadow-lg: 0 16px 48px rgb(31 38 90 / 16%);
+  --glass-shadow: 0 8px 32px rgb(40 56 34 / 10%);
+  --glass-shadow-lg: 0 16px 48px rgb(40 56 34 / 16%);
 
-  --vp-c-bg: #eef1f9;
+  --vp-c-bg: #eef5ea;
   --vp-c-bg-alt: transparent;
   --vp-c-bg-soft: rgb(255 255 255 / 52%);
   --vp-c-bg-elv: rgb(255 255 255 / 78%);
 
-  --vp-c-text-1: #1d2030;
-  --vp-c-text-2: #454a5e;
-  --vp-c-text-3: #6a7085;
+  /* 正文带一点绿味而不是纯中性黑，免得和绿底像两套系统。13.4:1 */
+  --vp-c-text-1: #1e2a1b;
+  --vp-c-text-2: #3e4a38;
+  --vp-c-text-3: #5e6b57;
 
-  --vp-c-divider: rgb(60 66 110 / 14%);
-  --vp-c-border: rgb(60 66 110 / 22%);
-  --vp-c-gutter: rgb(60 66 110 / 12%);
+  --vp-c-divider: rgb(46 60 40 / 14%);
+  --vp-c-border: rgb(46 60 40 / 22%);
+  --vp-c-gutter: rgb(46 60 40 / 12%);
 
-  --vp-c-brand-1: #4a63e0;
-  --vp-c-brand-2: #3d55d4;
-  --vp-c-brand-3: #3247c4;
-  --vp-c-brand-soft: rgb(91 124 250 / 14%);
+  /*
+   * brand-1 是链接色，必须过 AA。#5E7A56 在 #EEF5EA 上只有 4.30:1（差 0.2），
+   * 所以链接用压深一档的 #4E6848 —— 5.6:1。accent（按钮底、渐变）仍用 #5E7A56，
+   * 那是大色块与白字，走 3:1 那条线。
+   */
+  --vp-c-brand-1: #4e6848;
+  --vp-c-brand-2: #445c3f;
+  --vp-c-brand-3: #3b5136;
+  --vp-c-brand-soft: rgb(94 122 86 / 14%);
 
   --vp-button-brand-bg: var(--color-accent);
   --vp-button-brand-text: #ffffff;
   --vp-button-brand-border: transparent;
-  --vp-button-brand-hover-bg: #4a6bf0;
+  --vp-button-brand-hover-bg: #4e6848;
   --vp-button-brand-hover-text: #ffffff;
   --vp-button-brand-hover-border: transparent;
   --vp-button-alt-bg: rgb(255 255 255 / 55%);
-  --vp-button-alt-text: #1d2030;
+  --vp-button-alt-text: #1e2a1b;
   --vp-button-alt-border: rgb(255 255 255 / 75%);
   --vp-button-alt-hover-bg: rgb(255 255 255 / 78%);
   --vp-button-alt-hover-border: #ffffff;
 
-  --vp-c-default-soft: rgb(60 66 110 / 8%);
+  --vp-c-default-soft: rgb(46 60 40 / 8%);
   --vp-code-block-bg: rgb(255 255 255 / 62%);
   --vp-code-copy-code-bg: rgb(255 255 255 / 80%);
 
-  /* 提示块：玻璃上叠一层语义色的薄纱 */
+  /* 提示块：玻璃上叠一层语义色的薄纱。tip 跟着 accent 走绿 */
   --vp-custom-block-info-bg: rgb(255 255 255 / 46%);
-  --vp-custom-block-tip-bg: rgb(91 124 250 / 12%);
+  --vp-custom-block-tip-bg: rgb(94 122 86 / 12%);
   --vp-custom-block-warning-bg: rgb(217 119 6 / 10%);
   --vp-custom-block-danger-bg: rgb(220 38 38 / 9%);
 
@@ -138,66 +170,90 @@
   --vp-sidebar-width: 276px;
 
   /* 本文件自用 */
-  --doc-text: #333849;
+  --doc-text: #333d2e;
   /* 内联 code 用品牌色薄纱而不是半透明白：白纱在浅色渐变上会整片消失 */
-  --doc-code-bg: rgb(91 124 250 / 10%);
+  --doc-code-bg: rgb(94 122 86 / 10%);
   --doc-code-border: rgb(255 255 255 / 65%);
 }
 
 /* ---------- 深色 ---------- */
 .dark {
-  /* 深色画布：接近午夜蓝的基底 + 更饱和的色斑（深色玻璃透出的光要更艳才看得见） */
-  --canvas-base: #0c0f18;
-  --blob-1: rgb(76 96 214 / 34%);
-  --blob-2: rgb(124 76 214 / 28%);
-  --blob-3: rgb(38 130 176 / 26%);
-  --blob-4: rgb(190 84 160 / 16%);
+  /*
+   * 深色画布 —— 奶雾蓝灰。基底由该梯度最深的 #4F6475 再压暗而来（#1E2A33），
+   * 不用纯黑：盐系蓝灰本身是「有色的灰」，配纯黑会让色斑显得脏。
+   * 色斑仍比浅色那套艳一档（深色玻璃透出的光要更亮才看得见），但取自同一梯度。
+   */
+  --canvas-base: #1e2a33;
+  --blob-1: rgb(115 143 163 / 30%);
+  --blob-2: rgb(158 185 201 / 22%);
+  --blob-3: rgb(79 100 117 / 34%);
+  --blob-4: rgb(200 220 230 / 12%);
 
-  --glass-chrome-bg: rgb(18 22 38 / 62%);
+  --glass-chrome-bg: rgb(30 42 51 / 66%);
   --glass-card-bg: rgb(255 255 255 / 6%);
-  --glass-content-bg: rgb(13 16 28 / 62%);
+  --glass-content-bg: rgb(24 34 42 / 64%);
   --glass-border: rgb(255 255 255 / 14%);
   --glass-edge: rgb(0 0 0 / 30%);
   --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 9%);
   --glass-shadow: 0 8px 32px rgb(0 0 0 / 35%);
   --glass-shadow-lg: 0 16px 48px rgb(0 0 0 / 45%);
 
-  --vp-c-bg: #0c0f18;
+  --vp-c-bg: #1e2a33;
   --vp-c-bg-alt: transparent;
   --vp-c-bg-soft: rgb(255 255 255 / 6%);
-  --vp-c-bg-elv: rgb(24 28 46 / 88%);
+  --vp-c-bg-elv: rgb(36 50 60 / 90%);
 
-  --vp-c-text-1: #f0f2f8;
-  --vp-c-text-2: #c3c7d6;
-  --vp-c-text-3: #9aa0b4;
+  /* 正文带蓝味，和底色同源。#eaf0f4 on #1e2a33 = 12.7:1 */
+  --vp-c-text-1: #eaf0f4;
+  --vp-c-text-2: #c2d0d9;
+  --vp-c-text-3: #94a6b3;
 
   --vp-c-divider: rgb(255 255 255 / 12%);
   --vp-c-border: rgb(255 255 255 / 20%);
   --vp-c-gutter: rgb(255 255 255 / 10%);
 
-  --vp-c-brand-1: #8ea4fc;
-  --vp-c-brand-2: #a3b4fd;
-  --vp-c-brand-3: #b8c5fd;
-  --vp-c-brand-soft: rgb(123 147 251 / 18%);
+  /* 链接色用梯度中段提亮档。#9ebfc9 on #1e2a33 = 7.0:1，余量充足 */
+  --vp-c-brand-1: #9eb9c9;
+  --vp-c-brand-2: #b3c8d5;
+  --vp-c-brand-3: #c8dce6;
+  --vp-c-brand-soft: rgb(158 185 201 / 18%);
 
   --vp-button-alt-bg: rgb(255 255 255 / 8%);
-  --vp-button-alt-text: #f0f2f8;
+  --vp-button-alt-text: #eaf0f4;
   --vp-button-alt-border: rgb(255 255 255 / 22%);
   --vp-button-alt-hover-bg: rgb(255 255 255 / 14%);
   --vp-button-alt-hover-border: rgb(255 255 255 / 40%);
 
   --vp-c-default-soft: rgb(255 255 255 / 10%);
-  --vp-code-block-bg: rgb(13 16 28 / 62%);
+  --vp-code-block-bg: rgb(24 34 42 / 64%);
   --vp-code-copy-code-bg: rgb(255 255 255 / 12%);
 
   --vp-custom-block-info-bg: rgb(255 255 255 / 5%);
-  --vp-custom-block-tip-bg: rgb(123 147 251 / 12%);
+  --vp-custom-block-tip-bg: rgb(158 185 201 / 12%);
   --vp-custom-block-warning-bg: rgb(245 158 11 / 11%);
   --vp-custom-block-danger-bg: rgb(239 68 68 / 11%);
 
-  --doc-text: #cfd3e0;
+  --doc-text: #ccd8e0;
   --doc-code-bg: rgb(255 255 255 / 6%);
   --doc-code-border: rgb(255 255 255 / 12%);
+
+  /*
+   * accent 必须在这里覆盖：它定义在无条件的 :root 上（那是浅色的抹茶绿），
+   * 深色不覆盖的话主按钮、hero 标题、记号条会在蓝灰底上冒出一块绿。
+   * 深色的 accent 取梯度中段而不是最深档 —— 深底上要够亮才看得见。
+   */
+  --color-accent: #738fa3;
+  --color-accent-2: #9eb9c9;
+  --accent-gradient: linear-gradient(135deg, #738fa3 0%, #9eb9c9 100%);
+
+  /* 深底上按钮用亮底暗字，比暗底亮字更像「实心键」 */
+  --vp-button-brand-bg: #9eb9c9;
+  --vp-button-brand-text: #1e2a33;
+  --vp-button-brand-hover-bg: #c8dce6;
+  --vp-button-brand-hover-text: #1e2a33;
+
+  /* hero 大字提两档：accent 那对在深底上是 4.3:1，过线但发糊。这对是 7.0~10.5:1 */
+  --hero-gradient: linear-gradient(135deg, #9eb9c9 0%, #c8dce6 100%);
 }
 
 /*
@@ -319,29 +375,75 @@ body::after {
 /* 站点标题：mono 大写小字的「系统仪表」语气保留 */
 .VPNavBarTitle .title {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 400;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
+/*
+ * logo 尺寸
+ *
+ * 原来 22px，在 56px 的导航条里只占 39%，左上角整块显得空、图标细节也糊。
+ * 30px 占到 55%，上下各留 13px 气口 —— 参照 karin-plugin-kkk 文档站的比例
+ * （它的方标约 28px / 56px 导航）。再大就会顶到条边。
+ */
 .VPNavBarTitle .logo {
-  height: 22px;
-  margin-right: 8px;
+  height: 30px;
+  margin-right: 10px;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 导航链接：胶囊 hover，玻璃语言里用「面」不用「线」 */
+/* 点击整个标题区时 logo 轻微回弹，给一点「这是可点的」提示 */
+.VPNavBarTitle:active .logo {
+  transform: scale(0.94);
+}
+
+/*
+ * 导航链接：不要背景胶囊
+ *
+ * 原先 hover / active 给的是 `--radius-pill` + `--vp-c-brand-soft` 一块整片的
+ * 彩色椭圆。两个问题：椭圆比文字宽出一截，视觉重量压过导航本身；那块半透明色
+ * 叠在流动的色斑上，颜色还会跟着背景漂。参考 karin-plugin-kkk 文档站 —— 它的
+ * 导航链接 border-radius 是 0，根本没有背景面，纯靠文字色区分状态。
+ *
+ * 这里照它的路子：状态只用文字色 + 一条 2px 底部指示线（比整片色块轻，也比
+ * 下划线利落）。指示线用 transform 缩放而不是改宽度，避免逐帧触发布局。
+ */
 .VPNavBarMenuLink {
-  border-radius: var(--radius-pill);
-  transition:
-    background-color 0.2s,
-    color 0.2s;
+  position: relative;
+  border-radius: 0;
+  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPNavBarMenuLink::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-gradient);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .VPNavBarMenuLink:hover,
 .VPNavBarMenuLink.active {
   color: var(--vp-c-brand-1);
-  background: var(--vp-c-brand-soft);
+  background: transparent;
+}
+
+.VPNavBarMenuLink:hover::after,
+.VPNavBarMenuLink.active::after {
+  transform: scaleX(1);
+}
+
+/* 点击反馈：整条链接轻微下沉，松手回弹。比颜色闪一下更有「按下去」的实感 */
+.VPNavBarMenuLink:active {
+  transform: translateY(1px);
 }
 
 /* 导航、侧栏、右侧 outline：无衬线 15px，中文读得清 */
@@ -366,25 +468,85 @@ body::after {
   color: var(--vp-c-text-2);
 }
 
-/* 激活项：胶囊填充替代旧版的左侧竖线 */
+/*
+ * 侧栏条目：左侧指示线 + 极淡底，不用整片胶囊
+ *
+ * 原来激活项是一整块 `--vp-c-brand-soft` 填充。同导航椭圆一个毛病：色块比文字
+ * 宽出很多，在窄侧栏里显得又重又空，而且那层半透明色叠在流动色斑上颜色会漂。
+ * 改成 2px 左竖线承担「你在这」的指示，底色压到 6% 只作轻微衬托 ——
+ * 指示靠线，不靠面。
+ *
+ * 竖线用伪元素 + scaleY 而不是 border-left：后者会改变内容盒宽度，
+ * 激活时整行文字会横跳 1~2px。
+ */
 .VPSidebarItem.level-1 .item,
 .VPSidebarItem.level-2 .item {
+  position: relative;
   border-radius: var(--radius-sm);
   padding-left: 12px;
-  transition: background-color 0.2s;
+  transition:
+    background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPSidebarItem.level-1 .item::before,
+.VPSidebarItem.level-2 .item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent-gradient);
+  transform: scaleY(0);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* hover 时线先探出一半，暗示可点但还不是当前项 */
+.VPSidebarItem.level-1:not(.is-active) > .item:hover::before,
+.VPSidebarItem.level-2:not(.is-active) > .item:hover::before {
+  transform: scaleY(0.5);
 }
 
 .VPSidebarItem.level-1.is-active > .item,
 .VPSidebarItem.level-2.is-active > .item {
-  background: var(--vp-c-brand-soft);
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.VPSidebarItem.level-1.is-active > .item::before,
+.VPSidebarItem.level-2.is-active > .item::before {
+  transform: scaleY(1);
 }
 
 .VPSidebarItem.is-active > .item .link .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+}
+
+/* 点击下沉，和导航链接同一套反馈语言 */
+.VPSidebarItem.level-1 .item:active,
+.VPSidebarItem.level-2 .item:active {
+  transform: translateX(1px);
+}
+
+/*
+ * 右侧大纲：字重承担层级，不再只靠颜色
+ *
+ * 原来激活项只换文字色，扫视时几乎分不出来 —— 大纲行本来就短、颜色面积小。
+ * 加一档字重差，配合既有的 outline-marker 竖条，形成「线 + 重量」两个信号。
+ */
+.VPDocAsideOutline .outline-link {
+  transition: color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPDocAsideOutline .outline-link:hover {
   color: var(--vp-c-brand-1);
 }
 
 .VPDocAsideOutline .outline-link.active {
   color: var(--vp-c-brand-1);
+  font-weight: 500;
 }
 
 /* outline 左侧的指示线换成渐变小条 */
@@ -669,24 +831,46 @@ body::after {
   font-weight: 500;
   letter-spacing: 0.02em;
   padding: 10px 22px;
+  /* 时长统一到 0.15s / cubic-bezier(.4,0,.2,1)（karin-plugin-kkk 全站用这一条）
+     —— 原来的 0.2s linear 在小位移上会显得黏 */
   transition:
-    transform 0.2s,
-    box-shadow 0.2s,
-    background-color 0.2s,
-    border-color 0.2s;
+    transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+    filter 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/*
+ * 光晕跟着 accent 走，不写死颜色。
+ *
+ * 这里原本硬编码 rgb(91 124 250 / 35%)（旧的蓝紫主色）。换配色时这种写死的
+ * 阴影是最容易漏的一类：变量都改完了，按钮底下还浮着一圈紫光。用 color-mix
+ * 从 --color-accent 派生，深浅两套各自跟着自己的 accent 变。
+ */
 .VPButton.brand {
   background: var(--accent-gradient);
   border: 1px solid transparent;
-  box-shadow: 0 6px 20px rgb(91 124 250 / 35%);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--color-accent) 32%, transparent);
 }
 
 .VPButton.brand:hover {
   background: var(--accent-gradient);
-  filter: brightness(1.08);
-  box-shadow: 0 8px 26px rgb(91 124 250 / 45%);
+  filter: brightness(1.06);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--color-accent) 42%, transparent);
   transform: translateY(-1px);
+}
+
+/*
+ * 点击反馈：压回原位 + 光晕收紧
+ *
+ * hover 抬起 1px、active 压到 +1px，来回 2px 的行程足够手感明确又不晃眼。
+ * 光晕同时收窄，模拟「贴近表面所以投影更聚」。
+ */
+.VPButton.brand:active {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 38%, transparent);
+  filter: brightness(0.98);
 }
 
 .VPButton.alt {
@@ -697,6 +881,10 @@ body::after {
 
 .VPButton.alt:hover {
   transform: translateY(-1px);
+}
+
+.VPButton.alt:active {
+  transform: translateY(1px);
 }
 
 /* ---------- badge：小玻璃胶囊 ---------- */
@@ -725,6 +913,10 @@ body::after {
 /*
  * hero 标题：液态渐变字。VitePress 的 .clip 本来就做 background-clip:text，
  * 旧版是把它复位掉，这版反过来喂自己的渐变。
+ *
+ * 用 --hero-gradient 而不是直接用 --accent-gradient：accent 那两档是给按钮底
+ * 和指示线调的，深色下（#738FA3→#9EB9C9）拿来当大字在 #1E2A33 上只有 4.3:1
+ * ——大字过 3:1 那条线，但读着发糊。所以深色单独往上提两档，见 .dark 覆盖。
  */
 .VPHero .name,
 .VPHero .name .clip {
@@ -735,7 +927,7 @@ body::after {
   max-width: none;
   font-size: clamp(40px, 7vw, 52px);
   line-height: 1.1;
-  background: var(--accent-gradient);
+  background: var(--hero-gradient, var(--accent-gradient));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
