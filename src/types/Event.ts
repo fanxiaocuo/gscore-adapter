@@ -169,6 +169,35 @@ export interface AdapterEvent {
   reply_id?: string
   /** TRSS 获取被引用消息正文与媒体的能力。 */
   getReply?: () => Promise<any>
+  /**
+   * QQBot 的被引用消息内容（Yunzai-QQBot-Plugin index.js:1380/1430 挂上）
+   *
+   * QQBot 既没有 source / reply_id，也不产出入站 reply 段，被引用消息只在这里。
+   * 字段结构见 QQBot-Plugin 仓库的 msg_elements.md（作者实测记录）。
+   */
+  msg_elements?: Array<{
+    /** 被引用消息正文，可能含 `<faceType=...>` 与 `[@名字](mqqapi://...)` 标记 */
+    content?: string
+    /** 形如 `REFIDX_xxx` 的引用索引 —— 不是 message_id */
+    msg_idx?: string
+    /** 被引用消息的作者（群消息才有） */
+    author?: Record<string, any>
+    attachments?: Array<{
+      url?: string
+      /** `image/*` | `voice` | `video/*` | `file` */
+      content_type?: string
+      filename?: string
+      size?: number
+      width?: number
+      height?: number
+      /** 语音专有：wav 转码直链 */
+      voice_wav_url?: string
+      /** 语音专有：ASR 转写文本 */
+      asr_refer_text?: string
+      [k: string]: any
+    }>
+    [k: string]: any
+  }>
 
   // ---- notice 事件专有字段 ----
   /** 操作者（踢人者 / 邀请者） */

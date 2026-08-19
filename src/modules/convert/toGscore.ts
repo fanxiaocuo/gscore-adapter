@@ -7,6 +7,7 @@ import {
   isChannel,
   resolveReplyId,
   resolveReplyMessage,
+  hasReplyContext,
 } from "@/utils"
 import type {
   MessageReceive,
@@ -193,9 +194,13 @@ export async function yunzaiToGscore(
   content.push(...current.filter(i => i.type !== "reply" && i.type !== "reply_id"))
 
   const replyId = resolveReplyId(e)
-  if (replyId) {
-    content.push({ type: "reply_id", data: replyId })
+  if (replyId) content.push({ type: "reply_id", data: replyId })
 
+  // 引用正文/媒体与引用 id 是两件事，不能把前者挂在后者上：QQBot 只有 REFIDX
+  // 引用索引（reply.ts 分支 5），核心拿它查不到缓存的图，引用图必须自己作为
+  // image 段上报。用 hasReplyContext 而不是直接 await —— 有 getReply 的适配器
+  // 上那是一次请求，不能对每条消息都白调。
+  if (hasReplyContext(e)) {
     const quotedMessage = await resolveReplyMessage(e)
     if (quotedMessage.length) {
       const quoted = await msgToGscore(quotedMessage)

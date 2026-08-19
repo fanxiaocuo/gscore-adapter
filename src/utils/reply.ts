@@ -13,6 +13,7 @@
  *   Milky             reply 段（message_seq）                   有
  *   Satori            reply 段                                  有
  *   ComWeChat         reply 段（带额外 user_id）                 有
+ *   QQBot-Plugin      e.msg_elements[]                          **没有**（见下）
  *
  * 原实现只看 `e.source?.message_id` 与 `e.reply_id`，而 ICQQ **两者都没有**：
  * icqq 的 source 由 message.js:157-166 从 proto type 45 构造，字段只有
@@ -36,6 +37,22 @@
  * 已知不精确之处：`source.rand` 取自 `uuid2rand(q[8]?.[3] || 0)`，上游字段缺失时
  * 会是 0，算出的 id 与真实 message_id 不符。这种情况下核心查不到缓存，
  * 行为退化成「没有引用」—— 与修复前一致，不会更糟。
+ *
+ * QQBot 上怎么补出来
+ * ----------------
+ * QQBot-Plugin 三条路径全断：没有 getReply、不设 source / reply_id、也不产出
+ * **入站** reply 段（index.js:383/615/739 那三处 `type:"reply"` 是出站，把我们的
+ * reply 段转成 QQ API 的 `{type:"reply", event_id}`）。它只把原始
+ * `e.msg_elements` 与 `e.reply_user` 挂到事件上（index.js:1430-1432）。
+ * 于是引用完全传不到核心，且不报错 —— 核心那边 `image` / `reply_id` 恒为 None。
+ *
+ * 好在被引用消息的媒体**直链就在事件里**，比 OneBot 那条路还省事，不用回查：
+ * `msg_elements[].attachments[].url` 可直接当 image/record/video/file 用。
+ * 结构见 QQBot-Plugin 仓库的 msg_elements.md（作者实测记录）。
+ *
+ * 唯一拿不到的是 message_id：`msg_idx` 是 `REFIDX_xxx` 形式的引用索引，与我们
+ * 当初上报那条消息用的 msg_id 不同源，核心拿它查缓存必然查不到。所以引用正文与
+ * 媒体不能挂在「有 reply_id」这个前提上 —— 见 `hasReplyContext` 与 toGscore.ts。
  */
 import type { AdapterEvent, YunzaiSegment } from "@/types"
 import { makeLog } from "./compat.js"
@@ -61,12 +78,99 @@ function appendReplyParts(out: ReplyMessagePart[], raw: any): void {
 }
 
 /**
+ * 把 QQBot 引用正文里的富文本标记normalize成纯文本。
+ *
+ * `content` 里混着两种 QQ 专有标记（msg_elements.md 的例 2/3/7）：
+ *   `<faceType=3,faceId="359",ext="...">`               表情，丢掉
+ *   `[@风](mqqapi://markdown/mention?at_tinyid=...)`      at，只留显示名
+ * 原样透传会让核心的 `reply` 字段里出现一坨标记，命令匹配与 AI 上下文都会被污染。
+ */
+function normalizeQQBotContent(content: string): string {
+  return content
+    .replace(/<faceType=[^>]*>/g, "")
+    .replace(/\[([^\]]*)\]\(mqqapi:\/\/[^)]*\)/g, "$1")
+    .trim()
+}
+
+/**
+ * QQBot 专用：从 `e.msg_elements` 取被引用消息，返回云崽形状的消息段。
+ *
+ * 返回云崽段而不是核心段，是为了让 msgToGscore 统一做媒体转换（base64 兜底、
+ * image_size 派生等），这里不碰核心协议。
+ */
+function fromMsgElements(e: AdapterEvent): YunzaiSegment[] {
+  const list = Array.isArray(e?.msg_elements) ? e.msg_elements : []
+  const out: YunzaiSegment[] = []
+
+  for (const el of list) {
+    if (el == null || typeof el !== "object") continue
+
+    const parts: string[] = []
+    const text = normalizeQQBotContent(String(el.content ?? ""))
+    if (text) parts.push(text)
+
+    const images: YunzaiSegment[] = []
+    for (const a of Array.isArray(el.attachments) ? el.attachments : []) {
+      const url = a?.url
+      if (!url) continue
+      const kind = String(a.content_type ?? "")
+
+      // 只提图片。引用块最终只回传 image / image_size / node（toGscore.ts），
+      // 其余类型转换了也会被丢掉；而 file 更糟 —— toGscoreFile 用的 toBuffer
+      // 没开 http 直通，会把整个 URL 下载下来 base64（msg_elements.md 例 6 就是
+      // 个 200MB 文件），白下一遍再扔掉。所以非图片只在引用正文里留个标记，
+      // 用词与 nodePreview 保持一致。
+      if (kind.startsWith("image/")) {
+        images.push({
+          type: "image",
+          url,
+          name: a.filename,
+          width: a.width,
+          height: a.height,
+        } as YunzaiSegment)
+      } else if (kind === "voice") {
+        // 有 ASR 文本就带上：那才是被引用语音的实际内容，比"[语音]"有用得多
+        parts.push(a.asr_refer_text ? `[语音]${a.asr_refer_text}` : "[语音]")
+      } else if (kind.startsWith("video/")) {
+        parts.push("[视频]")
+      } else if (kind === "file") {
+        parts.push(a.filename ? `[文件]${a.filename}` : "[文件]")
+      } else {
+        makeLog("debug", [`引用附件 content_type 未识别，跳过：${kind}`], "GsCore", true)
+      }
+    }
+
+    const merged = parts.join(" ").trim()
+    if (merged) out.push({ type: "text", text: merged } as YunzaiSegment)
+    out.push(...images)
+  }
+
+  return out
+}
+
+/**
+ * 事件里是否存在引用上下文（无 IO，可作为调 resolveReplyMessage 前的廉价判据）。
+ *
+ * 存在的意义：`resolveReplyMessage` 在有 getReply 的适配器上会发起一次请求，
+ * 不能对每条消息都白调。而 QQBot 拿不到 message_id（msg_idx 是 REFIDX 引用索引，
+ * 不同源），所以「有引用」不能等价于「resolveReplyId 有值」。
+ */
+export function hasReplyContext(e: AdapterEvent): boolean {
+  if (resolveReplyId(e)) return true
+  return Array.isArray(e?.msg_elements) && e.msg_elements.length > 0
+}
+
+/**
  * 获取被引用消息的原始消息段。
  *
- * TRSS 优先走框架的 getReply；ICQQ 没有该路径时，按 Common.js 的做法从当前
- * Group/Friend 的聊天记录取一条。失败只丢引用正文，不影响 reply_id 与当前消息。
+ * QQBot 的被引用消息直接躺在事件里，优先用它，省一次请求；TRSS 走框架的
+ * getReply；ICQQ 没有该路径时，按 Common.js 的做法从当前 Group/Friend 的
+ * 聊天记录取一条。失败只丢引用正文，不影响 reply_id 与当前消息。
  */
 export async function resolveReplyMessage(e: AdapterEvent): Promise<ReplyMessagePart[]> {
+  const fromElements = fromMsgElements(e)
+  if (fromElements.length) return fromElements
+
   if (typeof e?.getReply === "function") {
     try {
       const out: ReplyMessagePart[] = []
@@ -171,5 +275,15 @@ export function resolveReplyId(e: AdapterEvent): string {
   if (seg) return seg
 
   // 4) ICQQ：由 source 反算
-  return fromIcqqSource(e)
+  const icqqId = fromIcqqSource(e)
+  if (icqqId) return icqqId
+
+  // 5) QQBot：只有 REFIDX 引用索引可用
+  //    它与 msg_id 不同源，核心拿它查缓存查不到 —— 但仍然上报：它是 QQ 侧真实的
+  //    引用标识，且能让下游「有没有引用」的判断成立。真正承载引用图的是随后单独
+  //    上报的 image 段，不依赖这个 id。
+  const refIdx = e?.msg_elements?.[0]?.msg_idx
+  if (refIdx != null && refIdx !== "") return String(refIdx)
+
+  return ""
 }
