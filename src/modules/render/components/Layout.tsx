@@ -15,14 +15,26 @@ import { textWidth } from "../metrics.js"
 export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }) {
   return (
     <>
-      {/* 三团弥散光。尺寸/位置/旋转各不相同，没有可共用的部分，所以不做成子组件；
-          颜色走 var(--glow-n)（base 层下发），rotate 与 blur 用任意值。
-          rounded-[9999px] 而不是 rounded-full：后者是 calc(infinity*1px)，
-          浏览器算出来是 3.35544e+07px，与老规则的计算值不同 */}
+      {/*
+       * 弥散渐变：五团大色斑互相咬合
+       *
+       * 原来是三团，各自成形、能数出「三个光球」。弥散渐变要的是整片晕染，做法是
+       * 多团大半径 radial-gradient 叠加 + 强 blur，让边缘互相吃掉。这里把团数提到
+       * 五、半径普遍放大到超出画布（负边距 + 超宽高），并把 blur 拉到 140~190px ——
+       * 团边落在画布外，看到的就只有中段的过渡，不会露出球形轮廓。
+       *
+       * 尺寸/位置/旋转刻意各不相同：等距等大的斑会形成可辨的节奏，反而像图案。
+       * 颜色走 var(--glow-n)（base 层下发），深浅两套各自配色见 theme.ts。
+       *
+       * rounded-[9999px] 而不是 rounded-full：后者是 calc(infinity*1px)，
+       * 浏览器算出来是 3.35544e+07px，与老规则的计算值不同。
+       */}
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute top-[-270px] left-[-180px] h-[1440px] w-[1260px] rounded-[9999px] blur-[128px] [transform:rotate(-20deg)] [background:radial-gradient(ellipse_at_40%_40%,var(--glow-1)_0%,transparent_70%)]" />
-        <div className="absolute top-[450px] right-[-90px] h-[1080px] w-[900px] rounded-[9999px] blur-[108px] [transform:rotate(15deg)] [background:radial-gradient(ellipse_at_50%_50%,var(--glow-2)_0%,transparent_70%)]" />
-        <div className="absolute bottom-[-180px] left-[180px] h-[900px] w-[1080px] rounded-[9999px] blur-[128px] [transform:rotate(-10deg)] [background:radial-gradient(ellipse_at_50%_60%,var(--glow-3)_0%,transparent_70%)]" />
+        <div className="absolute top-[-420px] left-[-320px] h-[1680px] w-[1560px] rounded-[9999px] blur-[168px] [transform:rotate(-18deg)] [background:radial-gradient(ellipse_at_42%_38%,var(--glow-1)_0%,transparent_68%)]" />
+        <div className="absolute top-[260px] right-[-380px] h-[1560px] w-[1320px] rounded-[9999px] blur-[184px] [transform:rotate(22deg)] [background:radial-gradient(ellipse_at_52%_48%,var(--glow-2)_0%,transparent_66%)]" />
+        <div className="absolute bottom-[-460px] left-[80px] h-[1380px] w-[1500px] rounded-[9999px] blur-[176px] [transform:rotate(-8deg)] [background:radial-gradient(ellipse_at_48%_56%,var(--glow-3)_0%,transparent_70%)]" />
+        <div className="absolute top-[820px] left-[-260px] h-[1140px] w-[1040px] rounded-[9999px] blur-[152px] [transform:rotate(34deg)] [background:radial-gradient(ellipse_at_46%_50%,var(--glow-4)_0%,transparent_72%)]" />
+        <div className="absolute top-[-160px] right-[-200px] h-[1020px] w-[1180px] rounded-[9999px] blur-[144px] [transform:rotate(-26deg)] [background:radial-gradient(ellipse_at_54%_44%,var(--glow-5)_0%,transparent_74%)]" />
       </div>
 
       {/* 噪点：SVG feTurbulence，思路取自 kkk tokens.md
@@ -30,8 +42,19 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
           我们出 jpeg，接近逐像素的高频颗粒正好是 DCT 最压不动的东西——0.8 配
           discrete「0 1」的硬二值化，帮助页光噪点就要吃掉 1.4MB。0.3 的颗粒更粗、
           肉眼几乎看不出差别，但给了编码器可压的低频结构。
-          同理去掉 feComponentTransfer 的二值量化，保留灰度渐变颗粒。 */}
-      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.04]">
+          同理去掉 feComponentTransfer 的二值量化，保留灰度渐变颗粒。
+
+          opacity 从 .04 提到 .07：弥散渐变铺开后大片区域是纯粹的平滑过渡，颗粒感
+          正是让它不显廉价的那一层。只动透明度不动 baseFrequency —— 频率是体积的
+          主因，透明度只改对比度。三档都实测过（temp/shots 下的 jpeg，quality 88）：
+
+            .04  help-dark 415KB  help-light 363KB   原值
+            .07  help-dark 495KB  help-light 396KB   +19% / +9%
+            .10  help-dark 561KB  help-light 435KB   +35% / +20%
+
+          停在 .07：.10 的颗粒在 1440px 宽度下肉眼已经和 .07 分不出，却多付 66KB。
+          三档都远低于 baseFrequency 0.8 那次的 1.4MB —— 再次印证频率才是体积主因。 */}
+      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.07]">
         <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
           <filter id="n" x="0%" y="0%" width="100%" height="100%">
             <feTurbulence

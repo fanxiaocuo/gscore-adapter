@@ -24,15 +24,6 @@ export interface HelpItem {
   icon: IconName
   /** 仅主人可用 */
   master?: boolean
-  /**
-   * 占满整行（双栏网格里跨两列）
-   *
-   * 给说明多行、示例又长的条目用。半栏只有 478px，`#早柚添加连接` 的示例
-   * 「127.0.0.1:8765 或 wss://域名:8765 n=主核心 t=abc」在里面要折三行，
-   * 同一行右边那张卡却只有一行说明，两张卡高度差出一倍——就是用户说的
-   * 「连接管理那的字不协调」。让它独占一行，剩下的条目才是同一量级。
-   */
-  wide?: boolean
 }
 
 /** 一个分组 */
@@ -97,6 +88,25 @@ function keepAtoms(cmd: string) {
   )
 }
 
+/**
+ * 一条指令：无边框，命令与说明分两栏同行
+ *
+ * 为什么不再用卡片
+ * --------------
+ * 原先每条是「带边框的卡片」，双栏网格排布，长的靠 spanMap 跨两列。问题出在跨列那
+ * 些卡：内容只有左边一点，右侧大片空白被边框圈起来，成了整页最扎眼的地方（用户圈
+ * 出来的六处全是这个）。根子不在边框粗细，而在「用框去撑一个填不满的宽度」。
+ *
+ * 改成单列 + 命令/说明两栏同行：说明自己就占住右侧，宽度由内容决定而不是由框决定，
+ * 空白无处可留。顺带 spanMap 那套跨列补齐的逻辑整个不需要了。
+ *
+ * 命令列定宽 380px（sub 300px）
+ * ---------------------------
+ * 定宽而不是 auto：auto 会让每行的说明起点参差，整组读下来像锯齿。380px 是按最长
+ * 那条量的 —— `#早柚设置私聊上报关闭` 十个中文加一个半角 #，32px 字号下约 336px，
+ * 留一点余量。`#早柚添加连接 <地址>` 更短（约 296px），但它含空格与占位符，仍靠
+ * keepAtoms 把 <...> 整块 nowrap，避免那个 > 孤零零掉到第二行。
+ */
 function Item({
   item,
   color,
@@ -110,156 +120,97 @@ function Item({
   badge?: boolean
 }) {
   return (
-    // h-full：网格行内按最高的那张拉齐（默认 stretch）。原来是 [align-items:start]
-    // 让每张卡保持内容高度，同一行两张卡的底边就差出几十像素，整页边缘参差 ——
-    // 用户反馈的「空白一大部分」有一半来自这些高低差。内容仍贴卡片顶部，
-    // 只是卡片外框补齐到行高。
-    <div
-      className={
-        sub
-          ? "h-full rounded-[26px] border border-border bg-surface px-[26px] py-[22px]"
-          : "h-full rounded-[26px] border border-border bg-surface px-[30px] py-[28px]"
-      }
-    >
+    <div className={sub ? "flex items-start gap-[18px]" : "flex items-start gap-[22px]"}>
       {/*
-       * 多一层 row：卡片高度由同一行里内容最多的那张决定（状态与连接那组，右边
-       * 「#早柚连接列表」说明折三行，把左边「#早柚状态」也拉高了 ~60px）。这一层
-       * 保持内容自身的高度并贴在卡片顶部，图标则在这一层里居中——两件事分开。
+       * 图标：去掉外框，只留图形本身
        *
-       * items-start 而不是 items-center：后者会让 body 也居中，内容在被邻居撑高的
-       * 卡片里上下浮动，同一行两张卡的标题起点就差出大半行。
+       * 原来是 60px 的圆角框 + 1px 描边 + 底色。取消边框这件事对它同样成立 ——
+       * 一个框里装一个 30px 图标，框比图标抢眼。现在直接给图形上色。
+       *
+       * pt 是为了让图标的光学中心对齐命令名首行的视觉中线：flex 的 items-start
+       * 对齐的是盒顶，而图标盒（正方形）比文字行盒（含行距）矮，不补这几像素图标
+       * 会顶在标题上沿。数值按字号推：(行高 - 图标高) / 2。
        */}
-      <div className={sub ? "flex items-start gap-[20px]" : "flex items-start gap-[24px]"}>
+      <div
+        className={
+          sub
+            ? "flex-none pt-[5px] [&>svg]:block [&>svg]:size-[24px]"
+            : "flex-none pt-[7px] [&>svg]:block [&>svg]:size-[30px]"
+        }
+        style={{ color }}
+      >
+        <Icon name={item.icon} />
+      </div>
+
+      {/* 命令名列 */}
+      <div className={sub ? "w-[300px] flex-none" : "w-[380px] flex-none"}>
+        <div
+          className={
+            sub
+              ? "text-[28px] font-black leading-[1.25] tracking-[-.01em]"
+              : "text-[32px] font-black leading-[1.25] tracking-[-.01em]"
+          }
+        >
+          {/*
+           * break-words + break-keep 的取舍在这里仍然成立（原注释摘要）：
+           * keep-all 禁掉 CJK 的逐字断点，免得 `#早柚添加连接 <地址>` 在「址」「>」
+           * 之间断开、留一个孤零零的 >；拉丁长词（`max_reconnect_attempts（retry）`）
+           * 仍由 break-words 兜底硬断，两者不冲突。keepAtoms 再把 <...> 整块 nowrap。
+           */}
+          {keepAtoms(item.cmd)}
+        </div>
         {/*
-         * 图标框：之前用 ◉ ≡ ⚙ 这类字符，看着总偏下——flex 居中的是行盒，字形墨迹
-         * 在行盒里的位置由基线决定，而这些符号在 Latin 字体里缺字、回落到中文字体后
-         * 墨迹整体偏下。换成内联 SVG 后几何由 viewBox 定死，居中结果与字体无关。
-         *
-         * self-center 对齐 row 的中线，也就是「这张卡整行内容行高的一半」。试过对齐
-         * 标题首行（margin-top 负值反推），图标便贴在卡片最上沿，与直觉相反。
+         * 混合分组（组里只有部分指令要主人权限）才走到这里。放在命令名下方而不是
+         * 右侧：命令列是定宽的，标签挤进去会把标题压折。
+         */}
+        {badge && (
+          <span
+            className="mt-[8px] inline-block rounded-[9999px] px-[12px] py-[4px] text-[17px] font-extrabold leading-none tracking-[.08em]"
+            style={{ color, background: `${color}1f` }}
+          >
+            MASTER
+          </span>
+        )}
+      </div>
+
+      {/* 说明列：占满剩余宽度，这一栏的存在就是为了让右侧不再空 */}
+      <div className={sub ? "min-w-0 flex-1 pt-[2px]" : "min-w-0 flex-1 pt-[3px]"}>
+        {/*
+         * 说明文字的 break-keep：默认 CJK 逐字可断，于是「改完即时生效」被折成
+         * 「…生 / 效」、末行吊单字。keep-all 后断点落在标点与空格上。
+         * break-words 兜底：`media_max_size=2097152` 这类长串仍硬断而非溢出。
          */}
         <div
           className={
             sub
-              ? "grid size-[48px] flex-none place-items-center self-center rounded-[14px] [&>svg]:block [&>svg]:size-[23px]"
-              : "grid size-[60px] flex-none place-items-center self-center rounded-[18px] [&>svg]:block [&>svg]:size-[30px]"
+              ? "text-[20px] leading-[1.55] break-words break-keep whitespace-pre-line text-muted"
+              : "text-[23px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted"
           }
-          style={{ background: `${color}1f`, color, border: `1px solid ${color}3d` }}
         >
-          <Icon name={item.icon} />
+          {item.dsc}
         </div>
-        {/* 下面三块的间距统一由这层的 gap 给，不再各自写 margin-top */}
-        <div
-          className={
-            sub
-              ? "flex min-w-0 flex-1 flex-col gap-[6px]"
-              : "flex min-w-0 flex-1 flex-col gap-[10px] pt-[2px]"
-          }
-        >
-          {/*
-           * 标题独占整行，不再与 MASTER 标签并排
-           * ----------------------------------
-           * 曾经是「cmd + 标签」两个 flex 兄弟。标签 113px 加 12px 间距，把半栏的
-           * 478px 压到 354px，而 `#早柚设置私聊上报关闭` 恰好就是 354px —— 十条主
-           * 指令里有五条卡在这个阈值上，全折成两三行。
-           *
-           * 而这个标签在整份清单里恒为真（所有指令都是 permission:"master"，见
-           * commands.ts 顶部），逐条重复 23 遍不带信息量，却付掉四分之一栏宽。
-           * 改成在分组标题右侧标一次，见 Group。
-           */}
+        {/*
+         * 示例：也去掉了边框，改成极淡底色的一条。break-keep 的理由同上 ——
+         * 示例是「#早柚添加连接 127.0.0.1:8765 name=主核心」这种空格分段的参数串，
+         * 默认可在任意 CJK 字之间断，会把 name=主核心 拆成「name=主 / 核心」。
+         * inline-block（而不是块级）让底色只包住文字，不被拉成整行宽。
+         */}
+        {item.eg && (
           <div
             className={
               sub
-                ? "text-[30px] font-black leading-[1.25] tracking-[-.01em]"
-                : "text-[36px] font-black leading-[1.2] tracking-[-.01em]"
+                ? "mt-[8px] inline-block max-w-full rounded-[10px] bg-inset px-[13px] py-[7px] font-mono text-[19px] leading-[1.5] break-words break-keep text-muted"
+                : "mt-[10px] inline-block max-w-full rounded-[10px] bg-inset px-[15px] py-[7px] font-mono text-[20px] leading-[1.5] break-words break-keep text-muted"
             }
           >
-            {/*
-             * break-words 而不是 break-all / anywhere：子分组里的
-             * `max_reconnect_attempts（retry）` 是最长的一条，比栏宽长，必须折。
-             * 后两者会在放不下的那一位上硬断，把字段名劈成「max_reconnect_att /
-             * empts」；break-words 只在整个词放不下时才硬断，括号已提供合法断点，
-             * 于是它在括号前换行，字段名保持完整。
-             *
-             * 全局设置那组曾经是最长的（`#早柚设置 media_max_size=10485760`），
-             * 改成中文写法后只剩 13 字符，不再是折行阈值的来源。
-             *
-             * 再加 break-keep（word-break:keep-all）：CJK 每个字之间都是合法断点，
-             * 而 `#早柚添加连接 <地址>` 这种标题一旦在「址」「>」之间断开，就会让一个
-             * 孤零零的 > 掉到第二行。keep-all 禁掉 CJK 的逐字断点；拉丁长词仍由
-             * break-words 兜底，两者不冲突。
-             *
-             * 注意 keep-all 只挡逐字断点，挡不住空格——上面那条标题里「连接」与
-             * 「<地址>」之间就有一个，首行被右侧 MASTER 标签挤窄后仍会在那里折。
-             * 这是对的（总得有个地方折），要保的只是「占位符不被劈开」，所以把
-             * <...> 整块用 nowrap 包起来，见下面的 keepAtoms。
-             */}
-            {keepAtoms(item.cmd)}
+            {item.eg}
           </div>
-          {/*
-           * 混合分组（组里只有部分指令要主人权限）才走到这里，自成一行而不是挂在标题
-           * 右侧——标题宽度是整份清单的折行瓶颈，不能再让它分。
-           */}
-          {badge && (
-            <span
-              className="self-start rounded-[9999px] px-[13px] py-[5px] text-[18px] font-extrabold leading-none tracking-[.08em]"
-              style={{ color, background: `${color}1f`, border: `1px solid ${color}3d` }}
-            >
-              MASTER
-            </span>
-          )}
-          {/*
-           * 说明文字也要 break-keep：默认 CJK 逐字可断，于是「改完即时生效」被折成
-           * 「…生 / 效」、「各自的改法」被折成「…的 / 改法」，末行只剩一两个字。
-           * 加了 keep-all 后断点落在标点与空格上，末行不再吊单字。
-           * break-words 兜底：`media_max_size=2097152` 这类长串仍会硬断而非溢出。
-           */}
-          <div
-            className={
-              sub
-                ? "text-[21px] leading-[1.5] break-words break-keep whitespace-pre-line text-muted"
-                : "text-[24px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted"
-            }
-          >
-            {item.dsc}
-          </div>
-          {/*
-           * 示例框：break-keep 而不是默认 —— 示例是「#早柚添加连接 127.0.0.1:8765
-           * name=主核心」这种空格分段的参数串，CJK 默认可在任意字之间断行，于是
-           * name=主核心 被拆成「name=主 / 核心」。break-keep 让连续中日韩文字不再随意
-           * 断，只在空格处换行，正好与参数串的语义一致；break-words 兜底防溢出。
-           * self-start 让框只包住文字，不被拉成整行宽。
-           */}
-          {item.eg && (
-            <div className="mt-[2px] max-w-full self-start rounded-[12px] border border-border bg-inset px-[16px] py-[8px] font-mono text-[21px] leading-[1.5] break-words break-keep text-muted">
-              {item.eg}
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )
 }
 
-/**
- * 算每张卡要不要跨两列
- *
- * wide 的显式跨列；其余按网格流依次放。走到组尾还剩半栏时，把最后一张也拉通 ——
- * 双栏网格里落单的半栏是整页最大的空白来源（三个分组各空着一大块）。
- * wide 卡恰好排在半行位置时同理把前一张补齐，否则网格会在上一行留洞。
- */
-function spanMap(items: { wide?: boolean }[]): boolean[] {
-  const spans = items.map(it => !!it.wide)
-  let col = 0
-  spans.forEach((wide, i) => {
-    if (wide) {
-      if (col === 1) spans[i - 1] = true
-      col = 0
-    } else col = col === 0 ? 1 : 0
-  })
-  if (col === 1) spans[items.length - 1] = true
-  return spans
-}
 
 function Group({
   group,
@@ -274,7 +225,6 @@ function Group({
   const total = group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
   /** 整组都要主人权限时在标题上标一次，替代原先每条卡片各标一个 */
   const allMaster = group.items.length > 0 && group.items.every(i => i.master)
-  const spans = spanMap(group.items)
 
   return (
     <div className="mb-[88px] last:mb-0">
@@ -324,36 +274,47 @@ function Group({
         </div>
       </div>
 
+      {/*
+       * 条目区：左侧一条贯通竖线把同组圈住，单列纵向排列
+       *
+       * 双栏网格取消了。原来靠 spanMap 把「显式 wide 的」与「组尾落单的」拉成跨列，
+       * 但跨列卡的右半边填不满，边框一圈就是用户圈出来的那六处空白。单列 + 命令/说明
+       * 两栏（见 Item）之后，宽度由内容自己占满，没有可留白的地方，spanMap 也随之
+       * 删掉。
+       *
+       * 竖线走 border-left 而不是伪元素：这一层是纯静态的块，没有激活态要动，
+       * border 最省事；出图也不存在「激活时文字横跳」那种顾虑（那是文档站的事）。
+       * 颜色取分组色压到 28% —— 满色的一条竖线比标题还抢眼。
+       */}
       {group.items.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-[48px] gap-y-[32px]">
+        <div
+          className="flex flex-col gap-[30px] pl-[34px]"
+          style={{ borderLeft: `2px solid ${color}47` }}
+        >
           {group.items.map((it, i) => (
-            // 跨列由 spanMap 统一算：显式 wide 的、以及组尾落单的那张
-            <div key={i} className={spans[i] ? "col-span-2" : undefined}>
-              <Item item={it} color={color} badge={!allMaster && it.master} />
-            </div>
+            <Item key={i} item={it} color={color} badge={!allMaster && it.master} />
           ))}
         </div>
       )}
 
-      {group.subGroups?.map((sub, i) => {
-        const subSpans = spanMap(sub.items)
-        return (
-          <div className="mt-[56px]" key={i}>
-            <div className="mb-[32px] flex items-center gap-[14px] text-[28px] font-extrabold leading-[1.3] tracking-[.06em] opacity-[.62]">
-              {/* flex-none 防止圆点被长标题挤成椭圆 */}
-              <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
-              {sub.title}
-            </div>
-            <div className="grid grid-cols-2 gap-x-[48px] gap-y-[32px]">
-              {sub.items.map((it, j) => (
-                <div key={j} className={subSpans[j] ? "col-span-2" : undefined}>
-                  <Item item={it} color={color} sub />
-                </div>
-              ))}
-            </div>
+      {group.subGroups?.map((sub, i) => (
+        <div className="mt-[52px]" key={i}>
+          <div className="mb-[28px] flex items-center gap-[14px] text-[28px] font-extrabold leading-[1.3] tracking-[.06em] opacity-[.62]">
+            {/* flex-none 防止圆点被长标题挤成椭圆 */}
+            <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
+            {sub.title}
           </div>
-        )
-      })}
+          {/* 子分组的竖线更淡一档，和主分组区分层级 */}
+          <div
+            className="flex flex-col gap-[24px] pl-[30px]"
+            style={{ borderLeft: `2px solid ${color}2e` }}
+          >
+            {sub.items.map((it, j) => (
+              <Item key={j} item={it} color={color} sub />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

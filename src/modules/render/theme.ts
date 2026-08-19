@@ -43,8 +43,18 @@ export interface Palette {
   success: string
   warning: string
   danger: string
-  /** 背景光斑三层 */
-  glow: [string, string, string]
+  /**
+   * 弥散渐变的色斑
+   *
+   * 五团而不是三团：三团各自成形、能看出「三个光球」；五团尺寸位置错开之后互相
+   * 咬合，边缘在 blur 下融掉，出来才是整片晕染而不是几个球（参考弥散渐变的常规
+   * 做法：多个大半径 radial-gradient 叠加 + 强 blur）。
+   *
+   * 色相取自 #FFCEE3 → #678EC9 → #262277 那条渐变，外加 #FEDFCB / #FCC2EB 两个
+   * 暖调点把冷色调兜住。深浅两套同一手法、不同明度：浅色要压得住黑字所以透明度
+   * 低、明度高；深色要在暗底上看得见所以饱和度稍高。
+   */
+  glow: [string, string, string, string, string]
   /** 分组标题轮换色 */
   rotate: [string, string, string]
   /**
@@ -73,7 +83,15 @@ export const DARK: Palette = {
   success: "#4ade80",
   warning: "#fbbf24",
   danger: "#f87171",
-  glow: ["rgba(59,130,246,0.40)", "rgba(139,92,246,0.30)", "rgba(6,182,212,0.25)"],
+  // 深色弥散：深蓝紫压住整体，粉与奶油只作暖调提亮点。#262277 提到 #382a78 —— 原色
+  // 在 #0a0d14 上几乎与底同色，铺出来看不见弥散。
+  glow: [
+    "rgba(103,142,201,0.34)",
+    "rgba(56,42,120,0.46)",
+    "rgba(255,206,227,0.17)",
+    "rgba(252,194,235,0.15)",
+    "rgba(254,223,203,0.11)",
+  ],
   rotate: ["#60a5fa", "#a78bfa", "#2dd4bf"],
   // 取渐变亮端。在卡片实际底色 rgb(19,21,28) 上实测 13.2 / 9.5 / 5.5 / 4.8 : 1。
   // 原渐变最深那档 #262277 只有 1.5:1，深底上几乎看不见，所以第四档收在 #6b7fc4 ——
@@ -123,7 +141,15 @@ export const LIGHT: Palette = {
   // #fbbf24 在 #0a0d14 上有 11:1。
   warning: "#b45309",
   danger: "#dc2626",
-  glow: ["rgba(56,189,248,0.50)", "rgba(167,139,250,0.40)", "rgba(45,212,191,0.30)"],
+  // 浅色弥散：高明度低饱和，靠面积和交融出层次而不是靠浓度。透明度比深色那套高
+  // 一档也不会压住黑字 —— 底是 #f4f6fb，这些斑只把它推向各自色相一点点。
+  glow: [
+    "rgba(199,220,244,0.62)",
+    "rgba(214,206,240,0.55)",
+    "rgba(252,215,235,0.48)",
+    "rgba(254,232,214,0.44)",
+    "rgba(207,228,214,0.40)",
+  ],
   // 与 primary/secondary/accent 同值，改一个就得改这里——见下方 rotate 的一致性测试
   rotate: ["#2563eb", "#7c3aed", "#0f766e"],
   // 取渐变暗端（浅底要深才看得见）。在 #f4f6fb 上实测 12.2 / 7.1 / 4.4 / 5.3 : 1。
@@ -181,6 +207,8 @@ export const cssVars = (p: Palette): string =>
     `--glow-1:${p.glow[0]}`,
     `--glow-2:${p.glow[1]}`,
     `--glow-3:${p.glow[2]}`,
+    `--glow-4:${p.glow[3]}`,
+    `--glow-5:${p.glow[4]}`,
     `--rot-1:${p.rotate[0]}`,
     `--rot-2:${p.rotate[1]}`,
     `--rot-3:${p.rotate[2]}`,
@@ -210,7 +238,13 @@ export const V = {
   success: "var(--success)",
   warning: "var(--warning)",
   danger: "var(--danger)",
-  glow: ["var(--glow-1)", "var(--glow-2)", "var(--glow-3)"],
+  glow: [
+    "var(--glow-1)",
+    "var(--glow-2)",
+    "var(--glow-3)",
+    "var(--glow-4)",
+    "var(--glow-5)",
+  ],
   rotate: ["var(--rot-1)", "var(--rot-2)", "var(--rot-3)"],
   spectrum: ["var(--spec-1)", "var(--spec-2)", "var(--spec-3)", "var(--spec-4)"],
 } as const satisfies Record<keyof Palette, string | readonly string[]>

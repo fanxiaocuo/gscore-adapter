@@ -192,7 +192,7 @@ export function Status(data: StatusData) {
                   {/*
                    * self-center 对齐整条连接的垂直中线。
                    *
-                   * 曾经是 self-start + -mt-[7px] 去对齐「名字那一行」，那个 −7px 按
+                   * 曾经是 align-self:flex-start + -mt-[7px] 去对齐「名字那一行」，那个 −7px 按
                    * 「名字 + url」两行反推：名字行高 46px 中线 23px，方块高 58px 中线 29px。
                    * 但卡片行数是变的——带 token / 重连次数时多出一行 meta 标签，三行内容下
                    * 方块就贴到卡片最上沿，与右侧胶囊也不在一条线上。居中后三者共用同一条
