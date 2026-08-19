@@ -113,6 +113,22 @@
   --glass-shadow: 0 8px 32px rgb(40 56 34 / 10%);
   --glass-shadow-lg: 0 16px 48px rgb(40 56 34 / 16%);
 
+  /*
+   * 移动端浮层的实底与遮罩
+   *
+   * --vp-c-bg-alt 被刻意设成 transparent（玻璃要透出画布），而 VitePress 的
+   * --vp-sidebar-bg-color 默认就从它派生 —— 于是移动端抽屉式侧栏背景全透明，
+   * 只剩 backdrop-filter，底下正文直接透上来变成字叠字。桌面端看不出问题，
+   * 因为那时侧栏不覆盖正文。所以这里把浮层的底单独定义，不跟着 bg-alt 走。
+   *
+   * 92% 而不是 100%：留一丝画布的绿透上来，浮层才和站点是一套；再低就压不住正文。
+   * VitePress 的遮罩默认 rgba(0,0,0,0.6) 是纯黑，压在浅绿上发脏，换成同色系的深绿灰。
+   */
+  --vp-sidebar-bg-color: rgb(243 248 240 / 92%);
+  --vp-backdrop-bg-color: rgb(28 40 24 / 46%);
+  /* 移动端「本页」下拉的实底：原先继承 12% 的 default-soft，几乎等于没有底 */
+  --local-nav-panel-bg: rgb(244 249 241 / 96%);
+
   --vp-c-bg: #eef5ea;
   --vp-c-bg-alt: transparent;
   --vp-c-bg-soft: rgb(255 255 255 / 52%);
@@ -197,6 +213,11 @@
   --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 9%);
   --glass-shadow: 0 8px 32px rgb(0 0 0 / 35%);
   --glass-shadow-lg: 0 16px 48px rgb(0 0 0 / 45%);
+
+  /* 移动端浮层实底与遮罩，同浅色的理由（见 :root 那段） */
+  --vp-sidebar-bg-color: rgb(20 26 34 / 94%);
+  --vp-backdrop-bg-color: rgb(4 8 14 / 62%);
+  --local-nav-panel-bg: rgb(18 24 32 / 96%);
 
   --vp-c-bg: #1e2a33;
   --vp-c-bg-alt: transparent;
@@ -1112,5 +1133,48 @@ body::after {
   /* 移动端色斑收小一点，别让文字整屏都压在高饱和色上 */
   body::before {
     opacity: 0.8;
+  }
+
+  /*
+   * 抽屉式侧栏要压得住正文
+   *
+   * 桌面端侧栏在正文左侧、不重叠，半透明玻璃没问题；移动端它是盖在正文上的抽屉，
+   * 半透明就变成字叠字。这里给足不透明度，模糊量也调高 —— 模糊是「玻璃」的语言，
+   * 底不透明了仍要靠它跟画布产生关系，否则就是一块贴上去的白板。
+   */
+  .VPSidebar {
+    background: var(--vp-sidebar-bg-color);
+    -webkit-backdrop-filter: blur(24px) saturate(1.2);
+    backdrop-filter: blur(24px) saturate(1.2);
+  }
+
+  /*
+   * 「本页」下拉：原先的底是 --vp-c-default-soft（12% 绿灰），底下正文透上来。
+   * .items 是 VitePress 给这个下拉的外层容器，实底加在它身上；里层的 .outline
+   * 自带 52% 白，叠在实底上正好成为一层浅浅的内凹，不用另外压平。
+   */
+  .VPLocalNavOutlineDropdown .items {
+    background: var(--local-nav-panel-bg);
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow-lg);
+  }
+
+  /*
+   * 搜索按钮压成正圆
+   *
+   * 移动端 VitePress 把搜索收成一个图标钮，盒子实测 48×55（高比宽大 7px，来自
+   * 导航条的垂直 padding）。全圆角 999px 套在非正方形上就是一枚竖椭圆 —— 这是
+   * 「看着怪」的确切来源。钉死 44×44 让它成为真正的圆，同时满足触控目标最小尺寸。
+   */
+  .VPNavBarSearch .DocSearch-Button,
+  .VPNavBarSearch button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }
