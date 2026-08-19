@@ -261,7 +261,16 @@ function spanMap(items: { wide?: boolean }[]): boolean[] {
   return spans
 }
 
-function Group({ group, color }: { group: HelpGroup; color: string }) {
+function Group({
+  group,
+  color,
+  spectrum,
+}: {
+  group: HelpGroup
+  color: string
+  /** 渐变点缀的两档，给分组计数的渐变数字用 */
+  spectrum: [string, string]
+}) {
   const total = group.items.length + (group.subGroups?.reduce((n, s) => n + s.items.length, 0) || 0)
   /** 整组都要主人权限时在标题上标一次，替代原先每条卡片各标一个 */
   const allMaster = group.items.length > 0 && group.items.every(i => i.master)
@@ -286,9 +295,32 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
             MASTER
           </span>
         )}
-        {/* 计数做成描边胶囊，和标题拉开层级；leading-none 让数字在胶囊里居中 */}
-        <div className="ml-auto flex-none rounded-[9999px] border border-border bg-inset px-[18px] py-[9px] font-mono text-[22px] font-extrabold leading-none tracking-[.14em] text-muted">
-          {String(total).padStart(2, "0")}
+        {/*
+         * 分组计数
+         *
+         * 原先是「描边胶囊 + 两位补零的灰数字」，孤零零挂在最右端。三个毛病：
+         * 补零让 02 读成「第 2 组」而不是「2 项」；灰色 muted 又弱到不像信息；
+         * 一个空框子里只装两个字符，框比内容抢眼。
+         *
+         * 改成「渐变数字 + 单位」：去掉框与补零，数字承接分组色所在的渐变档，
+         * 后面缀一个 muted 的「项」把语义钉死。位置仍靠 ml-auto 推到右端 ——
+         * 标题长度不一，右对齐才能让四个分组的计数落在同一条竖线上。
+         *
+         * items-baseline：数字 34px、单位 19px，基线对齐才不会看着一高一低。
+         */}
+        <div className="ml-auto flex flex-none items-baseline gap-[8px]">
+          <span
+            className="font-mono text-[34px] font-black leading-none [font-variant-numeric:tabular-nums]"
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${spectrum[0]}, ${spectrum[1]})`,
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+            }}
+          >
+            {total}
+          </span>
+          <span className="text-[19px] leading-none text-muted">项</span>
         </div>
       </div>
 
@@ -327,7 +359,7 @@ function Group({ group, color }: { group: HelpGroup; color: string }) {
 }
 
 export function Help(data: HelpData) {
-  const { rotate } = data.palette
+  const { rotate, spectrum } = data.palette
 
   return (
     <>
@@ -343,7 +375,16 @@ export function Help(data: HelpData) {
         <Stats items={data.summary} palette={data.palette} />
 
         {data.groups.map((g, i) => (
-          <Group key={i} group={g} color={rotate[i % rotate.length]} />
+          <Group
+            key={i}
+            group={g}
+            color={rotate[i % rotate.length]}
+            // 每个分组的计数取渐变上相邻两档，i 轮换 —— 与该组标题色的轮换同步推进
+            spectrum={[
+              spectrum[i % spectrum.length],
+              spectrum[(i + 1) % spectrum.length],
+            ]}
+          />
         ))}
       </Page>
 

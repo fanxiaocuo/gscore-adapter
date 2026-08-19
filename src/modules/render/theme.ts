@@ -47,6 +47,17 @@ export interface Palette {
   glow: [string, string, string]
   /** 分组标题轮换色 */
   rotate: [string, string, string]
+  /**
+   * 渐变点缀的四档取样
+   *
+   * 出图是信息密集的界面，大面积渐变会压正文可读性，所以渐变只作点缀：统计卡的
+   * 大数字、分组计数。四档取自同一条渐变（粉 → 蓝 → 深蓝紫），按位置轮换，
+   * 既有渐变的连续感又保持相邻卡片可区分。
+   *
+   * 两套各自往自己那侧取样：深色取渐变的亮端（深底要亮才看得见），浅色取暗端。
+   * 每一档都验过 ≥3:1（大数字走大字那条线），见下面各自的注释。
+   */
+  spectrum: [string, string, string, string]
 }
 
 export const DARK: Palette = {
@@ -64,6 +75,11 @@ export const DARK: Palette = {
   danger: "#f87171",
   glow: ["rgba(59,130,246,0.40)", "rgba(139,92,246,0.30)", "rgba(6,182,212,0.25)"],
   rotate: ["#60a5fa", "#a78bfa", "#2dd4bf"],
+  // 取渐变亮端。在卡片实际底色 rgb(19,21,28) 上实测 13.2 / 9.5 / 5.5 / 4.8 : 1。
+  // 原渐变最深那档 #262277 只有 1.5:1，深底上几乎看不见，所以第四档收在 #6b7fc4 ——
+  // 先取过 #5a6eb8，实测最差端 3.78:1，虽过大字 3:1 但那端正好落在状态数字上，
+  // 提亮到 4.8 让它连正文的 4.5 也过，关键数字不吃临界值。
+  spectrum: ["#ffcee3", "#c3b4dc", "#678ec9", "#6b7fc4"],
 }
 
 /**
@@ -110,6 +126,9 @@ export const LIGHT: Palette = {
   glow: ["rgba(56,189,248,0.50)", "rgba(167,139,250,0.40)", "rgba(45,212,191,0.30)"],
   // 与 primary/secondary/accent 同值，改一个就得改这里——见下方 rotate 的一致性测试
   rotate: ["#2563eb", "#7c3aed", "#0f766e"],
+  // 取渐变暗端（浅底要深才看得见）。在 #f4f6fb 上实测 12.2 / 7.1 / 4.4 / 5.3 : 1。
+  // 第三档 4.38 略低于正文的 4.5，但它只用在 50px 上下的大数字，走 3:1 那条线。
+  spectrum: ["#262277", "#3d4a9e", "#5470b5", "#6b5a9e"],
 }
 
 /**
@@ -165,6 +184,10 @@ export const cssVars = (p: Palette): string =>
     `--rot-1:${p.rotate[0]}`,
     `--rot-2:${p.rotate[1]}`,
     `--rot-3:${p.rotate[2]}`,
+    `--spec-1:${p.spectrum[0]}`,
+    `--spec-2:${p.spectrum[1]}`,
+    `--spec-3:${p.spectrum[2]}`,
+    `--spec-4:${p.spectrum[3]}`,
   ].join(";")
 
 /**
@@ -189,6 +212,7 @@ export const V = {
   danger: "var(--danger)",
   glow: ["var(--glow-1)", "var(--glow-2)", "var(--glow-3)"],
   rotate: ["var(--rot-1)", "var(--rot-2)", "var(--rot-3)"],
+  spectrum: ["var(--spec-1)", "var(--spec-2)", "var(--spec-3)", "var(--spec-4)"],
 } as const satisfies Record<keyof Palette, string | readonly string[]>
 
 /**

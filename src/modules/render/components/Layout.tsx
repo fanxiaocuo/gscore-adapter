@@ -122,27 +122,47 @@ export function Stats({
   // 最小值被钉在 0，四列恒等宽；而 1fr 的最小值是 auto，放不下的列可以超出等分。
   // 四页里只有更新日志页的上排小字够长（NEW COMMITS / LOCAL AHEAD 这类），它那四列
   // 实际是 382/162/299/380 而非 306×4，卡片高度也因此是 220px 而非 191px。换成
-  // minmax(0,1fr) 会把那页的统计条压回等宽——那是版式改动，不是等价迁移。
+  // minmax(0,1fr) 会把那页的统计条压回等分——那是版式改动，不是等价迁移。
   return (
     <div className="mb-[72px] grid [grid-template-columns:repeat(4,1fr)] gap-[24px]">
       {items.map((s, i) => (
         // 四张卡等高（grid 默认 stretch），内部三行 flex 竖排
         <div
-          className="flex flex-col gap-[6px] rounded-[28px] border border-border bg-surface p-[30px]"
+          className="flex flex-col gap-[10px] rounded-[22px] border border-border bg-surface px-[26px] py-[24px]"
           key={i}
         >
-          <div className="font-mono text-[19px] font-extrabold uppercase leading-[1.3] tracking-[.16em] text-muted">
+          {/*
+           * 三行的字号原先是 19 / 60 / 21：19 与 21 几乎同级、层级读不出来，60 又
+           * 跳得太远，于是一位数的卡片右侧空出一大片。收成 16 / 52 / 18 —— 相邻两
+           * 级的比值都在 1.1 与 2.9 之间，主次分明，卡片也从 191px 高收到约 168px。
+           */}
+          <div className="font-mono text-[16px] font-extrabold uppercase leading-[1.3] tracking-[.16em] text-muted">
             {s.key}
           </div>
-          {/* tabular-nums：等宽数字让四张卡的数字宽度一致，不会因 1 比 8 窄而歪 */}
+          {/*
+           * 大数字走渐变点缀：四张卡各取 spectrum 的一档，同一条渐变上的连续取样，
+           * 比原先三色 rotate 轮换更整体，也是「渐变只用在点缀」的落点之一。
+           *
+           * 渐变字必须给 background-clip:text + 透明字色。这里用内联 style 而不是
+           * utility：颜色来自运行时 Palette，编译期拿不到值。
+           *
+           * tabular-nums：等宽数字让四张卡的数字宽度一致，不会因 1 比 8 窄而歪。
+           */}
           <div
-            className="text-[60px] font-black leading-[1.05] tracking-[-.02em] [font-variant-numeric:tabular-nums]"
-            style={{ color: palette.rotate[i % palette.rotate.length] }}
+            className="text-[52px] font-black leading-[1.05] tracking-[-.02em] [font-variant-numeric:tabular-nums]"
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${
+                palette.spectrum[i % palette.spectrum.length]
+              }, ${palette.spectrum[(i + 1) % palette.spectrum.length]})`,
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+            }}
           >
             {s.value}
           </div>
           {/* mt-auto 贴底：某张卡没有 sub 时，其余三张的数值也不会错位 */}
-          {s.sub && <div className="mt-auto text-[21px] leading-[1.4] text-muted">{s.sub}</div>}
+          {s.sub && <div className="mt-auto text-[18px] leading-[1.4] text-muted">{s.sub}</div>}
         </div>
       ))}
     </div>
