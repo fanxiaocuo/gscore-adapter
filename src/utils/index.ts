@@ -1,4 +1,5 @@
 export * from "./compat.js"
+export * from "./forward.js"
 export * from "./logger.js"
 export * from "./media.js"
 export * from "./message.js"

@@ -7,6 +7,7 @@ import {
   isChannel,
   resolveReplyId,
   resolveReplyMessage,
+  resolveForwardMessage,
   hasReplyContext,
 } from "@/utils"
 import type {
@@ -18,7 +19,7 @@ import type {
   AdapterEvent,
 } from "@/types"
 import { buttonsToGscore } from "./buttons.js"
-import { toStr } from "@/utils/compat"
+import { makeLog, toStr } from "@/utils/compat"
 
 const NODE_MARK = "[合并转发]"
 
@@ -78,8 +79,28 @@ function nodePreview(items: MessageSegment[]): string {
   return lines.join("\n")
 }
 
-/** 云崽 message 数组 -> 早柚核心 Message[] */
-export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]> {
+/**
+ * node 段的载荷拍平成不含 node 的核心段 —— 协议禁止 node 嵌套（Protocol.ts:97-103）。
+ *
+ * 刻意**不**把事件传进去（也就没法在这里回查 forward）：节点里若还套着一层转发，
+ * 查出来也是个 node 段，而下面正把 node 全丢掉，等于白发一次请求。落到跳过分支
+ * 顺带解决了「转发套自己」时无限递归的问题。
+ */
+async function flattenNodes(nodes: any[]): Promise<Exclude<MessageSegment, { type: "node" }>[]> {
+  const arr: Exclude<MessageSegment, { type: "node" }>[] = []
+  for (const n of nodes) {
+    for (const s of await msgToGscore(n?.message ?? n)) if (s.type !== "node") arr.push(s)
+  }
+  return arr
+}
+
+/**
+ * 云崽 message 数组 -> 早柚核心 Message[]
+ *
+ * @param e 触发事件。只用于合并转发回查（要拿事件上的会话对象与 Bot 做能力探测），
+ *          不传就只是取不到转发内容，其余转换不受影响。
+ */
+export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise<MessageSegment[]> {
   const list: (string | YunzaiSegment)[] = Array.isArray(msg) ? msg : [msg]
   const out: MessageSegment[] = []
 
@@ -156,11 +177,31 @@ export async function msgToGscore(msg: YunzaiMessage): Promise<MessageSegment[]>
 
       case "node": {
         // 协议禁止 node 嵌套，这里拍平
-        const arr: Exclude<MessageSegment, { type: "node" }>[] = []
-        for (const n of Array.isArray(i.data) ? i.data : []) {
-          for (const s of await msgToGscore(n?.message ?? n)) if (s.type !== "node") arr.push(s)
+        out.push({ type: "node", data: await flattenNodes(Array.isArray(i.data) ? i.data : []) })
+        break
+      }
+
+      case "forward": {
+        // Milky 的入站转发段只有 id、没有内容（adapter/Milky.js:853-854），落到下面的
+        // default 会被 toStr 按普通对象 JSON.stringify（utils/compat.ts:65 ->
+        // TRSS lib/util.js:232-248），于是 raw_text 里出现一坨
+        // {"type":"forward","id":"..."}。纯转发时无害，但「ww面板 + 转发」同时发来时，
+        // 核心那些 ^...$ 命令正则就匹配不上了。
+        const nodes = await resolveForwardMessage(String(i.id ?? ""), e)
+        if (nodes.length) {
+          out.push({ type: "node", data: await flattenNodes(nodes) })
+          break
         }
-        out.push({ type: "node", data: arr })
+
+        // 取不到内容时**什么都不上报**，不放 "[合并转发]" 之类的占位。
+        // 权衡点在于占位同样是 text 段，会和命令文本拼进同一个 raw_text：
+        // 「ww面板[合并转发]」对 ^ww面板$ 与「ww面板{"type":...}」是一样的失配 ——
+        // 换一串好看的字节修不掉这个 bug。而转发正文本来就不进 raw_text，
+        // 丢掉它核心并没有少掉可匹配的东西。与 case "at" 丢弃 "all" 同一路数。
+        //
+        // 代价：只有一个转发段的消息会因 content 为空被 yunzaiToGscore 判 false、
+        // 整条不上报。那条消息原先也匹配不上任何命令，少发一帧比污染命令文本划算。
+        makeLog("debug", `合并转发取不到内容，不上报占位：${i.id}`, "GsCore", true)
         break
       }
 
@@ -190,7 +231,7 @@ export async function yunzaiToGscore(
 
   // 先上报当前消息，引用上下文放在末尾，避免 reply/node 影响命令匹配。
   // 引用 id 与正文是两个不同字段；引用图片和合并转发节点也一并保留。
-  const current = await msgToGscore(e.message || [])
+  const current = await msgToGscore(e.message || [], e)
   content.push(...current.filter(i => i.type !== "reply" && i.type !== "reply_id"))
 
   const replyId = resolveReplyId(e)
@@ -203,7 +244,7 @@ export async function yunzaiToGscore(
   if (hasReplyContext(e)) {
     const quotedMessage = await resolveReplyMessage(e)
     if (quotedMessage.length) {
-      const quoted = await msgToGscore(quotedMessage)
+      const quoted = await msgToGscore(quotedMessage, e)
       const nodes: MessageSegment[] = []
       for (const item of quoted) {
         if (item.type === "node") nodes.push(...item.data)
