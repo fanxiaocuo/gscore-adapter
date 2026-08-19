@@ -89,23 +89,28 @@ function keepAtoms(cmd: string) {
 }
 
 /**
- * 一条指令：无边框，命令与说明分两栏同行
+ * 一条指令
+ *
+ * 两种版式，由 sub 切换：
+ *
+ *   主条目（sub 未给）  命令与说明左右两栏同行，命令列定宽 380px
+ *   子条目（sub）       命令在上、说明在下，外层多列网格排布
  *
  * 为什么不再用卡片
  * --------------
  * 原先每条是「带边框的卡片」，双栏网格排布，长的靠 spanMap 跨两列。问题出在跨列那
- * 些卡：内容只有左边一点，右侧大片空白被边框圈起来，成了整页最扎眼的地方（用户圈
- * 出来的六处全是这个）。根子不在边框粗细，而在「用框去撑一个填不满的宽度」。
+ * 些卡：内容只有左边一点，右侧大片空白被边框圈起来。根子不在边框粗细，而在「用框
+ * 去撑一个填不满的宽度」。
  *
- * 改成单列 + 命令/说明两栏同行：说明自己就占住右侧，宽度由内容决定而不是由框决定，
- * 空白无处可留。顺带 spanMap 那套跨列补齐的逻辑整个不需要了。
+ * 为什么子条目要换成上下结构
+ * ------------------------
+ * 参数表那种子分组的 key 是拉丁长串。实测 `max_reconnect_attempts（retry）` 在
+ * 28px 下宽 445px、`reconnect_interval（interval）` 391px，都远超子条目原来的
+ * 300px 命令列。更糟的是它们**不折行而是直接溢出**压在说明上：break-keep
+ * （word-break:keep-all）为了保住中文不逐字断而禁掉了 CJK 断点，而这两个 key 是
+ * 「拉丁下划线串 + 全角括号」，下划线不是合法断点、break-words 也没能兜住。
  *
- * 命令列定宽 380px（sub 300px）
- * ---------------------------
- * 定宽而不是 auto：auto 会让每行的说明起点参差，整组读下来像锯齿。380px 是按最长
- * 那条量的 —— `#早柚设置私聊上报关闭` 十个中文加一个半角 #，32px 字号下约 336px，
- * 留一点余量。`#早柚添加连接 <地址>` 更短（约 296px），但它含空格与占位符，仍靠
- * keepAtoms 把 <...> 整块 nowrap，避免那个 > 孤零零掉到第二行。
+ * 上下结构里 key 占满整列宽，长到 445px 也不挤任何东西，天生没有这个问题。
  */
 function Item({
   item,
@@ -119,8 +124,39 @@ function Item({
   /** 单独标 MASTER。整组都要主人权限时由分组标题统一标，这里就不标了 */
   badge?: boolean
 }) {
+  // 子条目：命令在上、说明在下
+  if (sub) {
+    return (
+      <div className="flex items-start gap-[12px]">
+        {/* 标记点：数据里子条目的 icon 恒为 dot，正好当参考版式里那个前缀符号用 */}
+        <div className="flex-none pt-[7px] [&>svg]:block [&>svg]:size-[19px]" style={{ color }}>
+          <Icon name={item.icon} />
+        </div>
+        <div className="min-w-0 flex-1">
+          {/*
+           * 这里不能只靠 break-words：长 key 的下划线不是断点，keep-all 又禁了 CJK
+           * 断点。加 [overflow-wrap:anywhere] 兜底 —— 它允许在任意位置断，是溢出的
+           * 最后一道闸。上下结构下整列有 630px，实际不会真断，但参数名再长也不会
+           * 再压到别的内容上。
+           */}
+          <div className="text-[26px] font-black leading-[1.3] tracking-[-.01em] break-keep [overflow-wrap:anywhere]">
+            {keepAtoms(item.cmd)}
+          </div>
+          <div className="mt-[5px] text-[20px] leading-[1.55] break-words break-keep whitespace-pre-line text-muted">
+            {item.dsc}
+          </div>
+          {item.eg && (
+            <div className="mt-[8px] inline-block max-w-full rounded-[10px] bg-inset px-[13px] py-[7px] font-mono text-[19px] leading-[1.5] break-words break-keep text-muted">
+              {item.eg}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={sub ? "flex items-start gap-[18px]" : "flex items-start gap-[22px]"}>
+    <div className="flex items-start gap-[22px]">
       {/*
        * 图标：去掉外框，只留图形本身
        *
@@ -131,31 +167,23 @@ function Item({
        * 对齐的是盒顶，而图标盒（正方形）比文字行盒（含行距）矮，不补这几像素图标
        * 会顶在标题上沿。数值按字号推：(行高 - 图标高) / 2。
        */}
-      <div
-        className={
-          sub
-            ? "flex-none pt-[5px] [&>svg]:block [&>svg]:size-[24px]"
-            : "flex-none pt-[7px] [&>svg]:block [&>svg]:size-[30px]"
-        }
-        style={{ color }}
-      >
+      <div className="flex-none pt-[7px] [&>svg]:block [&>svg]:size-[30px]" style={{ color }}>
         <Icon name={item.icon} />
       </div>
 
-      {/* 命令名列 */}
-      <div className={sub ? "w-[300px] flex-none" : "w-[380px] flex-none"}>
-        <div
-          className={
-            sub
-              ? "text-[28px] font-black leading-[1.25] tracking-[-.01em]"
-              : "text-[32px] font-black leading-[1.25] tracking-[-.01em]"
-          }
-        >
+      {/*
+       * 命令名列定宽 380px
+       *
+       * 定宽而不是 auto：auto 会让每行的说明起点参差，整组读下来像锯齿。380px 是按
+       * 最长那条量的 —— `#早柚设置私聊上报关闭` 十个中文加一个半角 #，32px 字号下
+       * 约 336px，留一点余量。主条目的命令都是中文短语，不会出现子条目那种拉丁长串。
+       */}
+      <div className="w-[380px] flex-none">
+        <div className="text-[32px] font-black leading-[1.25] tracking-[-.01em]">
           {/*
-           * break-words + break-keep 的取舍在这里仍然成立（原注释摘要）：
-           * keep-all 禁掉 CJK 的逐字断点，免得 `#早柚添加连接 <地址>` 在「址」「>」
-           * 之间断开、留一个孤零零的 >；拉丁长词（`max_reconnect_attempts（retry）`）
-           * 仍由 break-words 兜底硬断，两者不冲突。keepAtoms 再把 <...> 整块 nowrap。
+           * break-words + break-keep 的取舍（原注释摘要）：keep-all 禁掉 CJK 的逐字
+           * 断点，免得 `#早柚添加连接 <地址>` 在「址」「>」之间断开、留一个孤零零的
+           * >；拉丁长词仍由 break-words 兜底。keepAtoms 再把 <...> 整块 nowrap。
            */}
           {keepAtoms(item.cmd)}
         </div>
@@ -174,19 +202,13 @@ function Item({
       </div>
 
       {/* 说明列：占满剩余宽度，这一栏的存在就是为了让右侧不再空 */}
-      <div className={sub ? "min-w-0 flex-1 pt-[2px]" : "min-w-0 flex-1 pt-[3px]"}>
+      <div className="min-w-0 flex-1 pt-[3px]">
         {/*
          * 说明文字的 break-keep：默认 CJK 逐字可断，于是「改完即时生效」被折成
          * 「…生 / 效」、末行吊单字。keep-all 后断点落在标点与空格上。
          * break-words 兜底：`media_max_size=2097152` 这类长串仍硬断而非溢出。
          */}
-        <div
-          className={
-            sub
-              ? "text-[20px] leading-[1.55] break-words break-keep whitespace-pre-line text-muted"
-              : "text-[23px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted"
-          }
-        >
+        <div className="text-[23px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted">
           {item.dsc}
         </div>
         {/*
@@ -196,13 +218,7 @@ function Item({
          * inline-block（而不是块级）让底色只包住文字，不被拉成整行宽。
          */}
         {item.eg && (
-          <div
-            className={
-              sub
-                ? "mt-[8px] inline-block max-w-full rounded-[10px] bg-inset px-[13px] py-[7px] font-mono text-[19px] leading-[1.5] break-words break-keep text-muted"
-                : "mt-[10px] inline-block max-w-full rounded-[10px] bg-inset px-[15px] py-[7px] font-mono text-[20px] leading-[1.5] break-words break-keep text-muted"
-            }
-          >
+          <div className="mt-[10px] inline-block max-w-full rounded-[10px] bg-inset px-[15px] py-[7px] font-mono text-[20px] leading-[1.5] break-words break-keep text-muted">
             {item.eg}
           </div>
         )}
@@ -304,9 +320,22 @@ function Group({
             <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
             {sub.title}
           </div>
-          {/* 子分组的竖线更淡一档，和主分组区分层级 */}
+          {/*
+           * 子条目走两列网格
+           *
+           * 子条目是「命令在上、说明在下」的窄块（见 Item 的 sub 分支），单列排会让
+           * 每条只占左边一半、右侧全空 —— 正是主条目当初的毛病。两列各约 630px，
+           * 参数表最长的 key（445px）也放得开。
+           *
+           * items-start 而不是默认的 stretch：说明有一行的也有三行的（bind 是三行），
+           * stretch 会把同行两条拉到等高、短的那条底下留白。没有边框之后高度参差
+           * 完全不显眼 —— 这正是去掉框换来的自由。
+           *
+           * 列宽仍用 repeat(2,1fr) 而不是 grid-cols-2，理由同 Stats：后者编出来是
+           * minmax(0,1fr)，最小值被钉在 0。
+           */}
           <div
-            className="flex flex-col gap-[24px] pl-[30px]"
+            className="grid items-start [grid-template-columns:repeat(2,1fr)] gap-x-[44px] gap-y-[26px] pl-[30px]"
             style={{ borderLeft: `2px solid ${color}2e` }}
           >
             {sub.items.map((it, j) => (
