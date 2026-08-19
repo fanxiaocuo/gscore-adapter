@@ -3,6 +3,14 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [3.3.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.3.0...v3.3.1) (2026-08-19)
+
+
+### 🐛 问题修复
+
+* **passive:** 单聊被动回复上限按官方改为 4 次 ([d0c60ed](https://github.com/fanxiaocuo/gscore-adapter/commit/d0c60ed5b3ba077915c8d4f12d3ed677d4f976bf))
+* **protocol:** 从 msg_elements 提取 QQBot 引用图 ([b74d68e](https://github.com/fanxiaocuo/gscore-adapter/commit/b74d68e882955e9958415836beeb3b446affb566))
+
 ## [3.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.2.0...v3.3.0) (2026-08-18)
 
 
