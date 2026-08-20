@@ -68,6 +68,19 @@ export interface Palette {
    * 每一档都验过 ≥3:1（大数字走大字那条线），见下面各自的注释。
    */
   spectrum: [string, string, string, string]
+  /**
+   * 压花玻璃高光层的强度与混合方式
+   *
+   * 为什么必须按主题分档
+   * -----------------
+   * 高光是白色的 feSpecularLighting。浅底上用 screen 混合正好 —— 白鳞片压在浅色
+   * 渐变上就是玻璃的反光。深底上同一套是灾难：screen 对深色几乎等于直接叠加纯白，
+   * 出来是一屏雪花，正文全被咬花（第一次落地时 help-dark 就是这样，实测不可读）。
+   *
+   * 深色改用 overlay + 很低的透明度：overlay 在暗部是 2·base·blend，提亮量与底色
+   * 成正比，所以深色区域只被轻微擦亮，读起来像烟熏玻璃而不是下雪。
+   */
+  gloss: { opacity: number; blend: "screen" | "overlay" }
 }
 
 export const DARK: Palette = {
@@ -75,7 +88,19 @@ export const DARK: Palette = {
   surface: "rgba(255,255,255,0.035)",
   border: "rgba(255,255,255,0.10)",
   foreground: "#e8ecf4",
-  muted: "#8b95a8",
+  /*
+   * muted 从 #8b95a8 提到 #9ba5b6
+   *
+   * contrast.mjs 算的是 muted 对 bg(#0a0d14) 这个平底 —— 那里它有 6.1:1，一直是「达标」。
+   * 但真实背景是弥散色斑 + 压花高光合成的，明度在整幅画面里起伏。把内容层隐藏后
+   * 逐像素统计（temp/ink-probe.mjs，采样 50 万点）：
+   *
+   *   深色背景亮度  p1 L=0.007  p50 L=0.015  p99 L=0.038
+   *
+   * 浅字的最坏情况是**最亮**的那一档：#8b95a8 在 L=0.038 上只有 3.97:1，掉出 AA。
+   * #9ba5b6 是 4.82:1，最暗处仍有 7.41:1（浅字在暗处只会更清楚，不必担心上限）。
+   */
+  muted: "#9ba5b6",
   inset: "rgba(255,255,255,0.06)",
   primary: "#60a5fa",
   secondary: "#a78bfa",
@@ -83,14 +108,26 @@ export const DARK: Palette = {
   success: "#4ade80",
   warning: "#fbbf24",
   danger: "#f87171",
-  // 深色弥散：深蓝紫压住整体，粉与奶油只作暖调提亮点。#262277 提到 #382a78 —— 原色
-  // 在 #0a0d14 上几乎与底同色，铺出来看不见弥散。
+  /*
+   * 深色弥散：与浅色同一个色族，只是各团的浓淡反过来配
+   *
+   * 原来是 蓝 / 深紫(#382a78) / 粉 / 粉 / 奶油。问题在后三团 —— 粉与奶油是暖色，
+   * 压在接近纯黑的冷底上就是「脏」的来源：暖色在暗处会先失饱和再失明度，糊成一层
+   * 灰褐。深紫 #382a78 又太重，铺出来是一块闷住的深斑而不是光。
+   *
+   * 换成与 LIGHT 同一家族（试板 Q 档的冷色）：天蓝 / 蓝紫 / 亮蓝 / 淡绿 / 银灰。
+   * 深浅两套共用色族是有意的 —— 同一张版式在白天与夜里应该认得出是同一个设计，
+   * 只有明暗关系变。
+   *
+   * alpha 分配与浅色相反：浅色底上银灰要重（.34）才看得见，深色底上银灰只要 .16
+   * 就已经是画面里最亮的一层；淡绿两套都压到最低，它是唯一的暖偏色。
+   */
   glow: [
-    "rgba(103,142,201,0.34)",
-    "rgba(56,42,120,0.46)",
-    "rgba(255,206,227,0.17)",
-    "rgba(252,194,235,0.15)",
-    "rgba(254,223,203,0.11)",
+    "rgba(91,147,222,0.34)",
+    "rgba(131,139,204,0.40)",
+    "rgba(43,154,222,0.24)",
+    "rgba(124,178,56,0.14)",
+    "rgba(191,201,212,0.16)",
   ],
   rotate: ["#60a5fa", "#a78bfa", "#2dd4bf"],
   // 取渐变亮端。在卡片实际底色 rgb(19,21,28) 上实测 13.2 / 9.5 / 5.5 / 4.8 : 1。
@@ -98,6 +135,8 @@ export const DARK: Palette = {
   // 先取过 #5a6eb8，实测最差端 3.78:1，虽过大字 3:1 但那端正好落在状态数字上，
   // 提亮到 4.8 让它连正文的 4.5 也过，关键数字不吃临界值。
   spectrum: ["#ffcee3", "#c3b4dc", "#678ec9", "#6b7fc4"],
+  // 深底：overlay + .10。screen 在这里等于叠纯白，实测是一屏雪花且正文不可读
+  gloss: { opacity: 0.06, blend: "overlay" },
 }
 
 /**
@@ -124,7 +163,22 @@ export const LIGHT: Palette = {
   surface: "rgba(255,255,255,0.72)",
   border: "rgba(15,23,42,0.10)",
   foreground: "#101828",
-  muted: "#5b6577",
+  /*
+   * muted 从 #5b6577 压到 #4c5666
+   *
+   * 同上（见 DARK.muted）的实测方法。浅色背景亮度分布：
+   *
+   *   p1 L=0.718  p50 L=0.805  p99 L=0.972
+   *
+   * 深字的最坏情况与深色那套相反 —— 是**最暗**的那一档（色斑最浓处）：
+   * #5b6577 在 L=0.718 上只有 4.30:1，差 0.2 掉出 AA。#4c5666 是 5.43:1。
+   *
+   * 顺带回答「要不要给文字加白色描边」：不要。描边是在对比度不够时把问题糊掉 ——
+   * 1px 白边会侵蚀中文那些本来就细的笔画（说明文字 15px 时笔画约 1.5px，白边吃掉
+   * 三分之一），小字反而更难认。对比度够了就不需要描边，不够就该改颜色。
+   * 原型里那层 --halo 没有进真实组件。
+   */
+  muted: "#4c5666",
   inset: "rgba(15,23,42,0.05)",
   primary: "#2563eb",
   secondary: "#7c3aed",
@@ -141,20 +195,41 @@ export const LIGHT: Palette = {
   // #fbbf24 在 #0a0d14 上有 11:1。
   warning: "#b45309",
   danger: "#dc2626",
-  // 浅色弥散：高明度低饱和，靠面积和交融出层次而不是靠浓度。透明度比深色那套高
-  // 一档也不会压住黑字 —— 底是 #f4f6fb，这些斑只把它推向各自色相一点点。
+  /*
+   * 浅色弥散：压花玻璃后面透过来的东西
+   *
+   * 原来是五团高明度低饱和的粉彩，alpha .40~.62。那套配平铺噪点时成立 —— 噪点只是
+   * 修饰，底色越淡越干净。换成压花玻璃之后不成立了：高光鳞片靠调制底色的明暗才
+   * 显出起伏，底色几乎没有色差时鳞片只是浮在白纸上的白点，读作「有纹理的纸」
+   * 而不是「玻璃后面有东西」。
+   *
+   * 直接取试板 Q 档（temp/proto/glass-test3.html）的冷色，不重新配
+   * ----------------------------------------------------------
+   * 那组是三轮比对里选定的一档，已经验过「鳞片有东西可调制」且不与前景撞色：
+   *   #5b93de 天蓝 / #2b9ade 亮蓝 / #838bcc 蓝紫 / #7cb238 淡绿
+   * 底噪走 #dae0e8 → #bfc9d4 的银灰。整页的强调色是蓝(#2563eb) / 紫(#7c3aed) /
+   * 青(#0f766e)，与这组同一个冷色家族，所以不会像绿色那张试板那样出现补色对撞。
+   *
+   * alpha 比试板低一档（试板是不透明底色，这里是叠在 bg #f4f6fb 上的 glow）
+   * ------------------------------------------------------------------
+   * .22~.34：再往上会压住正文 —— 文字对比度按 bg 这个平底算，斑越浓，落在斑上
+   * 那部分字与算出来的值偏离越大。淡绿那团压到最低（.18），它是唯一的暖偏色，
+   * 浓了会在蓝底上显脏。
+   */
   glow: [
-    "rgba(199,220,244,0.62)",
-    "rgba(214,206,240,0.55)",
-    "rgba(252,215,235,0.48)",
-    "rgba(254,232,214,0.44)",
-    "rgba(207,228,214,0.40)",
+    "rgba(91,147,222,0.32)",
+    "rgba(131,139,204,0.30)",
+    "rgba(43,154,222,0.26)",
+    "rgba(124,178,56,0.18)",
+    "rgba(191,201,212,0.34)",
   ],
   // 与 primary/secondary/accent 同值，改一个就得改这里——见下方 rotate 的一致性测试
   rotate: ["#2563eb", "#7c3aed", "#0f766e"],
   // 取渐变暗端（浅底要深才看得见）。在 #f4f6fb 上实测 12.2 / 7.1 / 4.4 / 5.3 : 1。
   // 第三档 4.38 略低于正文的 4.5，但它只用在 50px 上下的大数字，走 3:1 那条线。
   spectrum: ["#262277", "#3d4a9e", "#5470b5", "#6b5a9e"],
+  // 浅底：screen + .85，照试板 Q 档原值。降到 .62 试过，鳞片明显发闷
+  gloss: { opacity: 0.85, blend: "screen" },
 }
 
 /**
@@ -238,16 +313,18 @@ export const V = {
   success: "var(--success)",
   warning: "var(--warning)",
   danger: "var(--danger)",
-  glow: [
-    "var(--glow-1)",
-    "var(--glow-2)",
-    "var(--glow-3)",
-    "var(--glow-4)",
-    "var(--glow-5)",
-  ],
+  glow: ["var(--glow-1)", "var(--glow-2)", "var(--glow-3)", "var(--glow-4)", "var(--glow-5)"],
   rotate: ["var(--rot-1)", "var(--rot-2)", "var(--rot-3)"],
   spectrum: ["var(--spec-1)", "var(--spec-2)", "var(--spec-3)", "var(--spec-4)"],
-} as const satisfies Record<keyof Palette, string | readonly string[]>
+  /*
+   * gloss 不在这里：它不是颜色
+   *
+   * V 的每一项都是「给 CSS 用的 var() 串」，而 gloss 是 {opacity, blend} ——
+   * 一个数值加一个混合模式枚举，只在 Backdrop 里当内联 style 用，走不了 CSS 变量
+   * （mix-blend-mode 用变量当值虽然合法，但拆成两个变量比直接传对象更绕）。
+   * 所以从约束里 Omit 掉，而不是硬造一个 var() 让类型过关。
+   */
+} as const satisfies Record<keyof Omit<Palette, "gloss">, string | readonly string[]>
 
 /**
  * 字体栈
@@ -265,6 +342,25 @@ export const FONT_STACK =
   '"HarmonyOS Sans SC","MiSans","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",' +
   '"Source Han Sans SC",-apple-system,"Segoe UI",Roboto,sans-serif'
 
-/** 等宽栈：版本号、时间、命令、计数用它保持机器感 */
+/**
+ * 等宽栈：版本号、时间、命令、计数用它保持机器感
+ *
+ * 尾部必须挂上与 FONT_STACK 同一批中文字体
+ * -----------------------------------
+ * 原来这个栈到 monospace 就结束了。等宽族全都只覆盖拉丁，中文没有命中项，
+ * 于是落到浏览器的 monospace 默认值 —— 用 CDP 的 CSS.getPlatformFontsForNode
+ * 查过一条既有中文又有拉丁的示例行（`#早柚添加连接 ws://127.0.0.1:8765/ws`）：
+ *
+ *   JetBrains Mono×26 | NSimSun×6
+ *
+ * 拉丁走 JetBrains Mono，中文掉到 NSimSun —— 点阵时代的宋体等宽，笔画又细又硬，
+ * 和 JetBrains Mono 的拉丁完全两个年代，同一行里混着看最刺眼。
+ * 补上中文回退后同一行变成 PingFang SC×6 | JetBrains Mono×26，中文与正文同族。
+ *
+ * 代价：中文在这里不再等宽（比例字体），所以 mono 列的中文不会对齐。
+ * 但本来就没有「中文列要对齐」的场景 —— mono 用在版本号、时间戳、命令示例上，
+ * 需要对齐的全是数字与拉丁，那部分依然走 JetBrains Mono。
+ */
 export const MONO_STACK =
-  '"JetBrains Mono","Cascadia Code","SF Mono",Consolas,"DejaVu Sans Mono",monospace'
+  '"JetBrains Mono","Cascadia Code","SF Mono",Consolas,"DejaVu Sans Mono",' +
+  '"HarmonyOS Sans SC","MiSans","PingFang SC","Microsoft YaHei","Noto Sans CJK SC",monospace'

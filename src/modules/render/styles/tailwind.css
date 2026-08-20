@@ -126,5 +126,10 @@
   --font-sans:
     "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
     "Source Han Sans SC", -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono", monospace;
+  /* 尾部的中文回退不能省：等宽族只覆盖拉丁，不挂中文的话会掉到 NSimSun
+     （点阵宋体等宽），和 JetBrains Mono 的拉丁在同一行里差着一个年代。
+     理由与实测见 theme.ts 的 MONO_STACK 注释，两边必须一致。 */
+  --font-mono:
+    "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono",
+    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
 }

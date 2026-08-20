@@ -11,8 +11,17 @@ import { FRAME_LOGO, PLUGIN_LOGO, imageDataUri } from "../assets.js"
 import { frameLabel, releaseType } from "../env.js"
 import { textWidth } from "../metrics.js"
 
-/** 背景装饰层：光斑、噪点、气氛大字、角落点缀 */
-export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }) {
+/** 背景装饰层：光斑、压花玻璃、气氛大字、角落点缀 */
+export function Backdrop({
+  word,
+  ghostTop,
+  gloss,
+}: {
+  word: string
+  ghostTop?: number
+  /** 压花高光的强度与混合方式，深浅两套不同 —— 见 theme.ts 的 Palette.gloss */
+  gloss: Palette["gloss"]
+}) {
   return (
     <>
       {/*
@@ -54,18 +63,97 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
 
           停在 .07：.10 的颗粒在 1440px 宽度下肉眼已经和 .07 分不出，却多付 66KB。
           三档都远低于 baseFrequency 0.8 那次的 1.4MB —— 再次印证频率才是体积主因。 */}
-      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.07]">
+      {/*
+       * 压花玻璃：折射 + 镜面高光，取代原来那层平铺噪点
+       *
+       * 原来这里只有一层 opacity .07 的灰度 feTurbulence 颗粒。颗粒能去掉「大片
+       * 纯渐变显廉价」，但它是平的 —— 画面仍然读作「一张有噪点的渐变图」。
+       * 参考图（浴室压花玻璃）的质感来自两件事，缺一不可：
+       *
+       *   折射  底下的色斑被玻璃的起伏推歪 —— 「看不清后面」就是这么来的
+       *   高光  表面朝光的坡面反白 —— 那些短促的白色鳞片
+       *
+       * 尺度是关键，试了三轮才对（temp/proto/glass-test{,2,3}.html 留着比对）：
+       * baseFrequency 0.3 时周期只有 3px，渲出来是砂纸不是压花；参考图的起伏
+       * 周期在 10~30px，对应折射 0.02、高光 0.1。
+       *
+       * 高光还要再乘一张大尺度噪声当 mask（bf 0.008，周期约 125px）：参考图的
+       * 鳞片有疏有密，均匀铺满就成了磨砂玻璃，那是另一种材质。
+       *
+       * 关于体积：这两层比原来的颗粒层贵（低频结构少、DCT 更难压），但换来的是
+       * 材质而不是修饰，值这个代价。实测见下面渲染后的 jpeg 尺寸。
+       *
+       * mask 必须和它的使用者在同一个 <svg> 里
+       * ---------------------------------
+       * filter 的 region 相对被应用元素算，所以 #refract 放在 0×0 的 svg 里跨引用
+       * 没问题。mask 不一样：mask 内容里的 100% 相对它所在的 svg 视口，放进 0×0
+       * 的 svg 就等于 0，整个高光层会被遮光遮掉（第一次落地时踩过，DOM 与 filter
+       * 全都在，屏幕上什么都没有）。所以 mask 与高光滤镜都留在这个 svg 内。
+       * 同理 rect 用绝对高度而不是 100%：页面高度由内容决定，svg 拿不到确定参照。
+       */}
+      <div className="pointer-events-none absolute inset-0 z-0">
         <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
-          <filter id="n" x="0%" y="0%" width="100%" height="100%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.3"
-              numOctaves={1}
-              stitchTiles="stitch"
+          <defs>
+            <filter id="gm" x="0%" y="0%" width="100%" height="100%">
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.008"
+                numOctaves={2}
+                seed={21}
+                result="n"
+              />
+              {/* 把噪声的亮度搬进 alpha：亮处高光留、暗处高光被吃掉 */}
+              <feColorMatrix in="n" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0.9 0.9 0.9 0 -0.25" />
+            </filter>
+            <filter id="gl" x="0%" y="0%" width="100%" height="100%">
+              {/* type=turbulence 而不是 fractalNoise：前者的短促笔画更像压花的鳞片 */}
+              <feTurbulence
+                type="turbulence"
+                baseFrequency="0.1"
+                numOctaves={2}
+                seed={9}
+                result="n"
+              />
+              <feSpecularLighting
+                in="n"
+                lightingColor="#fff"
+                surfaceScale={4.4}
+                specularConstant={1.5}
+                specularExponent={15}
+                result="s"
+              >
+                <feDistantLight azimuth={228} elevation={54} />
+              </feSpecularLighting>
+              {/*
+               * 只留高光自己的 alpha，否则滤镜区域会带一层黑底。
+               *
+               * 这里刻意不接 feGaussianBlur
+               * -----------------------
+               * 出图是 jpeg，这层锐利噪声确实贵（help-dark 从 495KB 涨到约 900KB）。
+               * 试过三档省体积的改法，全部否掉：
+               *
+               *   bf 0.1→0.05 + blur 0.85   646KB  鳞片被拉成脑珊瑚那样的虫状纹
+               *   bf 0.1→0.07 + blur 0.55   900KB  介于两者之间，仍偏糊
+               *   1 octave                  ——    细节层没了，只剩一层大波浪
+               *
+               * 结论：blur 与降频率省下的体积，直接换掉了这层要的东西。压花玻璃的
+               * 鳞片必须是锐的，糊了就成磨砂玻璃 —— 那是另一种材质。参数照
+               * temp/proto/glass-test3.html 的 Q 档（实测选定的那组）原样落地。
+               */}
+              <feComposite in="s" in2="s" operator="in" />
+            </filter>
+            <mask id="gmask">
+              <rect width="1440" height="6000" filter="url(#gm)" />
+            </mask>
+          </defs>
+          <g mask="url(#gmask)">
+            <rect
+              width="1440"
+              height="6000"
+              filter="url(#gl)"
+              style={{ mixBlendMode: gloss.blend, opacity: gloss.opacity }}
             />
-            <feColorMatrix type="saturate" values="0" />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#n)" />
+          </g>
         </svg>
       </div>
 
@@ -556,11 +644,9 @@ export function Footer({
 
 /** 一整页 */
 export function Page({
-  // 下划线前缀：配色目前全靠 CSS 变量与各组件自己取，骨架本身用不到。
-  // 但四个页面都按 <Page palette={p}> 调用，删掉这个 prop 要改四处调用，
-  // 而将来给骨架加个按调色板取色的元素又得原样加回来，所以保留形参、
-  // 用 eslint 约定的 _ 前缀说明「有意不用」。
-  palette: _palette,
+  // 曾经是 _palette（有意不用）。压花玻璃的高光强度必须按主题分档 —— 深底上
+  // screen 混合等于叠纯白，出来是一屏雪花 —— 所以骨架现在真的要读调色板了。
+  palette,
   word,
   ghostTop,
   children,
@@ -573,7 +659,7 @@ export function Page({
 }) {
   return (
     <>
-      <Backdrop word={word} ghostTop={ghostTop} />
+      <Backdrop word={word} ghostTop={ghostTop} gloss={palette.gloss} />
       <div className="relative z-10 p-[72px]">{children}</div>
     </>
   )

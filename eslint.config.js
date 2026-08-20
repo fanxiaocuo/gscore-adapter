@@ -57,6 +57,9 @@ export default ts.config(
         document: "readonly",
         getComputedStyle: "readonly",
         window: "readonly",
+        // inkprobe.mjs 在浏览器里解码 PNG 再逐像素统计：Node 没有内置图像解码器，
+        // 所以那段 evaluate 用的是 DOM 的 Image + canvas
+        Image: "readonly",
       },
     },
     rules: { "@typescript-eslint/no-unused-vars": "off" },
