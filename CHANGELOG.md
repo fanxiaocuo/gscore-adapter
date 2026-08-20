@@ -3,6 +3,39 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.0.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.3.1...v4.0.0) (2026-08-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **render:** 夜间那套从深色改成银灰玻璃，DARK 更名 COOL
+
+### ✨ 新功能
+
+* **docs:** 文档站换盐系双档配色，状态指示改用线不用面 ([872cac6](https://github.com/fanxiaocuo/gscore-adapter/commit/872cac6681e699d6192f17600715f3e09a46413c))
+* **render:** 出图换压花玻璃质感，正文配色按实测像素重配 ([0e3b238](https://github.com/fanxiaocuo/gscore-adapter/commit/0e3b2385cac20ba259abdfdc76e4658e23cf3ad1))
+* **render:** 夜间那套从深色改成银灰玻璃，DARK 更名 COOL ([3dfbe62](https://github.com/fanxiaocuo/gscore-adapter/commit/3dfbe6263a7288e095e04aedc70a90e1fe4b3d17))
+* **render:** 指令清单改无框侧线版式，背景换五团弥散渐变 ([9d86e8c](https://github.com/fanxiaocuo/gscore-adapter/commit/9d86e8c5a8965b5feb0c712d6e9d54497c2093ef))
+* **render:** 收紧统计卡比例，分组计数改渐变数字，加渐变点缀档 ([8591b32](https://github.com/fanxiaocuo/gscore-adapter/commit/8591b32b4f148d241690ca77f24255111041842f))
+
+
+### 🐛 问题修复
+
+* **docs:** 修移动端浮层透明与搜索按钮椭圆 ([74284b5](https://github.com/fanxiaocuo/gscore-adapter/commit/74284b552167ac9ec7588ac8089e8b0c71de239b))
+* **protocol:** 回查合并转发内容，不再把 forward 段序列化进 raw_text ([8da50aa](https://github.com/fanxiaocuo/gscore-adapter/commit/8da50aad29f7c38ca045b774ae55b845f47b7ba4))
+* **render:** 子分组改上下结构两列，长参数名不再溢出压住说明 ([85f2af1](https://github.com/fanxiaocuo/gscore-adapter/commit/85f2af1bbb7b6ac8814aa3d648c4a8d2fad549c7))
+
+
+### ⚡ 性能优化
+
+* **render:** jpeg 质量 88→82，出图体积降 22% ([dc3a526](https://github.com/fanxiaocuo/gscore-adapter/commit/dc3a52690674d2697470e17753bb886f878453f9))
+* **render:** 帮助图条目改多列流式排版，页高 3140→2852px ([4b0688a](https://github.com/fanxiaocuo/gscore-adapter/commit/4b0688a0c15b9159536559a6b5beab016e8d3841))
+
+
+### 📝 文档
+
+* **render:** 修正 DESIGN.md 与注释里的实测数字和脚本路径 ([38502ea](https://github.com/fanxiaocuo/gscore-adapter/commit/38502ea6da3a0df5c0d5b71f86b9670d8e60482a))
+
 ## [3.3.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.3.0...v3.3.1) (2026-08-19)
 
 
