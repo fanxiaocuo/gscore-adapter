@@ -52,7 +52,7 @@ import { PluginName, YunzaiPath } from "@/dir"
 import type { YunzaiSendable } from "@/types"
 import { makeLog } from "@/utils/compat"
 import { buildCss } from "./styles/index.js"
-import { pickPalette, DARK, LIGHT, type Palette } from "./theme.js"
+import { pickPalette, COOL, LIGHT, type Palette } from "./theme.js"
 
 /**
  * 自己生成的整页 HTML 放哪
@@ -307,5 +307,5 @@ export async function render(opts: RenderOptions): Promise<YunzaiSendable | fals
   return img
 }
 
-export { pickPalette, DARK, LIGHT }
+export { pickPalette, COOL, LIGHT }
 export type { Palette }
