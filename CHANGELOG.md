@@ -3,6 +3,23 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.1.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.0.0...v4.1.0) (2026-08-21)
+
+
+### ✨ 新功能
+
+* **render:** 统计卡换成液态玻璃，去掉深色发丝边 ([ffdc95e](https://github.com/fanxiaocuo/gscore-adapter/commit/ffdc95ec4a6895b8b2104c70af954b22af5f6b4e))
+
+
+### ⚡ 性能优化
+
+* **render:** 去掉色斑层的 CSS 模糊，帮助图出图 5815ms → 1950ms ([902b4c7](https://github.com/fanxiaocuo/gscore-adapter/commit/902b4c796951f2ea074197ab0e16b81fd83f9ed0))
+
+
+### 📝 文档
+
+* **render:** 记下 --disable-gpu 那个旋钮的决定：先不动 ([bfbc843](https://github.com/fanxiaocuo/gscore-adapter/commit/bfbc843aadc85f9cbfece8f46af0a7b9f4d9117c))
+
 ## [4.0.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v3.3.1...v4.0.0) (2026-08-20)
 
 
