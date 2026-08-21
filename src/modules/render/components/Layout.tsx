@@ -28,9 +28,33 @@ export function Backdrop({
        * 弥散渐变：五团大色斑互相咬合
        *
        * 原来是三团，各自成形、能数出「三个光球」。弥散渐变要的是整片晕染，做法是
-       * 多团大半径 radial-gradient 叠加 + 强 blur，让边缘互相吃掉。这里把团数提到
-       * 五、半径普遍放大到超出画布（负边距 + 超宽高），并把 blur 拉到 140~190px ——
-       * 团边落在画布外，看到的就只有中段的过渡，不会露出球形轮廓。
+       * 多团大半径 radial-gradient 叠加，让边缘互相吃掉。这里把团数提到五、半径
+       * 普遍放大到超出画布（负边距 + 超宽高）—— 团边落在画布外，看到的就只有中段
+       * 的过渡，不会露出球形轮廓。
+       *
+       * 每团曾经还挂着 140~190px 的 CSS 模糊，现在去掉了
+       * ---------------------------------------------
+       * 那五个滤镜是整张图最贵的东西，而且贵得离谱：本体用 --disable-gpu 起
+       * Chromium（renderers/puppeteer/lib/puppeteer.js:31），模糊全走 CPU，而
+       * 滤镜区域要按 3σ 向外扩 —— σ=168px 的团，实际参与卷积的面是
+       * (1560+1008)x(1680+1008)，再乘 zoom 1.25 的像素密度，五团加起来约 5000 万像素。
+       *
+       * 实测（COOL、scale 1.25、本体那套 launch 参数，各取 3 次中位数）：
+       *
+       *   帮助页 body.screenshot()   有模糊 5090ms   无模糊 1530ms
+       *
+       * 而画面几乎不动：整页逐像素比对（PNG，非 jpeg，避开块效应）平均差 1.93/255、
+       * p99 差 8，差异最大的一格（150x104px）也只有 14，且分布是平缓的浓淡起伏，
+       * 不是一道硬边 —— 裁出最差那一带两版并看，分不出来。
+       *
+       * 原因是这层本来就没有高频：radial-gradient 到 66~74% 处已经收干，模糊一个
+       * 本来就平滑的函数几乎等于没做。原先「靠强模糊把团边吃掉」的判断只对了一半
+       * —— 边是被渐变自己的收尾吃掉的，不是被模糊。
+       *
+       * 试过但没用的两条：把盒子缩到 1/k、模糊也缩到 1/k、再 scale(k) 放回去
+       * （k=2/3/4/6 全试过），画面确实一模一样，但耗时 5218~5503ms 一点没省 ——
+       * Chromium 对未提升为合成层的元素按最终设备尺度光栅化，缩放白做。挂
+       * will-change:transform 强行提升能到 4299ms，仍远不如直接不模糊。
        *
        * 尺寸/位置/旋转刻意各不相同：等距等大的斑会形成可辨的节奏，反而像图案。
        * 颜色走 var(--glow-n)（base 层下发），深浅两套各自配色见 theme.ts。
@@ -39,11 +63,11 @@ export function Backdrop({
        * 浏览器算出来是 3.35544e+07px，与老规则的计算值不同。
        */}
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute top-[-420px] left-[-320px] h-[1680px] w-[1560px] rounded-[9999px] blur-[168px] [transform:rotate(-18deg)] [background:radial-gradient(ellipse_at_42%_38%,var(--glow-1)_0%,transparent_68%)]" />
-        <div className="absolute top-[260px] right-[-380px] h-[1560px] w-[1320px] rounded-[9999px] blur-[184px] [transform:rotate(22deg)] [background:radial-gradient(ellipse_at_52%_48%,var(--glow-2)_0%,transparent_66%)]" />
-        <div className="absolute bottom-[-460px] left-[80px] h-[1380px] w-[1500px] rounded-[9999px] blur-[176px] [transform:rotate(-8deg)] [background:radial-gradient(ellipse_at_48%_56%,var(--glow-3)_0%,transparent_70%)]" />
-        <div className="absolute top-[820px] left-[-260px] h-[1140px] w-[1040px] rounded-[9999px] blur-[152px] [transform:rotate(34deg)] [background:radial-gradient(ellipse_at_46%_50%,var(--glow-4)_0%,transparent_72%)]" />
-        <div className="absolute top-[-160px] right-[-200px] h-[1020px] w-[1180px] rounded-[9999px] blur-[144px] [transform:rotate(-26deg)] [background:radial-gradient(ellipse_at_54%_44%,var(--glow-5)_0%,transparent_74%)]" />
+        <div className="absolute top-[-420px] left-[-320px] h-[1680px] w-[1560px] rounded-[9999px] [transform:rotate(-18deg)] [background:radial-gradient(ellipse_at_42%_38%,var(--glow-1)_0%,transparent_68%)]" />
+        <div className="absolute top-[260px] right-[-380px] h-[1560px] w-[1320px] rounded-[9999px] [transform:rotate(22deg)] [background:radial-gradient(ellipse_at_52%_48%,var(--glow-2)_0%,transparent_66%)]" />
+        <div className="absolute bottom-[-460px] left-[80px] h-[1380px] w-[1500px] rounded-[9999px] [transform:rotate(-8deg)] [background:radial-gradient(ellipse_at_48%_56%,var(--glow-3)_0%,transparent_70%)]" />
+        <div className="absolute top-[820px] left-[-260px] h-[1140px] w-[1040px] rounded-[9999px] [transform:rotate(34deg)] [background:radial-gradient(ellipse_at_46%_50%,var(--glow-4)_0%,transparent_72%)]" />
+        <div className="absolute top-[-160px] right-[-200px] h-[1020px] w-[1180px] rounded-[9999px] [transform:rotate(-26deg)] [background:radial-gradient(ellipse_at_54%_44%,var(--glow-5)_0%,transparent_74%)]" />
       </div>
 
       {/* 噪点：SVG feTurbulence，思路取自 kkk tokens.md
