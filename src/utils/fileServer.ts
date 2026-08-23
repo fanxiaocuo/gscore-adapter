@@ -1,20 +1,10 @@
 /**
- * 内置文件服务
+ * @description 内置文件服务：框架没有 Bot.fileToUrl（Miao-Yunzai）时自己起一个 HTTP 服务把大文件挂出去，让核心能拉取
  *
- * 框架没有 Bot.fileToUrl 时（Miao-Yunzai）自己起一个 HTTP 服务把大文件挂出去，
- * 让早柚核心能用 link:// 拉取。这样开箱即用，不必强迫用户去弄图床。
- *
- * 为什么不用 express：Miao 根本没装。lib/tools/web.js 里那句 `import express`
- * 是孤儿脚本（全仓库无人 import，express 也不在 package.json / node_modules 里），
+ * 设计要点：懒启动（只有真需要外链才监听端口）、内存暂存 + 到期自动清（不落盘）、
+ * 随机 token 路径（不可枚举）、一次性（核心取走即删，可配）。
+ * 注意：不用 express —— Miao 根本没装（lib/tools/web.js 那句 import 是孤儿脚本），
  * 照着它写会在真机上 ERR_MODULE_NOT_FOUND。node:http 零依赖，同样够用。
- *
- * 设计要点：
- * - **懒启动**：只有真的需要外链（超过 media_max_size 且没有 Bot.fileToUrl）
- *   才监听端口。TRSS 用户、以及从不发大图的 Miao 用户，端口始终不开。
- * - **内存暂存 + 到期自动清**：文件只在 link_expire 窗口内可取，过期即释放，
- *   不落盘、不留垃圾。
- * - **随机 token 路径**：路径不可枚举，避免把本机文件变成公开目录。
- * - **一次性**：核心取走即删（可配），降低外链被重放的窗口。
  */
 import http from "node:http"
 import type { AddressInfo } from "node:net"
@@ -39,16 +29,14 @@ function fsConf() {
   return config.file_server || {}
 }
 
-/** 内置文件服务是否可用（未显式关闭） */
+/** @description 内置文件服务是否可用（未显式关闭） */
 export function fileServerEnabled() {
   return fsConf().enable !== false
 }
 
 /**
- * 猜 Content-Type
- *
- * 核心侧（PIL / 浏览器）主要靠它决定怎么解码，给错了会拿不到图。
- * 只覆盖早柚核心实际会走的几类媒体，其余给 octet-stream。
+ * @description 扩展名 → Content-Type，只覆盖早柚核心实际会走的几类媒体
+ * 核心侧（PIL / 浏览器）主要靠它决定怎么解码，给错了会拿不到图；其余给 octet-stream。
  */
 const MIME: Record<string, string> = {
   png: "image/png",
@@ -74,7 +62,7 @@ function guessType(name?: string) {
 }
 
 /**
- * 起服务。失败不抛错——调用方会降级到 upload_hook / 跳过该段，
+ * @description 起服务，失败不抛错（调用方会降级到 upload_hook 或跳过该段）
  * 一个端口占不到不该让消息发送整体崩掉。
  */
 function start(): Promise<http.Server | null> {
@@ -85,9 +73,8 @@ function start(): Promise<http.Server | null> {
     const srv = http.createServer(handle)
     let settled = false
 
-    // error 事件在启动失败（端口占用）和运行期都会触发。
-    // 只有前者该判定为「起不来」；已经 listening 之后再报错（如个别连接出错）
-    // 不能把好端端的服务置空，否则后续请求全部走降级。
+    // 注意：error 在启动失败与运行期都会触发，只有前者算「起不来」。
+    // 已 listening 之后再报错不能把服务置空，否则后续请求全部走降级。
     srv.on("error", err => {
       if (settled) {
         makeLog("warn", ["内置文件服务运行时错误", err], "GsCore")
@@ -101,8 +88,7 @@ function start(): Promise<http.Server | null> {
       resolve(null)
     })
 
-    // host 默认 0.0.0.0：核心常跑在 Docker / 另一台机器上，
-    // 只听 127.0.0.1 的话它连不进来。介意暴露面的可在配置里改。
+    // host 默认 0.0.0.0：核心常跑在 Docker / 另一台机器上，只听 127.0.0.1 它连不进来
     const port = Number(fsConf().port) || 0
     const host = String(fsConf().host || "0.0.0.0")
 
@@ -110,8 +96,7 @@ function start(): Promise<http.Server | null> {
       settled = true
       server = srv
       starting = null
-      // 文件服务是附属设施，不该成为「进程不肯退出」的原因。
-      // unref 后它不再单独持有事件循环；云崽自身的连接会让进程活着。
+      // unref：文件服务是附属设施，不该成为「进程不肯退出」的原因
       srv.unref?.()
       const p = (srv.address() as AddressInfo)?.port
       makeLog("info", `内置文件服务已启动 ${host}:${p}（仅用于大文件外链）`, "GsCore")
@@ -143,8 +128,7 @@ function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (req.method === "HEAD") res.end()
   else res.end(item.buf)
 
-  // 取走即删：核心已经拿到内容，留着只是扩大重放窗口。
-  // 想让同一链接可重复拉取（如核心侧会重试）可关掉。
+  // 取走即删：核心已经拿到内容，留着只是扩大重放窗口。核心侧会重试的可把 once 关掉。
   if (fsConf().once !== false) drop(id)
 }
 
@@ -156,11 +140,8 @@ function drop(id: string) {
 }
 
 /**
- * 对外地址的 host
- *
- * 优先用配置里的 public_host；没配就用已连上的 ws 的本地地址——
- * 那正是能路由到核心的那张网卡，比硬写 127.0.0.1 靠谱：
- * 核心在 Docker 或另一台机器上时，127.0.0.1 指向的是它自己。
+ * @description 对外地址的 host：优先配置里的 public_host，没配就用已连上的 ws 的本地地址
+ * 那正是能路由到核心的那张网卡；硬写 127.0.0.1 在核心跑 Docker / 另一台机器时指向的是它自己。
  */
 function publicHost() {
   const conf = String(fsConf().public_host || "").trim()
@@ -176,23 +157,20 @@ function publicHost() {
 }
 
 /**
- * ws 连接的本地地址
- *
- * 由客户端在连上时写入。放在模块级而不是一路透传参数：
- * 「外链该用哪个 host」是传输层的事，消息转换层（toGscore.ts 四处调用点）
- * 不该为此改签名。多条连接时后连上的覆盖前者——它们通常在同一网段，
- * 真需要区分的场景配 public_host 显式指定。
+ * @description ws 连接的本地地址，由客户端在连上时写入，用于推断外链 host
+ * 放模块级而不透传参数：「外链该用哪个 host」是传输层的事，消息转换层不该为此改签名。
+ * 多条连接时后连上的覆盖前者（通常同网段），真要区分就配 public_host。
  */
 let localHint = ""
 
-/** 记录 ws 本地地址，用于推断外链 host */
+/** @description 记录 ws 本地地址，用于推断外链 host */
 export function setLocalHint(addr?: string) {
   const s = String(addr || "").trim()
   if (s) localHint = s
 }
 
 /**
- * 把内容挂上去，返回 http 外链。
+ * @description 把内容挂上去，返回 http 外链
  *
  * @param buf  文件内容
  * @param name 原文件名，用于猜 Content-Type
@@ -221,20 +199,7 @@ export async function serveFile(buf: Buffer, name?: string): Promise<string> {
   return `http://${publicHost()}:${port}/${id}`
 }
 
-/** 关掉服务并清空暂存，供插件卸载 / 测试使用 */
-export function stopFileServer() {
-  for (const id of [...files.keys()]) drop(id)
-
-  // close() 只是停止接受新连接，已建立的 keep-alive 连接会把 handle 拖住，
-  // 导致进程迟迟不退出（实测：fetch 用的连接就会这样挂住）。
-  // closeAllConnections 把它们一并断掉。Node 18.2+ 才有，老版本降级到只 close。
-  server?.closeAllConnections?.()
-  server?.close()
-  server = null
-  starting = null
-}
-
-/** 当前暂存文件数，供 #早柚状态 显示 */
+/** @description 当前暂存文件数，供 #早柚状态 显示 */
 export function pendingFiles() {
   return files.size
 }
