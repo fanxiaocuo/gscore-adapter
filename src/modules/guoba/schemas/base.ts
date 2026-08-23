@@ -1,6 +1,24 @@
+/** @description 基础配置项：运行模式与其它杂项 */
+import { MEDIA_SIZE_MAX } from "@/constants"
+
 /**
- * 基础配置项：运行模式与其它杂项
+ * @description 面板按 MiB / 秒 显示、配置文件仍存字节 / 毫秒的字段，换算在 ../index.ts 里做
+ * 注意：单位不能真的改进配置 —— 下游（utils/media.ts、fileServer 的 ttl）与 #早柚设置 都按原
+ * 单位读；divisor 是整数除数而非小数位数（MiB 是 1048576，写成位数会差 4.8%）
  */
+export const SCALED_FIELDS: Record<string, { divisor: number }> = {
+  media_max_size: { divisor: 1024 * 1024 },
+  file_max_size: { divisor: 1024 * 1024 },
+  link_expire: { divisor: 1000 },
+}
+
+/**
+ * @description 两个大小上限在面板里的取值区间，单位 MiB（落盘仍是字节）
+ * 注意：下限不能是 0 —— utils/media.ts 把 0 当「没配」并悄悄换成默认值，之后面板、web 面板与
+ * 实际生效值会一致地对不上；precision 是 2，0.01 MiB（约 10 KiB）是能填出来的最小值
+ */
+const SIZE_RANGE = { min: 0.01, max: MEDIA_SIZE_MAX / 1024 / 1024 }
+
 export const baseSchemas = [
   {
     component: "Divider",
@@ -18,26 +36,29 @@ export const baseSchemas = [
   },
   {
     field: "media_max_size",
-    label: "媒体内联上限",
+    label: "媒体内联上限（MiB）",
     bottomHelpMessage:
-      "媒体转 base64 的大小上限（字节），超过则改用 link:// 外链。若早柚核心跑在 Docker 里，需把框架 server.url 配成对端可达的地址",
+      "媒体转 base64 的大小上限，超过则改用 link:// 外链。配置文件里仍按字节存。若早柚核心跑在 Docker 里，需把框架 server.url 配成对端可达的地址",
     component: "InputNumber",
-    componentProps: { min: 0, step: 1048576 },
+    // 小数收两位：1 MiB 以下的上限（如 0.5）也要能填
+    componentProps: { ...SIZE_RANGE, step: 1, precision: 2, addonAfter: "MiB" },
   },
   {
     field: "file_max_size",
-    label: "文件大小上限",
-    bottomHelpMessage: "file 段必须内联 base64（协议无 URL 形式），超过此大小直接拒绝发送（字节）",
+    label: "文件大小上限（MiB）",
+    bottomHelpMessage:
+      "file 段必须内联 base64（协议无 URL 形式），超过此大小直接拒绝发送。配置文件里仍按字节存",
     component: "InputNumber",
-    componentProps: { min: 0, step: 1048576 },
+    componentProps: { ...SIZE_RANGE, step: 1, precision: 2, addonAfter: "MiB" },
   },
   {
     field: "link_expire",
-    label: "外链有效期",
+    label: "外链有效期（秒）",
     bottomHelpMessage:
-      "link:// 外链的有效期（毫秒）。云崽默认只保留 1 分钟，核心拉取慢会拿到超时占位图",
+      "link:// 外链的有效期。云崽默认只保留 60 秒，核心拉取慢会拿到超时占位图。配置文件里仍按毫秒存",
     component: "InputNumber",
-    componentProps: { min: 0, step: 60000 },
+    // 不设上限：有效期长只是外链多占一会儿内存，是合理选择
+    componentProps: { min: 1, step: 30, precision: 0, addonAfter: "秒" },
   },
   {
     field: "log_truncate",
