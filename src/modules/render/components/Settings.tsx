@@ -1,49 +1,34 @@
 /**
- * 设置页
- *
- * 为什么不继续复用 Status
- * --------------------
- * `#早柚设置` 原来借的是状态页那套「四张大数字卡 + 两列 key/value 明细」。那个版式
- * 答的是「现在是多少」，而设置页要答的是三件事：有哪些项、各是开还是关、怎么改。
- * 两列明细里开关项与数值项长得完全一样（右侧一个等宽单词），扫一眼看不出哪些开着；
- * 「改法」还得单独占一行挤在每块末尾，与它所修饰的那几项并列。
- *
- * 所以换成逐行开关列表：一行一项，左侧图标与中文名，名字下面一行灰字既解释这项是
- * 什么、也直接给出改它的指令，右侧是开关胶囊或取值。这与手机上的设置菜单同形 ——
- * 用户看这页时手里正拿着手机。
- *
- * 与 Help.tsx 的分工：那页列的是「有哪些指令」，这页列的是「每项现在是什么值」。
- * 两页都是逐条卡片，但这里的卡片是单列整宽的（右侧要留出开关的位置，而开关必须
- * 在同一条竖线上对齐才扫得快），Help 是双栏。
+ * @description 设置页：逐行开关列表，一行一项，左侧图标与中文名，右侧开关胶囊或取值
+ * 名字下面那行灰字既解释这项是什么、也直接给出改它的指令。与手机上的设置菜单同形 —— 用户看这页时手里正拿着手机。
+ * 不复用 Status：那套「四张大数字卡 + 两列 key/value」答的是「现在是多少」，而两列明细里开关项与数值项长得
+ * 完全一样，扫一眼看不出哪些开着，「改法」还得单独占一行挤在每块末尾。
+ * 与 Help.tsx 的分工：那页列「有哪些指令」，这页列「每项现在是什么值」；这里的卡片是单列整宽的，因为开关必须
+ * 在同一条竖线上对齐才扫得快。
  */
 import type { Palette } from "../theme.js"
 import { Icon, type IconName } from "./Icons.js"
 import { Footer, Header, Page } from "./Layout.js"
 
-/** 一项设置 */
+/** @description 一项设置 */
 export interface SettingRow {
   /** 中文项目名 */
   name: string
-  /**
-   * 一行说明，兼作改法提示
-   *
-   * 原来「改法」是每块末尾单独一行，与它修饰的那几项并列，读起来像第七个设置项。
-   * 并进说明里之后，指令就跟在它所改的那一项下面。
-   */
+  /** 一行说明，兼作改法提示 —— 指令就跟在它所改的那一项下面，而不是每块末尾单独一行 */
   dsc: string
   icon: IconName
   /**
    * 开关状态：true/false 出胶囊，undefined 表示这项不是开关（出 value）
    *
-   * 不用 `on?: boolean` 加 `value?: string` 二选一的联合类型：两个可选字段的组合
-   * 在 TS 上表达不出「恰好给一个」，而运行时这里只需要「有没有 on」这一个判断。
+   * 不用 `on?: boolean` 加 `value?: string` 的联合类型：两个可选字段的组合在 TS 上表达不出「恰好给一个」，
+   * 而运行时这里只需要「有没有 on」这一个判断。
    */
   on?: boolean
-  /** 非开关项的取值，如 `2.00 MB` */
+  /** 非开关项的取值，如 `2.00 MiB` */
   value?: string
 }
 
-/** 一组设置 */
+/** @description 一组设置 */
 export interface SettingGroup {
   /** 中文小标题 */
   title: string
@@ -53,11 +38,9 @@ export interface SettingGroup {
 }
 
 /**
- * 只读信息块
- *
- * 指令改不了但仍该看得见的项（心跳、外链有效期、检查间隔这些调参，以及连接数这类
- * 运行时事实）。做成 key/value 两列而不是继续排成开关行：开关行的右侧位置是留给
- * 「可以改的东西」的，把不可改的项也排进去会让人去找它的开关。
+ * @description 只读信息块：指令改不了但仍该看得见的项（调参与运行时事实）
+ * 做成 key/value 两列而不是继续排成开关行 —— 开关行的右侧位置是留给「可以改的东西」的，把不可改的项也排进去
+ * 会让人去找它的开关。
  */
 export interface SettingFacts {
   title: string
@@ -80,16 +63,14 @@ export interface SettingsData {
   /**
    * 顶部结果条：改动成功与失败的清单，不给则不渲染
    *
-   * 改完那次的回复要先回答「刚才那条指令生效了吗」，再顺带展示当前全貌 ——
-   * 所以结果排在设置列表之上，而不是像原来那样把结果塞进 panels 里，
-   * 与配置项混成一片。
+   * 排在设置列表之上：改完那次的回复要先回答「刚才那条指令生效了吗」，再顺带展示当前全貌。
    */
   result?: { done: string[]; errs: string[] }
   /** 页脚第二行提示 */
   tip?: string
 }
 
-/** 开关胶囊：开用 success、关用 muted */
+/** @description 开关胶囊：开用 success、关用 muted */
 function Toggle({ on, palette }: { on: boolean; palette: Palette }) {
   const c = on ? palette.success : palette.muted
   return (
@@ -97,11 +78,8 @@ function Toggle({ on, palette }: { on: boolean; palette: Palette }) {
       className="flex flex-none items-center gap-[12px] self-center rounded-[9999px] px-[24px] py-[15px] text-[25px] font-extrabold leading-none"
       style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
     >
-      {/*
-       * 胶囊里那颗点兼当「滑块」：真做一个 iOS 式的轨道+滑块要 60px 宽，而这一列
-       * 还要放「关闭」两个字，两者并排会把右侧撑到三分之一页宽。一颗发光的点 +
-       * 文字已经足够区分状态，且与连接列表页的状态灯是同一套语言。
-       */}
+      {/* 胶囊里那颗点兼当「滑块」：真做一个 iOS 式的轨道+滑块要 60px 宽，而这一列还要放「关闭」两个字，
+          并排会把右侧撑到三分之一页宽。一颗发光的点 + 文字已经足够区分状态 */}
       <span
         className="size-[13px] flex-none rounded-[9999px]"
         style={{ background: c, boxShadow: on ? `0 0 10px ${c}` : undefined }}
@@ -120,11 +98,10 @@ function Value({ text }: { text: string }) {
   )
 }
 
-/** 一行设置 */
+/** @description 一行设置 */
 function Row({ row, color, palette }: { row: SettingRow; color: string; palette: Palette }) {
   return (
-    // 整宽单列卡片。刻意不给 items-center：图标、文字块、右侧胶囊三者各自
-    // self-center 对齐整行中线，文字块自身则按内容撑高（说明可能折行）
+    // 整宽单列卡片。刻意不给 items-center：三者各自 self-center 对齐整行中线，文字块自身按内容撑高（说明可能折行）
     <div className="flex gap-[26px] rounded-[28px] border border-border bg-surface px-[32px] py-[26px]">
       <div
         className="grid size-[62px] flex-none place-items-center self-center rounded-[18px] [&>svg]:block [&>svg]:size-[30px]"
@@ -135,8 +112,7 @@ function Row({ row, color, palette }: { row: SettingRow; color: string; palette:
       {/* min-w-0 让长说明得以收缩换行，否则 flex 子项不肯让步 */}
       <div className="flex min-w-0 flex-1 flex-col gap-[8px] self-center">
         <div className="text-[34px] font-black leading-[1.2]">{row.name}</div>
-        {/* break-keep：说明里嵌着 #早柚设置私聊上报关闭 这类指令，CJK 逐字断点会把
-            它劈成两半（理由同 Help.tsx 的示例框） */}
+        {/* break-keep：说明里嵌着 #早柚设置私聊上报关闭 这类指令，CJK 逐字断点会把它劈成两半 */}
         <div className="text-[23px] leading-[1.5] break-words break-keep text-muted">{row.dsc}</div>
       </div>
       {row.on === undefined ? (
@@ -149,12 +125,9 @@ function Row({ row, color, palette }: { row: SettingRow; color: string; palette:
 }
 
 /**
- * 分组标题：色条 + 中文标题 + 右侧等宽英文
- *
- * 比 Layout 的 <Section> 重一档（那个是 26px 小标题 + 圆点），因为这页的分组是
- * 主结构：一屏里只有三四组，每组下面是好几行整宽卡片，标题太轻会被卡片吃掉。
- * 但也没到 Help.tsx 那种 64px 巨型标题 —— 那页每组就是一个独立板块，这页各组
- * 之间的关系更紧（都是「同一份配置的不同侧面」）。
+ * @description 分组标题：色条 + 中文标题 + 右侧等宽英文
+ * 比 Layout 的 <Section> 重一档，因为这页的分组是主结构（一屏只有三四组，每组下面是好几行整宽卡片，标题太轻
+ * 会被卡片吃掉）；但也没到 Help.tsx 那种 64px 巨型标题 —— 这页各组之间的关系更紧。
  */
 function GroupTitle({ title, right, color }: { title: string; right: string; color: string }) {
   return (
@@ -173,10 +146,8 @@ function GroupTitle({ title, right, color }: { title: string; right: string; col
 }
 
 /**
- * 改动结果条
- *
- * 成功项用 success 色、失败项用 danger 色，各自一行。不做成卡片网格：
- * 一次指令通常只改一两项，网格会为了对齐留出大片空白。
+ * @description 改动结果条：成功项用 success 色、失败项用 danger 色，各自一行
+ * 不做成卡片网格 —— 一次指令通常只改一两项，网格会为了对齐留出大片空白。
  */
 function Result({ done, errs, palette }: { done: string[]; errs: string[]; palette: Palette }) {
   const rows: { text: string; color: string; ok: boolean }[] = [
@@ -189,9 +160,8 @@ function Result({ done, errs, palette }: { done: string[]; errs: string[]; palet
     <div className="mb-[64px] flex flex-col gap-[16px]">
       {rows.map((r, i) => (
         <div
-          // break-keep：错误行里嵌着「可设置：适配器 / 仅响应at / …」这类清单，
-          // CJK 逐字断点会把「更新检查」劈成「更新检 / 查」（预览里实际出现过）。
-          // keep-all 让断点落在 / 与空格上，词保持完整
+          // break-keep：错误行里嵌着「可设置：适配器 / 仅响应at / …」这类清单，CJK 逐字断点会把「更新检查」
+          // 劈成「更新检 / 查」（预览里实际出现过）；keep-all 让断点落在 / 与空格上
           className="flex items-center gap-[20px] rounded-[24px] border border-l-[6px] px-[30px] py-[24px] text-[27px] leading-[1.5] break-words break-keep"
           key={i}
           style={{ color: r.color, background: `${r.color}14`, borderColor: `${r.color}3d` }}
@@ -240,8 +210,7 @@ export function Settings(data: SettingsData) {
           })}
         </div>
 
-        {/* 只读信息：两列铺开，与开关列表之间留出比组间距更大的空档 ——
-            它答的是另一个问题（「这些改不了，但你可能想知道」） */}
+        {/* 只读信息：两列铺开，与开关列表之间留出比组间距更大的空档 —— 它答的是另一个问题 */}
         {data.facts && data.facts.length > 0 && (
           <div className="mt-[84px] grid [grid-template-columns:repeat(2,1fr)] gap-[48px_64px]">
             {data.facts.map((f, fi) => (
@@ -260,8 +229,7 @@ export function Settings(data: SettingsData) {
                       key={ii}
                     >
                       <span className="flex-none text-muted">{it.k}</span>
-                      {/* break-keep：取值可能是「间隔 5s 起 · 最多 5 次」这类中文串，
-                          不加会在任意字间断开；break-words 兜底防长串溢出 */}
+                      {/* break-keep：取值可能是「间隔 5s 起 · 最多 5 次」这类中文串；break-words 兜底防溢出 */}
                       <span className="min-w-0 flex-1 break-words break-keep text-right font-mono font-bold">
                         {it.v}
                       </span>

@@ -1,13 +1,7 @@
 /**
- * 指令清单
- *
- * 单独成文件（对应 kkk 的 HELP_MENU_CONFIG）：apps/admin.ts 里那份纯文本帮助
- * 是硬编码在 reply 里的，加一条指令要同时改两处。这里作为唯一事实源，
- * 帮助图与文本回退都从它生成。
- *
- * 与 kkk 的差异：它按 role 过滤（master/member），本插件所有指令都是
- * permission: "master"（见 apps/admin.ts 与 apps/status.ts 的 rule），
- * 所以不做角色分支，只在条目上标 MASTER 说明权限要求。
+ * @description 指令清单，帮助图与文本回退的唯一事实源（对应 kkk 的 HELP_MENU_CONFIG）
+ * 单独成文件是因为 apps/admin.ts 里那份纯文本帮助原先硬编码在 reply 里，加一条指令要同时改两处。
+ * 不按角色分支（kkk 按 master/member 过滤）：本插件所有指令都是 permission: "master"，只在条目上标 MASTER。
  */
 import type { HelpGroup } from "./components/Help.js"
 
@@ -148,7 +142,7 @@ export const HELP_GROUPS: HelpGroup[] = [
       },
       {
         cmd: "#早柚设置最大媒体大小 2",
-        dsc: "媒体转 base64 的上限，单位 MB，超过改用外链\n等价 media_max_size=2097152",
+        dsc: "媒体转 base64 的上限，单位 MiB，超过改用外链\n等价 media_max_size=2097152",
         icon: "settings",
         master: true,
       },
@@ -208,7 +202,7 @@ export const HELP_GROUPS: HelpGroup[] = [
   },
 ]
 
-/** 纯文本帮助：渲染失败时的回退，内容与图保持同源 */
+/** @description 纯文本帮助：渲染失败时的回退，内容与图保持同源 */
 export function helpText(): string {
   const out = ["早柚核心适配器 指令："]
   for (const g of HELP_GROUPS) {

@@ -1,19 +1,9 @@
 /**
- * 运行环境探测
- *
- * 供页脚角标与 #早柚版本 共用：跑在哪个框架上、框架什么版本、Node 什么版本。
- *
- * 框架判定沿用 karin-plugin-kkk 的做法（module/utils/Version.js 的 getBotName）：
- * 看 `Bot.uin` 是不是数组。TRSS 支持多账号，把 uin 存成数组；Miao 的
- * `class Yunzai extends Client` 继承 ICQQ，uin 是单个数字。
- *
- * 为什么不看目录名或 package.json 的 name：
- * 目录名完全不可靠——本仓库所在的框架目录就叫 Miao-Yunzai、实际却是 TRSS，
- * 这正是 utils/compat.ts 开头记的那个反例。package.json 的 name 稍好，
- * 但 fork 改名即失效，而 uin 的形状是两个框架的架构差异，改名改不掉。
- *
- * 注意这里只用于**显示**。功能上该走哪条兼容路径，仍由 utils/compat.ts
- * 逐个方法探测决定——那才是不会被 fork 骗到的判据。
+ * @description 运行环境探测：跑在哪个框架上、框架什么版本、Node 什么版本，供页脚角标与 #早柚版本 共用
+ * 框架判定沿用 kkk 的做法 —— 看 `Bot.uin` 是不是数组（TRSS 支持多账号存成数组，Miao 继承 ICQQ 是单个数字）。
+ * 注意：不看目录名或 package.json 的 name —— 目录名由用户随意取（本机这台就叫 `Yunzai`，跑的是 TRSS），
+ * name 则 fork 改名即失效；uin 的形状是架构差异，改名改不掉。
+ * 注意：这里只用于显示。功能上该走哪条兼容路径仍由 utils/compat.ts 逐个方法探测决定。
  */
 import fs from "node:fs"
 import os from "node:os"
@@ -21,10 +11,14 @@ import { join } from "node:path"
 import { YunzaiPath } from "@/dir"
 import { branch } from "./version.js"
 
-/** 框架名，只有这两种；探测不到按喵崽算（它是缺功能的那一方，回退更安全） */
+/** @description 框架名，只有这两种；探测不到按喵崽算（它是缺功能的那一方，回退更安全） */
 export type FrameName = "TRSS-Yunzai" | "Miao-Yunzai"
 
-/** 跑在哪个框架上 */
+/**
+ * @description 跑在哪个框架上
+ * 注意：绝不能缓存 —— 判据 Bot.uin 要等框架挂上 Bot 才有，早一步缓存就把 TRSS 永久标成喵崽，而目录名与
+ * package.json 都帮不上忙（如文件头所说），肉眼看不出来。
+ */
 export function frameName(): FrameName {
   try {
     if (Array.isArray(globalThis.Bot?.uin)) return "TRSS-Yunzai"
@@ -34,43 +28,44 @@ export function frameName(): FrameName {
   return "Miao-Yunzai"
 }
 
-/** 框架版本，读框架根目录的 package.json；读不到返回空串 */
+/** @description 框架 package.json 里的版本号，读一次就够（同 styles/index.ts 的缓存理由） */
+let verCache: string | undefined
+
+/**
+ * @description 框架版本，读框架根目录的 package.json；读不到返回空串
+ * 缓存省掉重复读盘：每页只渲一个 Footer（它把 frameLabel() 写成默认参数），但状态页与关于页另有一行也要
+ * 这个值，所以一次出图最多求值两次。
+ */
 export function frameVersion(): string {
+  if (verCache !== undefined) return verCache
+
   try {
     const pkg = JSON.parse(fs.readFileSync(join(YunzaiPath, "package.json"), "utf8"))
-    return String(pkg.version || "")
+    verCache = String(pkg.version || "")
   } catch {
-    return ""
+    verCache = ""
   }
+  return verCache
 }
 
-/** Node 版本，去掉前缀 v */
+/** @description Node 版本，去掉前缀 v */
 export function nodeVersion(): string {
   return process.versions.node
 }
 
-/** 框架名 + 版本，拼成角标那一行；没版本号时只给名字 */
+/** @description 框架名 + 版本，拼成角标那一行；没版本号时只给名字 */
 export function frameLabel(): string {
   const v = frameVersion()
   return v ? `${frameName()} v${v}` : frameName()
 }
 
 /**
- * 发布类型：正式版 / 预览版 / 开发版
- *
- * 原本照搬 kkk 的 `/^\d+\.\d+\.\d+$/.test(version)`，但那套判据在本仓库不成立：
- * kkk 是 npm 包，预览版会带 -beta 之类的后缀，版本号本身就能区分；
- * 本插件三个分支的 package.json 是**同一个** 2.1.0（release-please 只在发版
- * 时改它），全都能通过那个正则，于是 main 上的开发版也被标成正式版。
- *
- * 改成看分支名——这是三条线真正的区别：
- * - release  每个发布一个提交，给用户装的发布分支 → Stable
- * - preview  main 每次提交自动编译产出，尝鲜用     → Preview
- * - main     源码主干，开发中                      → Dev
- *
- * 取不到分支名（压缩包安装、没装 git、游离 HEAD）时按 Preview 算：
- * 宁可把正式版误标成预览版，也别把开发版说成正式版——出问题时前者只是少了个
- * 好看的角标，后者会让人以为跑的是发布版本，白查半天。
+ * @description 发布类型：release 分支 Stable、preview 分支 Preview、main/master Dev
+ * 注意：判据是分支名而不是版本号形状，而且 main 算 Dev —— 本插件三个分支的 package.json 是同一个版本号
+ * （release-please 只在发版时改它）。kkk 的分支表把 main 映射成 Stable、上游 karin-plugin-kkk 用
+ * `/^\d+\.\d+\.\d+$/` 判，两种都会把 main 上的开发版标成正式版。
+ * 注意：取不到分支名（压缩包安装、没装 git、游离 HEAD）时按 Preview 算 —— 宁可把正式版误标成预览版，也别
+ * 把开发版说成正式版，后者会让人以为跑的是发布版本、白查半天。
  */
 export type ReleaseType = "Stable" | "Preview" | "Dev"
 
@@ -85,20 +80,20 @@ export function releaseType(_version?: string): ReleaseType {
   return RELEASE_BRANCH[branch] || "Preview"
 }
 
-/** 角标上那两个字 */
+/** @description 角标上那两个字 */
 export function releaseLabel(t: ReleaseType = releaseType()): string {
   return t === "Stable" ? "正式版" : t === "Dev" ? "开发版" : "预览版"
 }
 
-/** 字节数转可读单位，保留一位小数 */
+/** @description 字节数转可读单位，保留一位小数 */
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0 B"
-  const u = ["B", "KB", "MB", "GB", "TB"]
+  const u = ["B", "KiB", "MiB", "GiB", "TiB"]
   const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
   return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${u[i]}`
 }
 
-/** 秒数转 3天4小时 这样的时长 */
+/** @description 秒数转 3天4小时 这样的时长 */
 export function formatDuration(sec: number): string {
   const s = Math.max(0, Math.floor(sec))
   const d = Math.floor(s / 86400)
@@ -110,7 +105,7 @@ export function formatDuration(sec: number): string {
   return `${s} 秒`
 }
 
-/** 本机资源快照 */
+/** @description 本机资源快照 */
 export interface SysInfo {
   /** 操作系统，如 Windows_NT 10.0.19044 */
   os: string
@@ -131,12 +126,9 @@ export interface SysInfo {
 }
 
 /**
- * 采集本机运行信息
- *
- * 隐私边界照 kkk 的 collectRuntimeReport：这张图会发到群里，所以只取
- * 「机器性能」类信息，不取任何能定位到这台机器或这个人的东西——
- * 不读 hostname、不读 os.userInfo()（家目录、用户名）、不读网卡地址、
- * 不读环境变量内容、不读启动参数，也不读任何连接的 token。
+ * @description 采集本机运行信息
+ * 注意：隐私边界照 kkk 的 collectRuntimeReport —— 这张图会发到群里，所以只取「机器性能」类信息，不读
+ * hostname、os.userInfo()、网卡地址、环境变量内容、启动参数，也不读任何连接的 token。
  * 加字段前先想一遍：这条信息发到群里会不会暴露机主。
  */
 export function sysInfo(): SysInfo {

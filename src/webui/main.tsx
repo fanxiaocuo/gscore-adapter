@@ -1,16 +1,10 @@
 /**
- * Web 面板前端（React）
+ * @description Web 面板前端（React），与 modules/webadapter/（Node 侧接口）分属两端
  *
- * 这份是**浏览器**代码，与 modules/webadapter/（Node 侧接口）分属两端：
- * 它由 Vite（内置 Rolldown，配置见根目录 vite.config.mts）打包成
- * webadapter/panel.js，样式从下面 import 的 styles.css 抽成 webadapter/page.css，
- * 宿主用 iframe 加载 page.html 时引入。打包而不是直接 import react ——
- * 宿主的静态白名单只放行描述符里列过的文件名（src/style/script 三个），
- * 放不进 node_modules，也没有 import map。
- *
- * 与出图那边共用 react 依赖，不额外引运行时。产物约 15KB（min），
- * 与原先手写 DOM 的 314 行体量相当，但状态流转由 React 管，不必自己
- * 记「哪些节点要重画」。
+ * 由 Vite 打包成 webadapter/panel.js，样式从 styles.css 抽成 webadapter/page.css，宿主用 iframe
+ * 加载 page.html 时引入。
+ * 注意：必须打包而不是直接 import react —— 宿主的静态白名单只放行描述符里列过的三个文件名，
+ * 放不进 node_modules，也没有 import map
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
@@ -75,11 +69,9 @@ const FIELDS = [
 ]
 
 /**
- * 连接弹层的字段表
- *
- * type: "list" 的两项在后端是数组。绑定账号在弹层里另有一组开关（BotSwitchList），
- * 两者读写的是**同一个** form.bind —— 这个输入框是手填入口（离线且从没绑过的账号
- * 不会出现在开关列表里，只能手写），开关是常规入口，不存在两份状态。
+ * @description 连接弹层的字段表
+ * 注意：type "list" 的绑定账号与弹层里那组开关（BotSwitchList）读写的是**同一个** form.bind ——
+ * 输入框是手填入口（离线且从没绑过的账号不在开关列表里），不存在两份状态
  */
 const CFIELDS = [
   { k: "name", label: "连接名", ph: "gsuid_core" },
@@ -90,7 +82,7 @@ const CFIELDS = [
     hint: "只填 host:port，运行时按绑定账号生成 /ws/Yunzai-<账号>",
   },
   { k: "token", label: "token", ph: "留空则不修改", type: "password" },
-  { k: "reconnect_interval", label: "重连间隔（秒）", type: "number" },
+  { k: "reconnect_interval", label: "重连间隔（秒）", type: "number", min: 1 },
   {
     k: "max_reconnect_attempts",
     label: "最大重连次数",
@@ -121,10 +113,8 @@ const toList = (s: string) =>
     .filter(Boolean)
 
 /**
- * 按点号路径取值，供 FIELDS 里的 `filter.xxx` 用
- *
- * 返回 unknown 而不是 any：取出来的值一律要经 `!!` 或 `Number()` 才能用，
- * 标 any 会让 `form[x.k]` 直接进 JSX 而不报错（对象会渲染成崩溃）
+ * @description 按点号路径取值，供 FIELDS 里的 `filter.xxx` 用
+ * 注意：返回 unknown 而不是 any —— 标 any 会让 `form[x.k]` 直接进 JSX 而不报错（对象会渲染成崩溃）
  */
 const dig = (o: unknown, path: string): unknown => {
   let value = o
@@ -136,13 +126,10 @@ const dig = (o: unknown, path: string): unknown => {
 }
 
 /*
- * 复用的 utility 组合
- *
- * 按钮、输入框这些在多处重复出现，抽成常量免得各处手抄跑偏。
- * 形状与配色分开：同一属性的两个 utility 写在一起时，谁生效由样式表里的
- * 先后决定而非 className 的顺序，所以变体不叠加基础色，各给各的。
- *
- * 只有本文件用到的留在这儿；组件也要用的（MONO / TAG）在 ui.ts，从那儿引。
+ * 复用的 utility 组合，抽成常量免得各处手抄跑偏。只有本文件用到的留在这儿，
+ * 组件也要用的（MONO / TAG）在 ui.ts。
+ * 注意：形状与配色分开写 —— 同一属性的两个 utility 写在一起时，谁生效由样式表里的先后
+ * 决定而非 className 的顺序，所以变体不叠加基础色
  */
 const BTN_SHAPE = "cursor-pointer rounded-[8px] border px-[14px] py-[6px] text-[13px]"
 const BTN = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-primary`
@@ -160,11 +147,9 @@ const PANEL =
 const PHEAD_END = "mt-[12px] flex items-center justify-end gap-[12px]"
 
 /*
- * 设置项一行：标题 | 说明 | 控件
- *
- * 系统设置那种观感靠的是列宽固定（标题列 190px），多行之间对得齐；分隔线用
- * border-t + first:border-t-0，不必给每行套一个卡片。720px 以下收成两列：
- * 说明挪到标题下面一行，控件跨两行钉在行尾（与 BotSwitchList 的行同一套做法）。
+ * 设置项一行：标题 | 说明 | 控件。列宽固定（标题列 190px）所以多行之间对得齐，
+ * 分隔线用 border-t + first:border-t-0。720px 以下收成两列：说明挪到标题下面一行，
+ * 控件跨两行钉在行尾（与 BotSwitchList 的行同一套做法）。
  */
 const ROW =
   "grid min-h-[54px] grid-cols-[190px_minmax(0,1fr)_auto] items-center gap-x-[16px] gap-y-[2px] border-t border-border px-[16px] first:border-t-0 max-[720px]:grid-cols-[minmax(0,1fr)_auto] max-[720px]:px-[4px]"
@@ -196,11 +181,8 @@ const DOT: Record<string, string> = {
 }
 
 /**
- * 面板发给 /connection 的请求体
- *
- * 五个动作共用一个接口，字段随动作变（add 不带 key，toggle 只带 key + enable，
- * bind 带 key + id + on），所以除 action 外都是可选 —— 后端 `locate()` / `bool()`
- * 自己兜缺失值
+ * @description 面板发给 /connection 的请求体
+ * 五个动作共用一个接口、字段随动作变，所以除 action 外都是可选 —— 后端 `locate()` / `bool()` 自己兜缺失值
  */
 interface ConnAction {
   action: "add" | "edit" | "del" | "toggle" | "bind"
@@ -212,14 +194,10 @@ interface ConnAction {
 }
 
 /**
- * 弹层里判断「用户正在填的这个地址是不是自动端点」
- *
- * 已保存的连接不走这里 —— 它们直接读后端算好的 `ConnView.automatic`
- * （webadapter 的 connView 调 isAutomaticEndpoint）。但新增/编辑弹层里的地址还没
- * 落盘，浏览器隔着 JSON 拿不到后端那个函数，只能就地判一次「pathname 是不是空或根」。
- *
- * 判错的唯一后果是提交按钮的可用性：真正的拦截仍在后端 requireAccounts，
- * 所以这里刻意只做最粗的形状判断，不去复刻 normalizeEndpoint 的其余规则。
+ * @description 弹层里就地判断「用户正在填的这个地址是不是自动端点」（pathname 是不是空或根）
+ * 已保存的连接不走这里，它们直接读后端算好的 `ConnView.automatic`。
+ * 注意：刻意只做最粗的形状判断，不复刻 normalizeEndpoint —— 判错的唯一后果是提交按钮的可用性，
+ * 真正的拦截仍在后端 requireAccounts
  */
 function looksAutomatic(url: string): boolean {
   const rest = url
@@ -240,8 +218,9 @@ function Conn({
   onEdit: (conn: ConnView) => void
 }) {
   /**
-   * 绑定折叠区的开合。放在组件内而不是提升到 App：轮询刷新会整包替换 state，
-   * 但 Conn 按 index 作 key，同位实例复用，开合状态在刷新间存活。
+   * @description 绑定折叠区的开合
+   * 放在组件内而不是提升到 App：轮询刷新整包替换 state，但 Conn 按 index 作 key，
+   * 同位实例复用，开合状态在刷新间存活
    */
   const [open, setOpen] = useState(false)
   /** 正在保存的账号，请求期间整组开关禁用（理由见 toggle） */
@@ -251,51 +230,27 @@ function Conn({
   const on = c.accounts || []
   const runtime = c.runtime || []
   /**
-   * 这条连接现在「不限账号」：兼容连接且一个有效账号都没有
-   *
-   * 判据是 `accounts` 而不是 `bind` —— 后端给兼容连接派生的运行时 bind 就是 accounts
-   * （expand.ts:188），而 `accept()` 见到空 bind 就放行一切（GsCoreClient.ts:336-337）。
-   * 于是 bind 非空但被 exclude 吃干净时（bind=[A]、exclude=[A]），实际行为是「除被排除
-   * 的号以外全部转发」，看 bind 却会显示成「绑定 0/N 个账号」—— 用户以为白名单在生效，
-   * 实际所有机器人的消息都在进核心。被排除的号由旁边的「排除 …」标签单独说。
-   *
-   * 自动端点不适用：它的 bind 决定派生出几条 ws，零账号等于这条连接不存在，
-   * 后端 requireAccounts 直接拒，不存在「不限账号」这个状态。
+   * @description 这条连接现在「不限账号」：兼容连接且一个有效账号都没有
+   * 注意：判据是 `accounts` 而不是 `bind` —— bind 非空但被 exclude 吃干净时实际行为就是不限，
+   * 看 bind 会显示成「绑定 0/N 个账号」，用户以为白名单在生效。
+   * 自动端点不适用：零账号等于这条连接不存在，后端直接拒
    */
   const unlimited = !c.automatic && !on.length
 
   /**
-   * 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
-   *
-   * 不用 edit + 整份 bind 数组，理由是并发覆盖：两个开关几乎同时拨，后一个请求带的是
-   * 它自己渲染时看到的**旧**数组，会把前一个的结果整份抹掉 —— 用户看到刚拨开的账号
-   * 自己弹回去。bind 动作只报「这一个账号开还是关」，两个请求各改各的键，先后到达都
-   * 是对的。保存期间整组禁用也是为这个：连点会造出同样的交叉覆盖。
-   *
-   * （这里原来还写着「edit 会把这条核心上所有账号的运行时连接全停再全起」—— 那是
-   * stopSource/startSource 时代的事。现在 editConnection 走 lifecycle 的 applyConnections，
-   * 按 runtimeKey 收敛，只动真的该动的那几条。这条理由已经不成立，剩下的是并发。）
+   * @description 一个开关只表达一个账号的意图，所以发 bind 动作、只报这一个账号
+   * 注意：不用 edit + 整份 bind 数组 —— 两个开关几乎同时拨时后一个请求带的是旧数组，
+   * 会把前一个的结果整份抹掉（保存期间整组禁用也是为这个）
    */
   const toggle = async (id: string, next: boolean) => {
     /*
-     * 兼容连接的两个方向都要确认，因为两边都会当场改变「谁的消息进核心」
-     *
-     * 关掉最后一个：白名单变不限，其余机器人的消息突然全部开始转发。
-     * 从不限拨开第一个：不限变单账号白名单，其余机器人的消息当场全部停止转发 ——
-     * 比放宽更有破坏性，所以更不能一声不响。
-     * 自动端点两个方向都不问：它的最后一个开关在 BotSwitchList 里就是禁用的，
-     * 而它压根没有「不限账号」这个状态（零账号会被后端拒）。
+     * 兼容连接的两个方向都要确认，两边都会当场改变「谁的消息进核心」：关掉最后一个是白名单
+     * 变不限，从不限拨开第一个则让其余机器人当场全部停止转发。
+     * 自动端点两个方向都不问：它的最后一个开关在 BotSwitchList 里就是禁用的，也没有「不限账号」这个状态
      */
     if (!c.automatic) {
-      /*
-       * 「不限账号」不等于「谁都转发」：exclude 是独立的一层，仍然拦着名单里的号
-       * （GsCoreClient.accept 先判 exclude 再判 bind）。写死「所有机器人」会在配了
-       * 排除名单的连接上说过头。
-       *
-       * 反过来「关掉最后一个有效账号之后 bind 还非空、所以还是白名单」不成立：
-       * 非根连接的运行时 bind 取的是**有效**账号（expand 的 `bind: accounts`），
-       * bind 里剩下的全是被 exclude 挡掉的号时它就是空的，确实变成不限。
-       */
+      // 注意：「不限账号」不等于「谁都转发」—— exclude 是独立的一层，仍然拦着名单里的号，
+      // 写死「所有机器人」会在配了排除名单的连接上说过头
       const rest = c.exclude?.length ? "除排除名单里的账号外，其余" : "所有"
       const ask =
         !next && on.length === 1
@@ -349,7 +304,7 @@ function Conn({
                   />
                 ))}
               {/* 只说开着几个，不给分母：分母是候选数（在线的 + 绑过的），10 个 Bot 在线时
-                  「绑定 1/10」看起来像 9 个绑定没成功。行数在展开后自己数得清 */}
+                  「绑定 1/10」看起来像 9 个绑定没成功 */}
               <span>{unlimited ? "不限账号" : `绑定 ${on.length} 个账号`}</span>
               <span className="text-[9px]">{open ? "▲" : "▼"}</span>
             </button>
@@ -390,12 +345,8 @@ function Conn({
           empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
         />
       )}
-      {/*
-       * 逐条运行时连接
-       *
-       * 只在展开或多于一条时列：一条时头部那行状态就是它，重复显示只是噪音；
-       * 多条时头部是聚合值（1 > 2 > 3 > 0），必须能看出是哪个账号没连上。
-       */}
+      {/* 逐条运行时连接：只在展开或多于一条时列 —— 一条时头部那行状态就是它，
+          多条时头部是聚合值，必须能看出是哪个账号没连上 */}
       {runtime.length > 0 && (open || runtime.length > 1) && (
         <div className="mt-[10px] flex flex-col gap-[6px] rounded-[10px] border border-border bg-bg p-[10px]">
           {runtime.map(r => (
@@ -455,11 +406,9 @@ function Modal({
   const bind = toList(form.bind || "")
   const exclude = toList(form.exclude || "")
   /*
-   * 开关列表的候选与状态都从这份表单算，不存第二份 state
-   *
-   * 候选 = 在线机器人 + 已填在 bind 里的账号 + 本连接原先绑过的（编辑时可能已离线）。
-   * 手填的号在框架里查不到档案，只能造一个占位的：online false、无头像，
-   * Avatar 会回退成首字圆。开合状态与已保存连接同一个判据：在 bind 且不在 exclude。
+   * 开关列表的候选与状态都从这份表单算，不存第二份 state。
+   * 候选 = 在线机器人 + 已填在 bind 里的账号 + 本连接原先绑过的（编辑时可能已离线）；手填的号
+   * 查不到档案，造一个占位的（online false、无头像，Avatar 会回退成首字圆）。
    */
   const known = new Map(bots.map(b => [b.id, b]))
   for (const b of conn?.bind_bots || []) if (!known.has(b.id)) known.set(b.id, b)
@@ -469,13 +418,8 @@ function Modal({
   const checked = bind.filter(id => !exclude.includes(id))
   const conflicts = bind.filter(id => exclude.includes(id))
   const url = (form.url || "").trim()
-  /*
-   * 地址还没填时既不是自动端点也不是兼容连接
-   *
-   * `looksAutomatic("")` 回 true（没有 `/` 就算根路径），若照它办，弹层一打开、用户还
-   * 什么都没输入，保存按钮就是灰的、底下红字说「自动连接至少要绑定一个账号」——
-   * 指错了字段（后端对空地址报的是「连接地址不能为空」，isAutomaticEndpoint 也回 false）。
-   */
+  // 注意：地址还没填时不算自动端点 —— looksAutomatic("") 回 true，照它办的话弹层一打开
+  // 保存按钮就是灰的、红字说「自动连接至少要绑定一个账号」，指错了字段
   const automatic = !!url && looksAutomatic(url)
 
   const toggle = (id: string, on: boolean) => {
@@ -489,12 +433,8 @@ function Modal({
     })
   }
 
-  /*
-   * 自动端点必须至少留一个账号
-   *
-   * 后端 requireAccounts 会拒，这里提前把提交按钮灰掉。判自动端点用的是本地那个
-   * 粗略函数（见 looksAutomatic），所以只灰按钮、不做别的推断 —— 真正的把关在后端
-   */
+  // 自动端点必须至少留一个账号：后端 requireAccounts 会拒，这里提前把提交按钮灰掉。
+  // 判自动端点用的是本地那个粗略函数，所以只灰按钮、不做别的推断 —— 真正的把关在后端
   const blocked = automatic && checked.length === 0
 
   const submit = () => {
@@ -528,6 +468,8 @@ function Modal({
                 // list 不是合法的 input type，落回 text
                 type={x.type === "list" ? "text" : x.type || "text"}
                 placeholder={x.ph || ""}
+                // 只有下界有意义的字段才带 min：max_reconnect_attempts 的 0 是无限重连
+                min={x.min}
                 value={form[x.k] ?? ""}
                 onChange={e => setForm(f => ({ ...f, [x.k]: e.target.value }))}
               />
@@ -603,23 +545,12 @@ function Settings({
   onSave: (body: SettingsBody) => void
 }) {
   const [form, setForm] = useState<Record<string, unknown>>(() => readFields(config))
-  /**
-   * 上一次同步进表单的那份服务端值的指纹，用来区分「外部真的改了」与「轮询又回了同一份包」
-   *
-   * useRef 的初值表达式每次渲染都会算一遍（只在首次被采用），FIELDS 就那么几项，
-   * 换成惰性初始化反而要多一次 mount 后的重渲染，不值当。
-   */
+  /** 上次同步进表单的那份服务端值的指纹，用来区分「外部真的改了」与「轮询又回了同一份包」 */
   const synced = useRef(fieldsKey(readFields(config)))
   /*
-   * 只在服务端值真的变了时才覆盖表单
-   *
-   * 每 10 秒的轮询都会 setState 一个新对象，`config` 引用因此每次都变。原来只按引用
-   * 判断，于是拨了全局设置的开关却没点保存时，10 秒内它自己弹回去；输一半的数字也
-   * 会被抹掉。这批开关不像绑定开关那样即时写（要点「保存设置」），所以 App 那个
-   * `inflight` 挡不住它 —— 拨开关的那一刻根本没有在途的写请求。
-   *
-   * 内容真变了才覆盖：那时本地未保存的改动确实会被顶掉，但那是「外部数据变了」的
-   * 既定行为，也是这个 effect 本来的用途（自己保存成功后回包同样走这条路）。
+   * 注意：只在服务端值真的**变了**时才覆盖表单 —— 轮询每 10 秒 setState 一个新对象，
+   * 按引用判断会让没点保存的开关自己弹回去、输一半的数字被抹掉；这批开关不即时写，
+   * App 那个 inflight 挡不住它
    */
   useEffect(() => {
     const f = readFields(config)
@@ -641,12 +572,8 @@ function Settings({
 
   return (
     <>
-      {/*
-       * 一列到底的设置行，不再用 auto-fit 多列网格
-       *
-       * 多列在窄屏上会把「标题 / 说明 / 控件」三段各自换行，读起来是一团；
-       * 单列 + 固定标题列宽才是系统设置那种一眼扫得下来的观感。
-       */}
+      {/* 一列到底的设置行，不用 auto-fit 多列网格：多列在窄屏上会把「标题 / 说明 / 控件」
+          三段各自换行，读起来是一团 */}
       <div className="overflow-hidden rounded-[10px] border border-border">
         {FIELDS.map(x => {
           // filter.report_private → set-filter-report_private，点号在 CSS/HTML 里都不该出现在 id 上
@@ -705,26 +632,20 @@ function App() {
   const [logoOk, setLogoOk] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /**
-   * 在途的写请求数
-   *
-   * 轮询与写请求会抢同一份 state：拨开关时 10 秒的 /config 可能后到，把开关刷回旧位，
-   * 看起来就是「点了又弹回去」。计数而不是布尔 —— 连着拨两个开关时，先回来的那个
-   * 不该把还在途的那个也放开。用 ref 不用 state：它只在回调里读，不需要触发重渲染。
+   * @description 在途的写请求数，写在途时不轮询，免得后到的读回包把开关刷回旧位
+   * 注意：计数而不是布尔 —— 连着拨两个开关时，先回来的那个不该把还在途的那个也放开
    */
   const inflight = useRef(0)
   /**
-   * 已落地的写请求计数，用来作废「跨过一次写」的读回包
-   *
-   * `inflight` 管的是**别发起**（写在途时不轮询），这里管的是**别采用**：轮询在写请求
-   * 开始之前就发出去了（那时 inflight 还是 0），却在写完成之后才回来，那份 state 是
-   * 写之前的旧值，采用它就是把刚保存的改动刷没了。两个窗口不重叠，所以两者都要有。
+   * @description 已落地的写请求计数，用来作废「跨过一次写」的读回包
+   * 注意：与 {@link inflight} 两个都要有，窗口不重叠 —— 它管「别发起」，这里管「别采用」：
+   * 写请求开始之前发出的轮询会在写完成之后才回来，那份 state 是旧值
    */
   const gen = useRef(0)
   /**
-   * 弹层是否开着，给轮询回调读
-   *
-   * 不在回调里用 `setModal(m => …)` 顺手读当前值：那个 updater 会被 React 当纯函数
-   * 对待（严格模式下按约定可重复调用），在里面发请求属于副作用。ref 只是读，安全。
+   * @description 弹层是否开着，给轮询回调读
+   * 注意：别在回调里用 `setModal(m => …)` 顺手读当前值 —— 那个 updater 被 React 当纯函数对待，
+   * 在里面发请求属于副作用
    */
   const modalOpen = useRef(false)
   useEffect(() => {
@@ -758,9 +679,8 @@ function App() {
         // 成功用回包整包换 state：那是服务端算完之后的真状态，比本地猜的准
         setState(r)
         setModal(undefined)
-        // 有话才弹：Payload.message 是可选的（多数写动作不带），空着弹出来是个
-        // 没有字的框。tsc 抓不到 —— 仓库关了 strictNullChecks（见 tsconfig.json 的
-        // 说明），`string | undefined` 传进 `text: string` 不报错
+        // 有话才弹：Payload.message 是可选的（多数写动作不带），空着弹出来是个没字的框。
+        // tsc 抓不到 —— 仓库关了 strictNullChecks，`string | undefined` 传进 `text: string` 不报错
         if (r.message) say(r.message)
       } catch (err) {
         // 失败不动 state，界面停在原样，用户重来一次就是
@@ -787,12 +707,8 @@ function App() {
   if (!state) return <p className={HINT}>加载中…</p>
 
   const s = state.stats
-  /*
-   * 连接数看 totals：一条逻辑连接会按绑定账号展开成多条 ws
-   *
-   * 数 connections 里 status === 1 的只能得到「有几条核心通了」，看不出某条核心上
-   * 掉了一个账号。totals 由后端按运行时连接算（logical / runtime / connected）。
-   */
+  // 连接数看 totals（后端按运行时连接算）：一条逻辑连接会按绑定账号展开成多条 ws，
+  // 数 connections 里 status === 1 的看不出某条核心上掉了一个账号
   const t = state.totals || { logical: state.connections.length, runtime: 0, connected: 0 }
   // 展开阶段被跳过的连接在卡片上只显示「未启动」，原因只有这份话术说得出
   const errors = state.errors || []
@@ -803,9 +719,8 @@ function App() {
       {/* flex-wrap：390px 下「标题 + 两个按钮」放不进一行，按钮整组换到下一行靠右 */}
       <header className="mb-[16px] flex flex-wrap items-center justify-between gap-[16px]">
         <div className="flex min-w-0 items-center gap-[12px]">
-          {/* 图标经接口取：宿主的静态白名单只放行 page.html/css/js，
-              直连 resources/ 会 403。加载失败就不显示，页面其余部分不依赖它 */}
-          {/* 图标是透明底的字形，不加底色与描边 —— 那会在标题旁多出一个方块 */}
+          {/* 图标经接口取：宿主的静态白名单只放行 page.html/css/js，直连 resources/ 会 403。
+              加载失败就不显示，页面其余部分不依赖它。图标是透明底字形，不加底色与描边 */}
           <img
             className="size-[40px] flex-none object-contain"
             src={`${API}/logo`}
@@ -830,19 +745,9 @@ function App() {
         </div>
       </header>
 
-      {/*
-       * 浮在弹层之上，而不是待在文档流里
-       * ------
-       * 原来这是 header 后面一个普通的流内 div，而 Modal 是 `fixed inset-0` 带半透明
-       * 遮罩 —— 同一层叠上下文里定位元素画在非定位的流内兄弟之上，于是弹层保存失败时
-       * 唯一的反馈被压在遮罩底下；页面往下滚过一屏更是整个在视口外。而失败分支只弹
-       * toast、不关弹层也不动 state（见 send 的 catch），界面上于是没有任何可见变化，
-       * 用户只会再点几次保存。本分支给弹层新加了两个拒绝点（requireAccounts、面板侧的
-       * findRouteConflict），把一个原先几乎碰不到的问题变成了常规路径。
-       *
-       * 底色用 color-mix 兑到 --surface 而不是 transparent：浮在遮罩上时透明底会把
-       * 遮罩的黑透进来，文字读不了。z 值与 Modal 的 z-50 成对，别只改一个。
-       */}
+      {/* 注意：toast 必须浮在弹层之上（fixed + z-[60]，与 Modal 的 z-50 成对，别只改一个）——
+          待在文档流里会被弹层的半透明遮罩压住，而保存失败只弹 toast、不关弹层也不动 state，
+          界面上就没有任何可见变化。底色用 color-mix 兑到 --surface，透明底会把遮罩的黑透进来 */}
       {toast && (
         <div
           role="status"
@@ -887,11 +792,8 @@ function App() {
           {errors.length > 0 && (
             <div className="rounded-[10px] border border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
               <div className="mb-[4px] font-semibold">有连接没能启动</div>
-              {/*
-               * key 用下标而不是话术本身：两条连接同名（配置允许）且坏在同一处时
-               * 话术逐字相同，撞 key 会让 React 只渲一条。这个列表整包重取、不排序
-               * 也不局部增删，下标就是稳定身份
-               */}
+              {/* 注意：key 用下标而不是话术本身 —— 两条连接同名且坏在同一处时话术逐字相同，
+                  撞 key 会让 React 只渲一条；这个列表整包重取、不排序也不局部增删 */}
               {errors.map((e, i) => (
                 <p className="whitespace-pre-line text-[12px]" key={i}>
                   {e}
@@ -899,14 +801,8 @@ function App() {
               ))}
             </div>
           )}
-          {/*
-           * 警告与上面那个框分开渲，标题和配色都不一样
-           * ------
-           * 服务端按 ExpandError.skipped 分流（webui/api.ts 的 warnings）。混在上面
-           * 那个红框里的话，一条 `ws://h:8765/ws/Yunzai` 不填账号的兼容连接（老配置
-           * 升级后的默认形态）就会绿着点显示「已连接」，头顶一个红框说它没能启动 ——
-           * 而它正在正常收发，每次轮询还复现一次。
-           */}
+          {/* 注意：警告与上面那个红框分开渲（标题与配色都不一样）—— 混进去会让一条正在正常
+              收发的兼容连接绿着点显示「已连接」，头顶一个红框说它没能启动 */}
           {warnings.length > 0 && (
             <div className="rounded-[10px] border border-warning bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
               <div className="mb-[4px] font-semibold">连接已启动，但有需要注意的地方</div>

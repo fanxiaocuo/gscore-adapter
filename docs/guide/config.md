@@ -44,6 +44,10 @@ client:
 | `media_max_size` | 媒体转 base64 上限，超过改用外链 | 10 MiB |
 | `file_max_size` | file 段必须内联 base64，超过直接拒发 | 50 MiB |
 | `link_expire` | 外链有效期（毫秒），也是内置文件服务的暂存时长 | `300000` |
+
+> **单位在不同地方不一样。** 配置文件里 `media_max_size` / `file_max_size` 存**字节**，`link_expire` 存**毫秒**；锅巴面板那三栏按 **MiB / 秒** 填（存盘时换算回去，手写的非整数值不会因为四舍五入被挪动）。指令也分两种：`#早柚设置最大媒体大小 2` 收 MiB，`#早柚设置 media_max_size=2097152` 收字节 —— 这两条等价。
+>
+> 两个大小上限最多 **256 MiB**（面板下限 0.01 MiB，指令下限 1024 字节）。调过头等于关掉外链兜底，每个附件都要在内存里 base64 一份。`file_max_size` 与 `link_expire` 只能在面板或配置文件里改，没有对应指令。
 | `file_server` | 内置文件服务，见下 | 开 |
 | `upload_hook` | 自定义图床模块路径，内置服务的后备 | `""` |
 | `log_truncate` | 日志中截断 base64 | `true` |
@@ -196,7 +200,7 @@ file_server:
 export default async (buf, name) => "https://图床地址/xxx.png"
 ```
 
-返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。也可以直接调大 `media_max_size` 让大文件走 base64，代价是内存占用和单帧体积。
+返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。也可以直接调大 `media_max_size` 让大文件走 base64（上限 256 MiB），代价是内存占用和单帧体积。
 
 ## update_check
 
