@@ -3,6 +3,38 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.2.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.1.0...v4.2.0) (2026-08-23)
+
+
+### ✨ 新功能
+
+* **guoba:** 面板换上账号/群/好友选择器，三个数值栏按 MiB 与秒填 ([bbd5281](https://github.com/fanxiaocuo/gscore-adapter/commit/bbd5281d72ae34911438e970b0aa0c3254d3433a))
+
+
+### 🐛 问题修复
+
+* **client:** 回环防护的 Map 超上限时兜底删最旧的一批 ([b215087](https://github.com/fanxiaocuo/gscore-adapter/commit/b2150874d8b1de2a27d65b6f4a2a7bde4aab89d7))
+* **config:** 三个写入口共用 media_max_size 上限，单位话术统一成 MiB ([1b76b05](https://github.com/fanxiaocuo/gscore-adapter/commit/1b76b050564d190b913918b627aa61189f120cad))
+* **passive:** 用满的 msg_id 留在内存里当凭据，别删 ([ff6f712](https://github.com/fanxiaocuo/gscore-adapter/commit/ff6f7126a05db661f4f443802e266e49e9c29adf))
+* **render:** 挡掉 rounded-full / grid-cols-4 两条凭空多出的死规则 ([e553fbb](https://github.com/fanxiaocuo/gscore-adapter/commit/e553fbb830272452e99e29a49b60efe5f07c7533))
+
+
+### ⚡ 性能优化
+
+* **client:** 过滤器的正文只在真要用时才拼 ([60300c8](https://github.com/fanxiaocuo/gscore-adapter/commit/60300c893db2bbb74bec08d78c2a23b6a89f4ed5))
+* **render:** CHANGELOG 解析结果按 mtime 缓存 ([cecc220](https://github.com/fanxiaocuo/gscore-adapter/commit/cecc2205365aeb0678a3811a195549097026ac99))
+
+
+### ♻️ 代码重构
+
+* **db:** 抽出 utils/sqlite.ts 当落盘底座，两处库共用 ([64f0120](https://github.com/fanxiaocuo/gscore-adapter/commit/64f01207703f1434aaeaeb9a42f9de4e4eba9e0c))
+* 删掉没人调的 stopFileServer，LOG_TAG 收回文件内 ([1851e0b](https://github.com/fanxiaocuo/gscore-adapter/commit/1851e0bc92b188868ba0c30d5eadc3a5c34b907b))
+
+
+### 📝 文档
+
+* 全项目注释压缩，长篇说明收成一句话加「注意：」 ([432d32f](https://github.com/fanxiaocuo/gscore-adapter/commit/432d32f40c1c424d0b7e6260f4f08629b9e78333))
+
 ## [4.1.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.0.0...v4.1.0) (2026-08-21)
 
 
