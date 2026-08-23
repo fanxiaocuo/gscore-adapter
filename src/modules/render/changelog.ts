@@ -1,23 +1,14 @@
 /**
- * CHANGELOG.md 解析
- *
- * 取材照 kkk 的 getLocalChangelog（module/utils/runtime-report.ts）：读插件目录里的
- * CHANGELOG.md，按版本切出最新一节，给 #早柚版本 的「本版变更」用。
- *
- * 与 kkk 的差别：它把整段 markdown 原样丢给模板，由 <ReactMarkdown> 渲染。
- * 本插件不引 markdown 运行时（多一个依赖，而且要渲染的只是「### 分类 + * 条目」
- * 两层固定结构，release-please 生成的格式非常规整），所以这里直接解析成结构化数据，
- * 由 About.tsx 用普通 JSX 排版。
- *
- * 与 #早柚更新日志 的分工：那条命令读 git（modules/update/git.ts），答「代码更新
- * 到哪了」；这里读 CHANGELOG.md，答「当前这个版本改了什么」。两者数据源不同，
- * 前者按提交、后者按发布，互不重复。
+ * @description CHANGELOG.md 解析，给 #早柚版本 的「本版变更」用
+ * 取材照 kkk 的 getLocalChangelog，但不引 markdown 运行时：要渲染的只是「### 分类 + * 条目」两层固定结构
+ * （release-please 的格式很规整），所以直接解析成结构化数据，由 About.tsx 用普通 JSX 排版。
+ * 与 #早柚更新日志 的分工：那条命令读 git 答「代码更新到哪了」，这里读 CHANGELOG.md 答「当前这个版本改了什么」。
  */
 import fs from "node:fs"
 import { join } from "node:path"
 import { PluginPath } from "@/dir"
 
-/** 一个变更分类，如「✨ 新功能」下挂若干条目 */
+/** @description 一个变更分类，如「✨ 新功能」下挂若干条目 */
 export interface ChangeGroup {
   /** 分类名，已去掉 markdown 的 ### 前缀 */
   title: string
@@ -25,7 +16,7 @@ export interface ChangeGroup {
   items: string[]
 }
 
-/** 一个版本的变更 */
+/** @description 一个版本的变更 */
 export interface Release {
   /** 版本号，不带 v */
   version: string
@@ -35,14 +26,9 @@ export interface Release {
 }
 
 /**
- * 把一条 markdown 列表项清成纯文本
- *
- * release-please 的条目形如：
- *   * **admin:** 支持批量设置 ([39e1f9b](https://github.com/.../commit/39e1f9b...))
- * 要去掉的三样：
- *   1. 末尾的 commit 链接——图上放不下 40 位 hash，也没有点击价值
- *   2. **粗体** 标记——纯文本渲染里星号会直接显出来
- *   3. 其余 [文本](链接) 形式的行内链接，只留文本
+ * @description 把一条 markdown 列表项清成纯文本
+ * 去掉三样：末尾的 commit 链接（短 hash 与长 URL 在图上都没有点击价值）、`**` 粗体标记（纯文本渲染里星号
+ * 会直接显出来）、其余 [文本](链接) 形式的行内链接（只留文本）。
  */
 function clean(line: string): string {
   return (
@@ -57,12 +43,10 @@ function clean(line: string): string {
 }
 
 /**
- * 解析 CHANGELOG.md
- *
+ * @description 解析 CHANGELOG.md
+ * 用逐行状态机而不是正则整段切分：整段切分要写一个跨行的 (?=^## |\z) 模式，在 CHANGELOG 里出现代码块或
+ * 引用时很容易吃错边界。逐行只认三种行首，简单且可预期。
  * @param limit 最多取几个版本
- *
- * 解析用逐行状态机而不是正则整段切分：整段切分要写一个跨行的 (?=^## |\z) 模式，
- * 在 CHANGELOG 里出现代码块或引用时很容易吃错边界。逐行只认三种行首，简单且可预期。
  */
 export function parseChangelog(text: string, limit = 1): Release[] {
   const out: Release[] = []
@@ -111,24 +95,30 @@ export function parseChangelog(text: string, limit = 1): Release[] {
 }
 
 /**
- * 读取本插件当前版本的变更
- *
- * @param version 期望的版本号。CHANGELOG 最新一节与它不一致时仍返回最新一节——
- *   开发中的版本（package.json 已提前 bump，release-please 还没写入 CHANGELOG）
- *   属于正常状态，此时展示上一个已发布版本比什么都不显示有用。
- *
- * 与 kkk 一样：任何失败都静默退化成 null，绝不抛错——一张图不该因为读不到
- * 变更日志就整个渲染失败。
+ * @description 上次解析结果，按 CHANGELOG.md 的 mtime 记账
+ * 注意：不能无条件缓存 —— 这个文件在进程活着时会变（开发时 git pull / 切分支，或 #早柚更新 转调本体 git
+ * pull 而随后的自动重启没成），钉住就得等重启才对。留一次 stat 换掉 24KB 读盘 + 整份逐行解析。
  */
-export function currentRelease(version?: string): Release | null {
+let relCache: { mtimeMs: number; release: Release | null } | undefined
+
+/**
+ * @description 读取本插件当前版本的变更；任何失败都静默退化成 null，绝不抛错
+ * 一张图不该因为读不到变更日志就整个渲染失败。
+ * 注意：交出的是 relCache 里那个对象本身，没有防御性拷贝 —— 现在调用方只读（pages.ts 的 trimChanges 全程
+ * 复制），要在这儿加标注也别写它的字段，否则污染缓存、往后每次出图都带着。
+ * @param _version 期望的版本号，目前不参与判断：最新一节与它不一致（package.json 已提前 bump，
+ *   release-please 还没写入 CHANGELOG）属于正常状态，展示上一个已发布版本比什么都不显示有用；且 About.tsx
+ *   本就在「本版变更」标题旁写了这一节的 v 号，与页首版本号一对照即知，不必再标
+ */
+export function currentRelease(_version?: string): Release | null {
   try {
-    const text = fs.readFileSync(join(PluginPath, "CHANGELOG.md"), "utf8")
-    const list = parseChangelog(text, 1)
-    const r = list[0]
-    if (!r || !r.groups.length) return null
-    // 版本号对不上时标注出来，免得用户以为图上这段就是当前版本的改动
-    if (version && r.version && r.version !== version) r.date = r.date || ""
-    return r
+    const file = join(PluginPath, "CHANGELOG.md")
+    const { mtimeMs } = fs.statSync(file)
+    if (!relCache || relCache.mtimeMs !== mtimeMs) {
+      const r = parseChangelog(fs.readFileSync(file, "utf8"), 1)[0]
+      relCache = { mtimeMs, release: r && r.groups.length ? r : null }
+    }
+    return relCache.release
   } catch {
     return null
   }
