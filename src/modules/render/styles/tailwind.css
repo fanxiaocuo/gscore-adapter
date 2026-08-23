@@ -81,6 +81,10 @@
  * 裸的 blur / tabular-nums 没有任何元素带。这正是扫源码要付的代价（扫编译产物时
  * 注释已被剥掉，不会有这个问题），但比 glob 失配导致整层 utility 变空好得多。
  *
+ * 注意：rounded-full / grid-cols-4 来自 Layout.tsx 里「别用这两个」的注释，压缩注释时
+ * 后面的全角冒号换成了破折号，提取器于是取到了干净候选（全角冒号会被吃进候选里，
+ * 匹配不上任何 utility），凭空多出两条死规则。改注释措辞躲不掉，只能挡在这儿。
+ *
  * 死规则不只是体积问题，.container 是个真陷阱：本体外壳的根节点是 #container，
  * 哪天有人手滑写成 class="container"，1440px 的画布会被 max-width:40rem 压成 640px，
  * 而这条规则的来源是一句注释——排查时没人会往这儿想。
@@ -95,6 +99,7 @@
  */
 @source not inline("contents hidden visible fixed filter container");
 @source not inline("blur tabular-nums -mt-[7px] [align-items:start]");
+@source not inline("rounded-full grid-cols-4");
 
 
 /*
