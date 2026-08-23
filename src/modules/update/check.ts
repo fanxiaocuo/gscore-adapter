@@ -1,19 +1,10 @@
 /**
- * 更新检查：手动指令与定时任务共用的一层
- *
- * 移植自 karin-plugin-kkk 的 kkk-更新检测（packages/core/src/apps/update.ts），
- * 保留了它三个关键设计：
- *   1. 检查与更新分离——只通知，不自动 git pull。自动更新会在用户不知情时
- *      改动代码并重启，出问题很难回溯
- *   2. 版本锁：同一个版本只播报一次，否则每个周期都会私聊主人一遍
- *   3. 首次检查延迟：错开启动高峰
- *
- * 两处按本仓库改写：
- *   - 判定方式：kkk 比 npm registry 上的 semver，本插件是 git 安装、没有发布
- *     版本号，改比「本地 HEAD 落后跟踪分支几个提交」（见 git.ts）
- *   - 锁的存储：kkk 用 redis 存 UPDATE_LOCK_KEY。这里用进程内变量——锁只需要
- *     防「同一次运行里反复播报」，重启后本就该重新播报一次（用户可能正是重启
- *     后才想知道有没有更新）。少一个外部依赖，也不会在 redis 里留垃圾键。
+ * @description 更新检查：手动指令与定时任务共用的一层
+ * 移植自 kkk 的 kkk-更新检测，保留它三个设计：检查与更新分离（只通知、不自动 git pull，自动更新会在用户不知情时
+ * 改动代码并重启）、版本锁（同一个版本只播报一次）、首次检查延迟（错开启动高峰）。
+ * 判定方式按本仓库改写：git 安装没有发布版本号，所以比「本地 HEAD 落后跟踪分支几个提交」（见 git.ts）。
+ * 注意：播报锁刻意存进程内变量而不是 redis —— 锁只需要防「同一次运行里反复播报」，重启后本就该重新播报一次
+ * （用户可能正是重启后才想知道有没有更新）。这是有意的，别改成持久化。
  */
 import { config } from "@/config"
 import { makeLog } from "@/utils/compat"
@@ -21,13 +12,13 @@ import { renderChangelog } from "@/modules/render/pages"
 import type { YunzaiSendable } from "@/types"
 import { checkUpdate, log, type Commit, type UpdateInfo } from "./git.js"
 
-/** 已播报过的版本标记，值为「本地 HEAD + 远端落后数」 */
+/** @description 已播报过的版本标记，值为「本地 HEAD + 远端落后数」。注意：进程内，重启后重新播报是有意的 */
 let announced = ""
 
-/** 上次真正跑检查的时刻，用于把固定 cron 节流成配置里的间隔 */
+/** @description 上次真正跑检查的时刻，用于把固定 cron 节流成配置里的间隔 */
 let lastRun = 0
 
-/** 纯文本回退：渲染失败或没有 puppeteer 时用 */
+/** @description 纯文本回退：渲染失败或没有 puppeteer 时用 */
 export function changelogText(info: UpdateInfo, local: Commit[] = []): string {
   const commits = info.hasUpdate ? info.commits : local
   const out: string[] = []
@@ -51,11 +42,9 @@ export function changelogText(info: UpdateInfo, local: Commit[] = []): string {
 }
 
 /**
- * 取更新日志的消息（图优先，失败回退文本）
- *
+ * @description 取更新日志的消息（图优先，失败回退文本）
  * @param doFetch 是否先 fetch 远端
- * @returns msg 可直接交给 `reply` / `sendMasterMsg` —— 出图成功是图片段，
- *          失败则是 `changelogText` 的纯文本
+ * @returns msg 可直接交给 `reply` / `sendMasterMsg` —— 出图成功是图片段，失败则是 `changelogText` 的纯文本
  */
 export async function changelogMsg(
   doFetch: boolean,
@@ -64,8 +53,7 @@ export async function changelogMsg(
   // 已最新时列本地提交，让「更新日志」这个指令名字对得上内容
   const local = info.hasUpdate ? [] : await log("", 20)
 
-  // false 表示「还没出图」：render 那条路径出错也返回 false（它把异常收进返回值），
-  // 所以这里用同一个哨兵，最后统一 `msg || 文本` 兜底
+  // false 表示「还没出图」：render 那条路径出错也返回 false（它把异常收进返回值），最后统一 `msg || 文本` 兜底
   let msg: YunzaiSendable | false = false
   try {
     msg = await renderChangelog(info, local)
@@ -76,7 +64,7 @@ export async function changelogMsg(
   return { info, msg: msg || changelogText(info, local) }
 }
 
-/** 跑一次检查，有新提交且开了 notify 就私聊主人 */
+/** @description 跑一次检查，有新提交且开了 notify 就私聊主人 */
 export async function runCheck(): Promise<UpdateInfo> {
   const info = await checkUpdate(true)
 
@@ -117,22 +105,16 @@ export async function runCheck(): Promise<UpdateInfo> {
   return info
 }
 
-/** 进程启动时刻，用来实现「启动后 delay 分钟才做第一次检查」 */
+/** @description 进程启动时刻，用来实现「启动后 delay 分钟才做第一次检查」 */
 const bootAt = Date.now()
 
 /**
- * 定时任务回调，交给本体的 task 机制按 cron 调用
- *
- * 为什么用本体 task 而不是自己 setInterval：
- * 本体 loader 已经用 node-schedule 管定时任务了（lib/plugins/loader.js:537-551），
- * 顺带把开始/结束日志和异常兜底都做了（startTask，同文件 516-534），
- * 并且会计入启动时的「加载定时任务[N个]」——用户能看见它存在。
- * 自己搓 setInterval 就是把这些重写一遍，还会因为 setInterval 不对齐时钟而漂移。
- *
- * 为什么 cron 写死每 5 分钟、间隔在函数里判：
- * collectTask 只在插件实例化时读一次 plugin.task（loader.js:143 + 507-514），
- * cron 字符串之后改不动。所以固定一个高频 tick，真正的节流用 lastRun 比时间差，
- * 这样配置改了间隔无需重启即刻生效。
+ * @description 定时任务回调，交给本体的 task 机制按 cron 调用
+ * 用本体 task 而不是自己 setInterval：本体 loader 已用 node-schedule 管定时任务，顺带做了开始/结束日志与异常
+ * 兜底，还会计入启动时的「加载定时任务[N个]」让用户看见它存在；自己搓 setInterval 要重写这些，还会因不对齐
+ * 时钟而漂移。
+ * 注意：cron 写死每 5 分钟、真正的间隔在函数里判 —— collectTask 只在插件实例化时读一次 plugin.task，
+ * cron 字符串之后改不动，所以固定一个高频 tick、用 lastRun 比时间差，配置改了间隔无需重启即刻生效。
  */
 export async function tick() {
   const conf = config.update_check

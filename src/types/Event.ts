@@ -1,7 +1,5 @@
 /**
- * 云崽事件类型别名
- *
- * 从 @types/trss-yunzai 重导出，供本项目使用。
+ * @description 云崽事件类型别名，从 @types/trss-yunzai 重导出
  * plugin<'message'> 的泛型让 this.e 正确解析，但函数参数仍需显式标注。
  */
 
@@ -37,45 +35,12 @@ export type { CustomEvent }
 /* ============= 适配器入站事件（内部 modules/ 与 utils/ 专用） ============= */
 
 /**
- * 适配器入站事件
- *
- * 为什么不直接用 MessageEvent
- * --------------------------
- * `MessageEvent` 是 `GroupEvent | PrivateEvent` 闭合联合，能表达「群私收窄」
- * 语义但覆盖不了这个插件实际读的字段 —— 适配器内部要同时读：
- *
- *   - notice 事件字段（post_type / notice_type / sub_type / operator_id / target_id）
- *   - QQBot-Plugin 添加的字段（channel_id / isGuild / avatar）
- *   - ICQQ 特有字段（source / member / friend）
- *   - 本插件自己标记的字段（gscore_origin / message_sent）
- *
- * 这些字段 `MessageEvent` 都不含，用它标等于每个读取点都要 `as any`。
- * 用 `any` 标又等于放弃所有类型信息。
- *
- * 这个接口是第三条路：已知字段有类型，其余透传
- * ----------------------------------------------
- * 定义成「联合的公共字段 + 平台自加字段的交集 + 索引签名」：
- *   - `post_type` / `user_id` / `self_id` / `bot` 等 `CustomEvent` 上就有的能读到类型
- *   - `group_id` / `channel_id` / `source` / `avatar` 这些群私事件只有一边有、
- *     或第三方适配器自加的标成可选，读出来是 `T | undefined` 而不是 `any`
- *   - `[k: string]: any` 让平台新加字段不报错、让 `MessageEvent` 能赋值进来
- *     （`Bot.on("message", handler)` 那一路逆变方向也能过）
- *
- * 为什么 `message` 里的段允许 `Readable`、而 `FileLike` 不允许
- * -------------------------------------------------------
- * 两个问题：
- *   1. 段能否**携带** Readable —— 能，`ImageElem.file` 声明是 `string | Buffer | Readable`
- *   2. `toBuffer` 能否**读取** Readable —— 不能，`Bot.Buffer` 把非 Buffer 入参全转字符串
- *
- * `FileLike` 收窄成 `string | Buffer` 是为了答问题 2：声明支持读流会让调用方以为能处理，
- * 实际会静默生成坏图。但 `YunzaiSegment.file` 的问题是 1 不是 2 —— 消息段里**可能带着**
- * 流（其他适配器收到的段、或用户自己传进来的段），我们不能假装它不存在。
- * 对流的处理不是「读」而是「透传」：`toGscore.ts` 里取 `i.url ?? i.file ?? i.fid`，
- * 真是流的话 `toGscoreMedia` 能识别（`toBuffer` 内部判 `Buffer.isBuffer` / `isHttpUrl`，
- * 剩下的都当路径），调用方自己决定要不要先读成 Buffer —— 那才是正确的失败点。
- *
- * 结论：`YunzaiSegment` / `AdapterEvent.message` 里的 `file` / `url` 允许 `Readable`，
- * `FileLike` 不允许。前者描述「段里有什么」，后者描述「`toBuffer` 能读什么」。
+ * @description 适配器入站事件：已知字段有类型，其余透传（`[k: string]: any`）
+ * 不用 `MessageEvent`：那是 `GroupEvent | PrivateEvent` 的闭合联合，不含本插件要读的 notice 字段
+ * （post_type / notice_type / operator_id / target_id）、QQBot-Plugin 自加字段（channel_id / isGuild / avatar）、
+ * ICQQ 特有字段（source / member / friend）与本插件自己的标记（gscore_origin / message_sent），用它等于每个读取点都 `as any`。
+ * 群私事件只有一边有的字段标成可选，读出来是 `T | undefined` 而不是 any；索引签名同时让 `MessageEvent` 能逆变赋值进来。
+ * 注意：`message` 里的段允许 `Readable` 而 {@link import("./Media.js").FileLike} 不允许 —— 前者描述「段里能带什么」（ImageElem.file 确实可能是流），后者描述「toBuffer 能读什么」；流只透传不读，真读的失败点在调用方
  */
 export interface AdapterEvent {
   // ---- 事件元信息（post_type 系，message / notice / request 共有） ----
@@ -136,10 +101,8 @@ export interface AdapterEvent {
 
   // ---- ICQQ 专有字段 ----
   /**
-   * 群成员对象（GroupEvent 有，可调 getAvatarUrl）
-   *
-   * `size` 标成 icqq 的字面量联合而不是 number：标宽了参数逆变方向就对不上，
-   * `MessageEvent` 会赋不进来（icqq.d.ts:1864 / :2204 的签名就是这四个值）。
+   * @description 群成员对象（GroupEvent 有，可调 getAvatarUrl）
+   * 注意：`size` 标成 icqq 的字面量联合而不是 number —— 标宽了参数逆变方向就对不上，`MessageEvent` 会赋不进来（icqq.d.ts:1864 / :2204 的签名就是这四个值）
    */
   member?: { getAvatarUrl?: (size?: 0 | 40 | 100 | 140) => string; [k: string]: any }
   /** 群对象（ICQQ 引用正文回退时可调 getChatHistory） */
@@ -170,10 +133,8 @@ export interface AdapterEvent {
   /** TRSS 获取被引用消息正文与媒体的能力。 */
   getReply?: () => Promise<any>
   /**
-   * QQBot 的被引用消息内容（Yunzai-QQBot-Plugin index.js:1380/1430 挂上）
-   *
-   * QQBot 既没有 source / reply_id，也不产出入站 reply 段，被引用消息只在这里。
-   * 字段结构见 QQBot-Plugin 仓库的 msg_elements.md（作者实测记录）。
+   * @description QQBot 的被引用消息内容（Yunzai-QQBot-Plugin index.js:1380/1430 挂上）
+   * 注意：QQBot 既没有 source / reply_id 也不产出入站 reply 段，被引用消息只在这里；字段结构见 QQBot-Plugin 仓库的 msg_elements.md
    */
   msg_elements?: Array<{
     /** 被引用消息正文，可能含 `<faceType=...>` 与 `[@名字](mqqapi://...)` 标记 */
@@ -225,30 +186,11 @@ export interface AdapterEvent {
 }
 
 /**
- * 云崽消息段（对应 ICQQ 的 MessageElem）
- *
- * 为什么不直接用 MessageElem 联合
- * -------------------------------
- * `@types/trss-yunzai` 里有精确的 `MessageElem`（icqq.d.ts:971，三十来个成员），
- * 但云崽的消息段**实际是开放集**：markdown / button / raw / node 各适配器自造，
- * QQBot-Plugin 还会往段上挂平台字段（qg_ 系）。用闭合联合去标，收到的每个段
- * 都要先 `as any` 才能读，等于把 any 从签名挪到每个使用点。
- *
- * 这里标成「已知字段有类型 + 其余透传」：`i.text` 是 `string | undefined` 而不是 any，
- * 写错字段名（`i.txt`）仍然是 any 而不报错 —— 拿到的是段里确实稳定的那部分，
- * 剩下的诚实地留白。
- *
- * 为什么 file / url 允许 Readable
- * ------------------------------
- * `ImageElem.file` 声明是 `string | Buffer | Readable`（icqq.d.ts:691），
- * 其他适配器收到的段、或用户自己传进来的段可能带流。我们不能假装它不存在。
- * 对流的处理是「透传」而不是「读」：`toGscore.ts` 里取 `i.url ?? i.file ?? i.fid`，
- * `toGscoreMedia` 收到流时会交给 `toBuffer`，后者能识别出「这不是我能读的」
- * 并让调用方自己决定要不要先读成 Buffer —— 那才是正确的失败点。
- *
- * `FileLike` 不含 `Readable` 是另一个问题：它描述的是「`toBuffer` 能读什么」，
- * 而 `Bot.Buffer` 对流做 `String(data)` 会静默产出坏图，所以 `FileLike` 收窄
- * 成 `string | Buffer` 免得声明支持却静默失败。
+ * @description 云崽消息段（对应 ICQQ 的 MessageElem）：已知字段有类型，其余透传
+ * 不用闭合的 `MessageElem` 联合：云崽的消息段实际是开放集（markdown / button / raw / node 各适配器自造，
+ * QQBot-Plugin 还往段上挂 qg_ 系平台字段），用它去标每个段都要先 `as any`，等于把 any 挪到每个使用点。
+ * 注意：`file` / `url` 允许 `Readable`（ImageElem.file 声明就是 `string | Buffer | Readable`），段里确实可能带流；
+ * 流只透传不读，而 {@link import("./Media.js").FileLike} 收窄成 `string | Buffer` 是因为 `Bot.Buffer` 对流做 `String(data)` 会静默产出坏图
  */
 export interface YunzaiSegment {
   type: string

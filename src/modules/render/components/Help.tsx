@@ -1,18 +1,12 @@
 /**
- * 帮助页
- *
- * 结构照 kkk 的 Help.tsx：分组标题（色条 + 巨型标题）→ 双栏条目网格 → 子分组。
- *
- * 图标是同一套 lucide 图形，但拿法不同：kkk 用 lucide-react 组件（它在 devDeps 里，
- * 靠 vite build 把 SVG 打进产物）；我们只有 tsc 转译、不打包，import 会原样留在
- * 产物里变成真的运行时依赖，所以改从 lucide-static 在开发期生成字面量 JSX。
- * 详见 Icons.tsx 与 scripts/gen-icons.mjs。
+ * @description 帮助页：分组标题（色条 + 巨型标题）→ 双栏条目网格 → 子分组，结构照 kkk 的 Help.tsx
+ * 图标见 Icons.tsx。
  */
 import type { Palette } from "../theme.js"
 import { Icon, type IconName } from "./Icons.js"
 import { Footer, Header, Page, Stats } from "./Layout.js"
 
-/** 一条指令 */
+/** @description 一条指令 */
 export interface HelpItem {
   /** 指令本身 */
   cmd: string
@@ -26,7 +20,7 @@ export interface HelpItem {
   master?: boolean
 }
 
-/** 一个分组 */
+/** @description 一个分组 */
 export interface HelpGroup {
   title: string
   items: HelpItem[]
@@ -46,33 +40,11 @@ export interface HelpData {
 }
 
 /**
- * 一张指令卡
- *
- * sub 为真时整体降一档（子分组用）
- * ------------------------------
- * 迁移前这是 CSS 的 `.hp-sub .hp-item{padding:22px 26px}` 一族后代选择器：卡片自己
- * 不知道处境，由祖先改写尺寸。utility 表达不了「祖先是谁」，所以处境改成显式入参。
- *
- * 这样反而更贴合它本来的意思——子分组的条目与主指令卡是不同的东西：cmd 是
- * name / token 这类短标识，dsc 恒为一行，没有 eg 也没有 MASTER 标签。沿用主卡尺寸
- * 有两个具体毛病：60px 的图标框在只有两行内容的卡里显得卡在最上沿（用户反馈过
- * 「子菜单图标还是在最上面」）；36px 的 cmd 配一行 24px 说明，块头与主卡一样大，
- * 读起来分不出主次。
- */
-/**
- * 把指令标题切成若干不可断开的整块
- *
- * 标题里有两种语义单元，断在中间读起来都像坏了：
- *
- * - 指令本身，`#早柚设置私聊上报关闭`。break-keep 只禁掉 CJK 的逐字断点，管不了
- *   `#` 与后面汉字之间——那是「前置标点不能落行尾」的规则给的断点，于是 `#` 独占
- *   一行、指令从第二行才开始（用户反馈的「#独占一行」「全局设置第二行就开始了」）。
- * - `<地址>` / `<名字|序号>` 这类占位符。断点来自「连接」与「<」之间那个空格。
- *
- * 所以按空白切片，每片各自 nowrap，只允许在空白处折行。片内可能仍然超栏宽（真出现
- * 时溢出比劈开更好定位），但现行清单里最长的一片是 `max_reconnect_attempts（retry）`
- * 477px，仍在子卡 502px 的栏宽内。
- *
+ * @description 把指令标题切成若干不可断开的整块，只允许在空白处折行
+ * 标题里有两种断在中间就像坏了的语义单元：指令本身（`#早柚设置私聊上报关闭` —— break-keep 只禁掉 CJK 逐字断点，
+ * 管不了 `#` 与后面汉字之间那个「前置标点不能落行尾」给的断点，于是 `#` 独占一行）、以及 `<地址>` 这类占位符
+ * （断点来自空格）。所以按空白切片，每片各自 nowrap。
+ * 片内可能仍然超栏宽（真出现时溢出比劈开更好定位），但现行清单里最长的一片仍在子卡栏宽内。
  * 返回 string 而非数组的快路径：不含空白的标题就是一整片，不必包 <span>。
  */
 function keepAtoms(cmd: string) {
@@ -89,28 +61,12 @@ function keepAtoms(cmd: string) {
 }
 
 /**
- * 一条指令
- *
- * 两种版式，由 sub 切换：
- *
- *   主条目（sub 未给）  命令与说明左右两栏同行，命令列定宽 380px
- *   子条目（sub）       命令在上、说明在下，外层多列网格排布
- *
- * 为什么不再用卡片
- * --------------
- * 原先每条是「带边框的卡片」，双栏网格排布，长的靠 spanMap 跨两列。问题出在跨列那
- * 些卡：内容只有左边一点，右侧大片空白被边框圈起来。根子不在边框粗细，而在「用框
- * 去撑一个填不满的宽度」。
- *
- * 为什么子条目要换成上下结构
- * ------------------------
- * 参数表那种子分组的 key 是拉丁长串。实测 `max_reconnect_attempts（retry）` 在
- * 28px 下宽 445px、`reconnect_interval（interval）` 391px，都远超子条目原来的
- * 300px 命令列。更糟的是它们**不折行而是直接溢出**压在说明上：break-keep
- * （word-break:keep-all）为了保住中文不逐字断而禁掉了 CJK 断点，而这两个 key 是
- * 「拉丁下划线串 + 全角括号」，下划线不是合法断点、break-words 也没能兜住。
- *
- * 上下结构里 key 占满整列宽，长到 445px 也不挤任何东西，天生没有这个问题。
+ * @description 一条指令。主条目与子条目版式相同（命令在上、说明在下），靠字号区分（32px vs 26px）
+ * 上下结构而不是「命令列定宽 380px + 说明列占满剩余」的左右两栏：后者每行右侧固定空掉约 600px，整页高到
+ * 3140px；上下结构一行能放两条（外层 2 列网格，每列约 626px），而左右两栏做不到两列（336 + 437 已超列宽）。
+ * 子条目尤其需要它：参数表的 key 是拉丁长串（`max_reconnect_attempts（retry）` 28px 下宽 445px），在原来的
+ * 300px 命令列里不折行而是直接溢出压在说明上 —— break-keep 为保住中文禁掉了 CJK 断点，而下划线不是合法断点。
+ * 也不再用带边框的卡片：跨列那些卡内容只有左边一点，右侧大片空白被边框圈起来。
  */
 function Item({
   item,
@@ -133,12 +89,8 @@ function Item({
           <Icon name={item.icon} />
         </div>
         <div className="min-w-0 flex-1">
-          {/*
-           * 这里不能只靠 break-words：长 key 的下划线不是断点，keep-all 又禁了 CJK
-           * 断点。加 [overflow-wrap:anywhere] 兜底 —— 它允许在任意位置断，是溢出的
-           * 最后一道闸。上下结构下整列有 630px，实际不会真断，但参数名再长也不会
-           * 再压到别的内容上。
-           */}
+          {/* 注意：这里不能只靠 break-words —— 长 key 的下划线不是断点，keep-all 又禁了 CJK 断点。
+              加 [overflow-wrap:anywhere] 兜底，它允许在任意位置断，是溢出的最后一道闸 */}
           <div className="text-[26px] font-black leading-[1.3] tracking-[-.01em] break-keep [overflow-wrap:anywhere]">
             {keepAtoms(item.cmd)}
           </div>
@@ -157,58 +109,29 @@ function Item({
 
   return (
     <div className="flex items-start gap-[22px]">
-      {/*
-       * 图标：去掉外框，只留图形本身
-       *
-       * 原来是 60px 的圆角框 + 1px 描边 + 底色。取消边框这件事对它同样成立 ——
-       * 一个框里装一个 30px 图标，框比图标抢眼。现在直接给图形上色。
-       *
-       * pt 是为了让图标的光学中心对齐命令名首行的视觉中线：flex 的 items-start
-       * 对齐的是盒顶，而图标盒（正方形）比文字行盒（含行距）矮，不补这几像素图标
-       * 会顶在标题上沿。数值按字号推：(行高 - 图标高) / 2。
-       */}
+      {/* 图标：去掉外框只留图形本身（一个框里装一个 30px 图标，框比图标抢眼）。
+          pt 让图标的光学中心对齐命令名首行的视觉中线 —— items-start 对齐的是盒顶，而正方形图标盒比含行距的
+          文字行盒矮，不补这几像素图标会顶在标题上沿。数值按字号推：(行高 - 图标高) / 2 */}
       <div className="flex-none pt-[7px] [&>svg]:block [&>svg]:size-[30px]" style={{ color }}>
         <Icon name={item.icon} />
       </div>
 
-      {/*
-       * 命令在上、说明在下 —— 与子条目同一个结构
-       *
-       * 原先是「命令列定宽 380px + 说明列占满剩余」的左右两栏，一条占满整行。
-       * 量过实际占用（temp 下的探针）：说明列有 806px，而说明文字的中位实占只有
-       * 184px、最长 437px —— 每行右侧固定空掉约 600px，整页因此高到 3140px。
-       *
-       * 换成上下结构之后一行能放两条（外层 2 列网格，每列约 626px）：
-       *   命令名最长 336px、说明最长 437px，都在 626px 内放得开
-       * 左右两栏那套做不到两列 —— 336 + 437 已经 773px，超过列宽。
-       *
-       * 主条目与子条目现在版式相同，靠字号区分（32px vs 26px）以及子分组自己的
-       * 标题行。这比「两种版式」更容易读：同一页里只有一种条目形状。
-       */}
+      {/* 命令在上、说明在下 —— 与子条目同一个结构，理由见组件头 */}
       <div className="min-w-0 flex-1">
         <div className="text-[32px] font-black leading-[1.25] tracking-[-.01em]">
-          {/*
-           * break-words + break-keep 的取舍（原注释摘要）：keep-all 禁掉 CJK 的逐字
-           * 断点，免得 `#早柚添加连接 <地址>` 在「址」「>」之间断开、留一个孤零零的
-           * >；拉丁长词仍由 break-words 兜底。keepAtoms 再把 <...> 整块 nowrap。
-           */}
+          {/* break-keep 禁掉 CJK 逐字断点，免得 `#早柚添加连接 <地址>` 在「址」「>」之间断开、留一个孤零零的
+              >；拉丁长词仍由 break-words 兜底，keepAtoms 再把 <...> 整块 nowrap */}
           {keepAtoms(item.cmd)}
         </div>
 
-        {/*
-         * 说明文字的 break-keep：默认 CJK 逐字可断，于是「改完即时生效」被折成
-         * 「…生 / 效」、末行吊单字。keep-all 后断点落在标点与空格上。
-         * break-words 兜底：`media_max_size=2097152` 这类长串仍硬断而非溢出。
-         */}
+        {/* 说明文字的 break-keep：默认 CJK 逐字可断，「改完即时生效」会被折成「…生 / 效」、末行吊单字。
+            break-words 兜底让 `media_max_size=2097152` 这类长串硬断而非溢出 */}
         <div className="mt-[7px] text-[23px] leading-[1.6] break-words break-keep whitespace-pre-line text-muted">
           {item.dsc}
         </div>
 
-        {/*
-         * 混合分组（组里只有部分指令要主人权限）才走到这里。
-         * 放在说明之后而不是命令名下方：上下结构里命令名与说明是连着读的一束，
-         * 中间插一个胶囊会把它们切断。
-         */}
+        {/* 混合分组（组里只有部分指令要主人权限）才走到这里。放在说明之后而不是命令名下方：上下结构里命令名
+            与说明是连着读的一束，中间插一个胶囊会把它们切断 */}
         {badge && (
           <span
             className="mt-[8px] inline-block rounded-[9999px] px-[12px] py-[4px] text-[17px] font-extrabold leading-none tracking-[.08em]"
@@ -218,12 +141,8 @@ function Item({
           </span>
         )}
 
-        {/*
-         * 示例：也去掉了边框，改成极淡底色的一条。break-keep 的理由同上 ——
-         * 示例是「#早柚添加连接 127.0.0.1:8765 name=主核心」这种空格分段的参数串，
-         * 默认可在任意 CJK 字之间断，会把 name=主核心 拆成「name=主 / 核心」。
-         * inline-block（而不是块级）让底色只包住文字，不被拉成整行宽。
-         */}
+        {/* 示例：极淡底色的一条，break-keep 的理由同上（`name=主核心` 不能被拆成「name=主 / 核心」）。
+            inline-block 让底色只包住文字，不被拉成整行宽 */}
         {item.eg && (
           <div className="mt-[10px] inline-block max-w-full rounded-[10px] bg-inset px-[15px] py-[7px] font-mono text-[20px] leading-[1.5] break-words break-keep text-muted">
             {item.eg}
@@ -267,19 +186,9 @@ function Group({
             MASTER
           </span>
         )}
-        {/*
-         * 分组计数
-         *
-         * 原先是「描边胶囊 + 两位补零的灰数字」，孤零零挂在最右端。三个毛病：
-         * 补零让 02 读成「第 2 组」而不是「2 项」；灰色 muted 又弱到不像信息；
-         * 一个空框子里只装两个字符，框比内容抢眼。
-         *
-         * 改成「渐变数字 + 单位」：去掉框与补零，数字承接分组色所在的渐变档，
-         * 后面缀一个 muted 的「项」把语义钉死。位置仍靠 ml-auto 推到右端 ——
-         * 标题长度不一，右对齐才能让四个分组的计数落在同一条竖线上。
-         *
-         * items-baseline：数字 34px、单位 19px，基线对齐才不会看着一高一低。
-         */}
+        {/* 分组计数：渐变数字 + muted 的「项」，不加框也不补零（补零会让 02 读成「第 2 组」而不是「2 项」）。
+            ml-auto 推到右端，标题长度不一时右对齐才能让各组计数落在同一条竖线上；items-baseline 让 34px 的
+            数字与 19px 的单位基线对齐 */}
         <div className="ml-auto flex flex-none items-baseline gap-[8px]">
           <span
             className="font-mono text-[34px] font-black leading-none [font-variant-numeric:tabular-nums]"
@@ -296,37 +205,18 @@ function Group({
         </div>
       </div>
 
-      {/*
-       * 条目区：左侧一条贯通竖线把同组圈住，单列纵向排列
-       *
-       * 双栏网格取消了。原来靠 spanMap 把「显式 wide 的」与「组尾落单的」拉成跨列，
-       * 但跨列卡的右半边填不满，边框一圈就是用户圈出来的那六处空白。单列 + 命令/说明
-       * 两栏（见 Item）之后，宽度由内容自己占满，没有可留白的地方，spanMap 也随之
-       * 删掉。
-       *
-       * 竖线走 border-left 而不是伪元素：这一层是纯静态的块，没有激活态要动，
-       * border 最省事；出图也不存在「激活时文字横跳」那种顾虑（那是文档站的事）。
-       * 颜色取分组色压到 28% —— 满色的一条竖线比标题还抢眼。
-       */}
+      {/* 条目区：左侧一条贯通竖线把同组圈住。竖线走 border-left 而不是伪元素（这层是纯静态块，border 最省事），
+          颜色取分组色压到 28% —— 满色的一条竖线比标题还抢眼 */}
       {group.items.length > 0 && (
         <div
           /*
            * 主条目走多列流式（CSS columns），不是 grid
            *
-           * 先是单列 flex-col：一条占满整行，说明列右侧固定空掉约 600px（实测说明
-           * 文字中位实占 184px、列宽 806px），整页 3140px 高。
-           *
-           * 换 grid 两列之后降到 2956px，但 grid 有个改不掉的毛病：**行高由该行最高
-           * 的那条决定**。这一页里「#早柚添加连接」带三行说明加一条示例，它同行的
-           * 「#早柚重载」只有一行说明，底下就空出约 130px。条目高度参差是这份数据的
-           * 常态（说明 1~3 行、有的带示例），所以 grid 的空档不是个例。
-           *
-           * CSS columns 是流式的：条目按高度自动分配到两栏，栏底自然对齐，没有行的
-           * 概念也就没有行内空档。代价是阅读顺序变成「先读完左栏再读右栏」——
-           * 对指令清单无所谓，它是并列的一堆而不是有序步骤。
-           *
-           * break-inside:avoid 必须给：不给的话一条会被拆到两栏（命令名在左栏底、
-           * 说明跑到右栏顶），那是彻底读不了的。
+           * grid 有个改不掉的毛病：行高由该行最高的那条决定。「#早柚添加连接」带三行说明加一条示例，同行的
+           * 「#早柚重载」只有一行说明，底下就空出约 130px —— 而条目高度参差是这份数据的常态。
+           * CSS columns 是流式的：条目按高度自动分配到两栏、栏底自然对齐。代价是阅读顺序变成「先读完左栏再读
+           * 右栏」，对并列的指令清单无所谓。
+           * 注意：break-inside:avoid 必须给 —— 不给的话一条会被拆到两栏（命令名在左栏底、说明跑到右栏顶）。
            */
           className="[column-count:2] [column-gap:44px] pl-[34px] [&>*]:mb-[30px] [&>*]:[break-inside:avoid]"
           style={{ borderLeft: `2px solid ${color}47` }}
@@ -344,16 +234,7 @@ function Group({
             <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
             {sub.title}
           </div>
-          {/*
-           * 子条目同样走多列流式（理由与主条目那段一致）
-           *
-           * 单列排会让每条只占左边一半、右侧全空。之前用的是 grid 两列，但参数表的
-           * 说明有一行的也有三行的（`bind` 是三行），grid 的行高由该行最高那条决定，
-           * 短的那条底下就空着。CSS columns 按高度流式分配，栏底自然对齐。
-           *
-           * break-inside:avoid 不能省：一条被拆到两栏（key 在左栏底、说明跑右栏顶）
-           * 就彻底读不了了。
-           */}
+          {/* 子条目同样走多列流式，理由与主条目那段一致；break-inside:avoid 同样不能省 */}
           <div
             className="[column-count:2] [column-gap:44px] pl-[30px] [&>*]:mb-[26px] [&>*]:[break-inside:avoid]"
             style={{ borderLeft: `2px solid ${color}2e` }}

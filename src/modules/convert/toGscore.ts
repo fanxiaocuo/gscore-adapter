@@ -1,5 +1,5 @@
 /**
- * 云崽 -> 早柚核心
+ * @description 云崽 -> 早柚核心
  */
 import {
   toGscoreMedia,
@@ -34,7 +34,7 @@ function replyTextValue(value: unknown): string {
   return value
 }
 
-/** 从被引用消息中提取正文，不把 at / media 等上下文误当成当前命令。 */
+/** @description 从被引用消息中提取正文，不把 at / media 等上下文误当成当前命令 */
 function replyText(message: YunzaiMessage): string {
   const list = Array.isArray(message) ? message : [message]
   const parts: string[] = []
@@ -55,9 +55,7 @@ function replyText(message: YunzaiMessage): string {
     if (item.type === "markdown" || item.type === "json") {
       const data = item.data
       const value =
-        typeof data === "object" && data !== null
-          ? (data.content ?? data.text ?? data.data)
-          : data
+        typeof data === "object" && data !== null ? (data.content ?? data.text ?? data.data) : data
       const text = replyTextValue(value)
       if (text) parts.push(text)
     }
@@ -80,11 +78,9 @@ function nodePreview(items: MessageSegment[]): string {
 }
 
 /**
- * node 段的载荷拍平成不含 node 的核心段 —— 协议禁止 node 嵌套（Protocol.ts:97-103）。
- *
- * 刻意**不**把事件传进去（也就没法在这里回查 forward）：节点里若还套着一层转发，
- * 查出来也是个 node 段，而下面正把 node 全丢掉，等于白发一次请求。落到跳过分支
- * 顺带解决了「转发套自己」时无限递归的问题。
+ * @description 把 node 段的载荷拍平成不含 node 的核心段 —— 协议禁止 node 嵌套
+ * 注意：刻意不把事件传进去（也就没法在这里回查 forward）—— 节点里若还套着一层转发，查出来也是个 node 段，
+ * 而这里正把 node 全丢掉，等于白发一次请求。落到跳过分支顺带解决了「转发套自己」时无限递归的问题。
  */
 async function flattenNodes(nodes: any[]): Promise<Exclude<MessageSegment, { type: "node" }>[]> {
   const arr: Exclude<MessageSegment, { type: "node" }>[] = []
@@ -95,10 +91,8 @@ async function flattenNodes(nodes: any[]): Promise<Exclude<MessageSegment, { typ
 }
 
 /**
- * 云崽 message 数组 -> 早柚核心 Message[]
- *
- * @param e 触发事件。只用于合并转发回查（要拿事件上的会话对象与 Bot 做能力探测），
- *          不传就只是取不到转发内容，其余转换不受影响。
+ * @description 云崽 message 数组 -> 早柚核心 Message[]
+ * @param e 触发事件。只用于合并转发回查（要拿事件上的会话对象与 Bot 做能力探测），不传就只是取不到转发内容
  */
 export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise<MessageSegment[]> {
   const list: (string | YunzaiSegment)[] = Array.isArray(msg) ? msg : [msg]
@@ -154,12 +148,9 @@ export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise
 
       case "at": {
         const at = String(i.qq ?? i.id ?? i.user_id)
-        // @全体成员：云崽用 qq:"all" 表示，早柚核心没有这个概念。
-        // 核心 handler.py:754-762 只把 at 分成"等于 bot_self_id"和"其它"两种，
-        // "all" 会落进后者被 append 进 at_list —— 那是一串用户 id，混进字面量
-        // "all" 会被下游当成真实用户：core_pm/__init__.py:36-37 把 at_list
-        // 直接 extend 进封禁参数，handler.py:671 又拿 `not at_list` 当
-        // "没 @ 具体某人"的判据。丢弃它比伪造一个用户 id 安全。
+        // 注意：@全体成员（云崽的 qq:"all"）必须丢弃 —— 核心只把 at 分成「等于 bot_self_id」和「其它」两种，
+        // "all" 会落进后者被 append 进 at_list（一串用户 id），下游把它 extend 进封禁参数、又拿
+        // `not at_list` 当「没 @ 具体某人」的判据。丢弃比伪造一个用户 id 安全
         if (at === "all") break
         out.push({ type: "at", data: at })
         break
@@ -182,25 +173,19 @@ export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise
       }
 
       case "forward": {
-        // Milky 的入站转发段只有 id、没有内容（adapter/Milky.js:853-854），落到下面的
-        // default 会被 toStr 按普通对象 JSON.stringify（utils/compat.ts:65 ->
-        // TRSS lib/util.js:232-248），于是 raw_text 里出现一坨
-        // {"type":"forward","id":"..."}。纯转发时无害，但「ww面板 + 转发」同时发来时，
-        // 核心那些 ^...$ 命令正则就匹配不上了。
+        // Milky 的入站转发段只有 id、没有内容，落到 default 会被 toStr 按普通对象 JSON.stringify，
+        // 于是 raw_text 里出现一坨 {"type":"forward","id":"..."} —— 纯转发时无害，但「ww面板 + 转发」
+        // 同时发来时核心那些 ^...$ 命令正则就匹配不上了
         const nodes = await resolveForwardMessage(String(i.id ?? ""), e)
         if (nodes.length) {
           out.push({ type: "node", data: await flattenNodes(nodes) })
           break
         }
 
-        // 取不到内容时**什么都不上报**，不放 "[合并转发]" 之类的占位。
-        // 权衡点在于占位同样是 text 段，会和命令文本拼进同一个 raw_text：
-        // 「ww面板[合并转发]」对 ^ww面板$ 与「ww面板{"type":...}」是一样的失配 ——
-        // 换一串好看的字节修不掉这个 bug。而转发正文本来就不进 raw_text，
-        // 丢掉它核心并没有少掉可匹配的东西。与 case "at" 丢弃 "all" 同一路数。
-        //
-        // 代价：只有一个转发段的消息会因 content 为空被 yunzaiToGscore 判 false、
-        // 整条不上报。那条消息原先也匹配不上任何命令，少发一帧比污染命令文本划算。
+        // 注意：取不到内容时什么都不上报，不放 "[合并转发]" 之类的占位 —— 占位同样是 text 段，会和命令文本
+        // 拼进同一个 raw_text，对 ^ww面板$ 来说与那坨 JSON 是一样的失配。转发正文本来就不进 raw_text，
+        // 丢掉它核心并没有少掉可匹配的东西（与 case "at" 丢弃 "all" 同一路数）。
+        // 代价：只有一个转发段的消息会因 content 为空被 yunzaiToGscore 判 false、整条不上报。
         makeLog("debug", `合并转发取不到内容，不上报占位：${i.id}`, "GsCore", true)
         break
       }
@@ -217,7 +202,7 @@ export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise
 }
 
 /**
- * 完整 MessageReceive
+ * @description 拼出完整的 MessageReceive
  * @param e     云崽消息事件
  * @param botId 平台标识（resolveBotId 的结果）
  * @param opts  { isMaster, selfId }
@@ -229,18 +214,16 @@ export async function yunzaiToGscore(
 ): Promise<MessageReceive | false> {
   const content: MessageSegment[] = []
 
-  // 先上报当前消息，引用上下文放在末尾，避免 reply/node 影响命令匹配。
-  // 引用 id 与正文是两个不同字段；引用图片和合并转发节点也一并保留。
+  // 先上报当前消息，引用上下文放在末尾，避免 reply/node 影响命令匹配。引用 id 与正文是两个不同字段
   const current = await msgToGscore(e.message || [], e)
   content.push(...current.filter(i => i.type !== "reply" && i.type !== "reply_id"))
 
   const replyId = resolveReplyId(e)
   if (replyId) content.push({ type: "reply_id", data: replyId })
 
-  // 引用正文/媒体与引用 id 是两件事，不能把前者挂在后者上：QQBot 只有 REFIDX
-  // 引用索引（reply.ts 分支 5），核心拿它查不到缓存的图，引用图必须自己作为
-  // image 段上报。用 hasReplyContext 而不是直接 await —— 有 getReply 的适配器
-  // 上那是一次请求，不能对每条消息都白调。
+  // 注意：引用正文/媒体与引用 id 是两件事，不能把前者挂在后者上 —— QQBot 只有 REFIDX 引用索引，核心拿它查不到
+  // 缓存的图，引用图必须自己作为 image 段上报。用 hasReplyContext 而不是直接 await：有 getReply 的适配器上
+  // 那是一次请求，不能对每条消息都白调
   if (hasReplyContext(e)) {
     const quotedMessage = await resolveReplyMessage(e)
     if (quotedMessage.length) {
@@ -288,8 +271,7 @@ export async function yunzaiToGscore(
 
   const data: MessageReceive = {
     bot_id: botId,
-    // 用调用方解析过的 selfId：e.self_id 可能为 null，
-    // String(null) 会把字符串 "null" 发到核心，核心侧再拿它当账号去查就全错了
+    // 用调用方解析过的 selfId：e.self_id 可能为 null，String(null) 会把字符串 "null" 发到核心
     bot_self_id: opts.selfId ?? (e.self_id != null ? String(e.self_id) : ""),
     msg_id: String(e.message_id ?? Date.now().toString(36)),
     user_id: String(e.user_id),
@@ -300,14 +282,12 @@ export async function yunzaiToGscore(
     user_type: "direct",
   }
 
-  // isChannel 而不是 e.isGuild || e.message_type === "guild"：QQBot-Plugin 的
-  // 频道消息把 message_type 标成 group、且不设 isGuild，靠 group_id 的 qg_ 前缀
-  // 才认得出来。判据与理由见 utils/message.ts 的 isChannel。
+  // 用 isChannel 而不是 e.isGuild || e.message_type === "guild"：QQBot-Plugin 的频道消息把 message_type
+  // 标成 group、且不设 isGuild，靠 group_id 的 qg_ 前缀才认得出来
   if (isChannel(e)) {
     data.user_type = "channel"
-    // 保持 qg_ 前缀原样：核心把 group_id 当不透明定位符回传到 MessageSend.target_id，
-    // 而 QQBot-Plugin 的 pickGroup 正是靠这个前缀分派到 pickGuild（index.js:1103）。
-    // 剥掉它下行就 pick 不到频道了。
+    // 注意：保持 qg_ 前缀原样 —— 核心把 group_id 当不透明定位符回传到 MessageSend.target_id，而
+    // QQBot-Plugin 的 pickGroup 正是靠这个前缀分派到 pickGuild，剥掉它下行就 pick 不到频道了
     data.group_id = String(e.group_id ?? e.channel_id)
   } else if (e.message_type === "group" || e.isGroup) {
     data.user_type = "group"

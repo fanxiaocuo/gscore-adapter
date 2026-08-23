@@ -1,10 +1,6 @@
-/**
- * 插件配置类型声明
- *
- * 对应 resources/config/default_config.yaml
- */
+/** @description 插件配置类型声明，对应 resources/config/default_config.yaml */
 
-/** WebSocket 连接配置 */
+/** @description WebSocket 连接配置 */
 export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */
   name?: string
@@ -13,14 +9,8 @@ export interface WsConnection {
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
   /**
-   * 旧字段，上报只读 bot_id_map，不读这里
-   *
-   * 启动时会迁移掉：按 bind 减 exclude 后的每个账号各写一行 bot_id_map（已有账号级
-   * 值优先），再删掉这个字段。编辑这条连接也做同一件事。
-   *
-   * 之所以破例改用户的连接项：这个字段现在**不生效**，留着它就是「配置里写着一个平台、
-   * 实际按另一个上报」，用户从配置里看不出哪儿错了。完整理由见 config/upgrade.ts 的
-   * seedAccountBotIds。关联不到账号（bind 为空或全被 exclude）时保留并告警，不静默丢。
+   * @description 旧字段，上报只读 bot_id_map，不读这里
+   * 注意：启动时会迁移掉（按 bind 减 exclude 给每个账号写一行 bot_id_map，再删掉本字段），读它等于读一份已经不生效的声明 —— 见 config/upgrade.ts 的 seedAccountBotIds
    */
   bot_id?: string
   /** 是否启用本连接 */
@@ -35,19 +25,15 @@ export interface WsConnection {
   exclude?: (string | number)[]
 }
 
-/** 展开到具体账号或兼容路径后的运行时 WebSocket 连接 */
+/** @description 展开到具体账号或兼容路径后的运行时 WebSocket 连接 */
 export interface RuntimeWsConnection extends WsConnection {
   /** 来源逻辑连接在 getWsConnections() 中的下标 */
   sourceIndex: number
   /** 自动端点对应的唯一账号；自定义路径为 null */
   account: string | null
   /**
-   * 稳定身份：规范化后的运行时路由（见 utils/url.ts 的 routeKey）
-   *
-   * 停起、复用、冲突仲裁都按它比，而不是按 {@link runtimeName}。名字会随
-   * 「改名」「删掉前面一条导致 连接 #N 整体位移」变化 —— 按名字比就会把一条
-   * 没动过的连接判成「删掉旧的再起一条新的」，用户那头是一次无谓的断线重连。
-   * 路由才是「连到核心的哪个客户端」这件事本身，改名不影响它。
+   * @description 稳定身份：规范化后的运行时路由（见 utils/url.ts 的 routeKey）
+   * 注意：停起 / 复用 / 冲突仲裁都按它比，不能按 {@link runtimeName} —— 名字会随改名与「删掉前面一条导致序号整体位移」变化，按名字比会把没动过的连接判成删旧起新，用户那头是一次无谓的断线重连
    */
   runtimeKey: string
   /** 日志 / 状态 / 统计用的显示名称。仅用于展示，不做身份 */
@@ -60,12 +46,11 @@ export interface RuntimeWsConnection extends WsConnection {
   automatic: boolean
 }
 
-/** 消息过滤，仅影响 client 方向的上报 */
+/** @description 消息过滤，仅影响 client 方向的上报 */
 export interface FilterConfig {
   /**
-   * 是否上报私聊消息。
+   * @description 是否上报私聊消息
    * 比黑白名单粗一档：想「只让群消息过核心」时不必把所有私聊用户列进黑名单。
-   * 思路取自 xiowo/yunzai-gscore-adapter 的 reportPrivate。
    */
   report_private?: boolean
   /** 是否上报群消息（含频道） */
@@ -89,10 +74,8 @@ export interface FilterConfig {
 }
 
 /**
- * 内置文件服务配置
- *
- * 只在框架没有 Bot.fileToUrl 时才会用到（Miao-Yunzai）；
- * TRSS-Yunzai 有自带文件服务，这一节全部无效。
+ * @description 内置文件服务配置
+ * 注意：只在框架没有 Bot.fileToUrl 时才会用到（Miao-Yunzai），TRSS-Yunzai 自带文件服务，这一节全部无效
  */
 export interface FileServerConfig {
   /** 是否启用，默认 true。关掉则回落到 upload_hook */
@@ -108,11 +91,8 @@ export interface FileServerConfig {
 }
 
 /**
- * 定时更新检查
- *
- * 思路来自 karin-plugin-kkk 的 kkk-更新检测 定时任务，但判定方式不同：
- * kkk 是 npm 包，比的是 registry 上的 semver；本插件是 git 仓库安装，
- * 没有可比的发布版本号，所以比的是「本地 HEAD 落后跟踪分支几个提交」。
+ * @description 定时更新检查
+ * 比的是「本地 HEAD 落后跟踪分支几个提交」而不是 registry 上的 semver —— 本插件是 git 仓库安装，没有可比的发布版本号。
  */
 export interface UpdateCheckConfig {
   /** 是否启用定时检查；关掉后手动指令仍可用 */
@@ -125,11 +105,10 @@ export interface UpdateCheckConfig {
   notify?: boolean
 }
 
-/** 插件配置文件结构（对应 config/default_config/config.yaml） */
+/** @description 插件配置文件结构（对应 config/default_config/config.yaml） */
 export interface Config {
   /**
-   * 是否启用适配器。false 则完全不连早柚核心
-   *
+   * @description 是否启用适配器，false 则完全不连早柚核心
    * 改完即时生效：index.ts 在 onConfigReload 里按这个值热起停连接。
    */
   enable?: boolean
@@ -148,8 +127,8 @@ export interface Config {
   }
   filter?: FilterConfig
   /**
-   * 适配器 id / name / self_id -> 早柚核心 bot_id 的映射，含 default 兜底。
-   * 特殊键 QQGuild 用于 QQ 频道（与 QQ 群共用 adapter.id，只能按事件形状分）。
+   * @description 适配器 id / name / self_id -> 早柚核心 bot_id 的映射，含 default 兜底
+   * 注意：特殊键 QQGuild 用于 QQ 频道 —— 它与 QQ 群共用 adapter.id，只能按事件形状分
    */
   bot_id_map?: Record<string, string>
   /** 媒体转 base64 的大小上限（字节），超限改用 link:// 外链 */
@@ -161,7 +140,7 @@ export interface Config {
   /** 内置文件服务，仅在框架没有 Bot.fileToUrl 时启用 */
   file_server?: FileServerConfig
   /**
-   * 自定义图床模块路径（可选）。默认导出 `(buf, name) => Promise<string>`。
+   * @description 自定义图床模块路径（可选），默认导出 `(buf, name) => Promise<string>`
    * 内置文件服务被关掉或起不来时的后备。
    */
   upload_hook?: string

@@ -1,27 +1,23 @@
 /**
- * 按钮双向转换
- *
- * 云崽用 permission（两个 i）+ link/callback/input 三键，
- * 早柚核心用 permisson（协议原文错拼）+ action/data 两键，两套字段需逐一映射。
+ * @description 按钮双向转换
+ * 云崽用 permission（两个 i）+ link/callback/input 三键，早柚核心用 permisson（协议原文错拼）+ action/data
+ * 两键，两套字段需逐一映射。
  */
 import type { Button, YunzaiButton } from "@/types"
 
 /**
- * 云崽按钮 -> 早柚核心 Button
- * 字段拼写 permisson 为协议原文（非标准拼法），勿改
- *
- * @param b 云崽侧按钮。标 {@link YunzaiButton} 之外还要允许任意对象：
- *          `segment.button()` 收什么都不校验，用户手写的按钮可能只有 `data` +
- *          `action`（早柚形状直接塞进来），下面那条 `b.data != null` 分支正是为它留的
+ * @description 云崽按钮 -> 早柚核心 Button
+ * 注意：字段拼写 permisson 为协议原文（非标准拼法），勿改。
+ * @param b 云崽侧按钮。标 {@link YunzaiButton} 之外还要允许任意对象：`segment.button()` 收什么都不校验，
+ *          用户手写的按钮可能只有 `data` + `action`（早柚形状直接塞进来），`b.data != null` 那条分支为它留的
  * @returns 造不出可用按钮时返回 false（缺 data/link/callback/input 就无从点击）
  */
 export function buttonToGscore(raw: unknown): Button | false {
   if (!raw || typeof raw !== "object") return false
   const b = raw as Partial<YunzaiButton>
 
-  // 分两步：先拼共有字段，再按动作补 action / data。
-  // action 与 data 是必填而这里还给不出，所以先造 Omit 再补齐 —— 直接标成 Button
-  // 会因为缺这两个键报错，而标成 any 就等于放弃后面所有字段名检查
+  // 分两步：先拼共有字段，再按动作补 action / data。先造 Omit 再补齐 —— 直接标成 Button 会因为缺这两个键
+  // 报错，而标成 any 就等于放弃后面所有字段名检查
   const btn: Omit<Button, "action" | "data"> & Partial<Pick<Button, "action" | "data">> = {
     text: b.text ?? "",
     pressed_text: b.clicked_text ?? b.pressed_text ?? null,
@@ -46,9 +42,8 @@ export function buttonToGscore(raw: unknown): Button | false {
     btn.action = 0
   } else if (b.data != null) {
     btn.data = String(b.data)
-    // 早柚形状直接塞进来时 action 已经在 b 上，但那是**用户写的任意数字**，
-    // 协议只认 0/1/2（core segment.py）。不在范围内按 2（发送命令）算 ——
-    // 那是最保守的一档：点了只会往会话里发一句文本，不会跳到意外的链接
+    // 早柚形状直接塞进来时 action 已经在 b 上，但那是用户写的任意数字，协议只认 0/1/2。
+    // 不在范围内按 2（发送命令）算 —— 最保守的一档，点了只会往会话里发一句文本，不会跳到意外的链接
     const a = b.action
     btn.action = a === 0 || a === 1 || a === 2 ? a : 2
   } else return false
@@ -69,10 +64,9 @@ export function buttonToGscore(raw: unknown): Button | false {
 }
 
 /**
- * segment.button(...rows).data -> Button[][]
- *
- * @param square 行 × 列的二维数组。云崽侧不保证形状：单行时可能是一维数组，
- *               单个按钮时可能连数组都不是，所以两层都 `Array.isArray` 兜一次
+ * @description segment.button(...rows).data -> Button[][]
+ * @param square 行 × 列的二维数组。云崽侧不保证形状：单行时可能是一维数组，单个按钮时可能连数组都不是，
+ *               所以两层都 `Array.isArray` 兜一次
  */
 export function buttonsToGscore(square: unknown): Button[][] {
   const rows: Button[][] = []
@@ -88,8 +82,7 @@ export function buttonsToGscore(square: unknown): Button[][] {
 }
 
 /**
- * 早柚核心 buttons -> segment.button(...rows)；扁平列表按每行 2 个切分
- *
+ * @description 早柚核心 buttons -> segment.button(...rows)；扁平列表按每行 2 个切分
  * @returns 一个按钮都造不出来时返回 null（调用方跳过这一段）
  */
 export function buttonsFromGscore(raw: unknown) {

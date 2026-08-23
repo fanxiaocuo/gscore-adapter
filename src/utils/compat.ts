@@ -1,23 +1,12 @@
 /**
- * 框架兼容层
+ * @description 框架兼容层：TRSS 挂在 `Bot` 上的 makeLog / String / Buffer / fileToUrl 在 Miao-Yunzai 全部没有，本模块统一提供垫片
  *
- * TRSS-Yunzai 在 `Bot` 上挂了一批工具方法，Miao-Yunzai **完全没有**——
- * Miao 的 lib/bot.js 是 `class Yunzai extends Client`（ICQQ 的 Client），
- * 只有协议方法，没有这些便利函数。实测缺失清单：
- *
- *   Bot.makeLog / Bot.String / Bot.Buffer / Bot.fileToUrl   —— Miao 全部为 0 处
- *
- * 直接调用会在 Miao 上抛 TypeError，且第一条日志就在插件加载时打出，
- * 等于插件一装即崩。故本模块统一提供垫片。
- *
- * 原则：**按能力探测，不按框架名分支。**
- * 不学 `package.json.name.includes("trss")` 那种判法——同步读盘、依赖 cwd，
- * 且 fork 改名即失效（本仓库目录名就叫 Miao-Yunzai，实际却是 TRSS，正是反例）。
- * 每个方法各自探测，谁缺补谁；将来 Miao 补齐了任何一个，这里自动改用原生实现。
- *
- * 文件内的 `const B: any = globalThis.Bot` 是有意的：探测的正是**类型里没有**
- * 的方法（Miao 上不存在，@types/trss-yunzai 又把 fileToUrl 拼成了 fileToUrll），
- * 标类型只能标成谎话。any 收在每个函数第一行，不外泄到签名上。
+ * Miao 的 lib/bot.js 是 `class Yunzai extends Client`（ICQQ 的 Client），只有协议方法。
+ * 直接调用会抛 TypeError，且第一条日志就在插件加载时打出，等于一装即崩。
+ * 注意：一律**按能力探测，不按框架名分支** —— 目录名由用户随意取（本机就叫 `Yunzai`），package.json 的
+ * name 也是 fork 一改就失效。谁缺补谁，将来 Miao 补齐了任何一个就自动改用原生实现。
+ * 注意：文件内的 `const B: any = globalThis.Bot` 是有意的 —— 探测的正是类型里没有的方法
+ * （@types/trss-yunzai 还把 fileToUrl 拼成了 fileToUrll），标类型只能标成谎话；any 收在函数第一行不外泄。
  */
 import type { FileLike } from "@/types"
 
@@ -31,10 +20,8 @@ const LEVEL_FALLBACK: Record<string, string> = {
 }
 
 /**
- * Bot.makeLog 垫片
- *
- * TRSS 签名：makeLog(level, msg, tag, force)
- * Miao 只有全局 logger，且无 tag 概念——把 tag 拼进消息里保持可读性。
+ * @description Bot.makeLog 垫片，TRSS 签名 `makeLog(level, msg, tag, force)`
+ * Miao 只有全局 logger、无 tag 概念，所以把 tag 拼进消息里保持可读性。
  */
 export function makeLog(level: string, msg: any, tag?: string, force = false) {
   const B: any = globalThis.Bot
@@ -43,7 +30,6 @@ export function makeLog(level: string, msg: any, tag?: string, force = false) {
   const lg: any = globalThis.logger
   if (!lg) return
 
-  // Miao 的 logger 没有 mark/success 等级
   const lv = typeof lg[level] === "function" ? level : LEVEL_FALLBACK[level] || "info"
   const prefix = tag ? `[${tag}]` : ""
 
@@ -55,12 +41,10 @@ export function makeLog(level: string, msg: any, tag?: string, force = false) {
 /* ============================ 字符串化 ============================ */
 
 /**
- * Bot.String 垫片
- *
- * TRSS 的 Bot.String 能把 Error / Buffer / 循环引用对象都转成可读字符串。
- * 垫片行为对齐要点：字符串原样返回（不要加引号），Error 带 stack，
- * 对象走 JSON 且**必须处理循环引用**——事件对象上挂着 e.bot，
- * 不处理会直接抛 TypeError: Converting circular structure to JSON。
+ * @description Bot.String 垫片：把 Error / Buffer / 循环引用对象都转成可读字符串
+ * 对齐要点：字符串原样返回（不加引号），Error 带 stack，对象走 JSON。
+ * 注意：必须处理循环引用 —— 事件对象上挂着 e.bot，不处理会直接抛
+ * TypeError: Converting circular structure to JSON。
  */
 export function toStr(data: any): string {
   const B: any = globalThis.Bot
@@ -90,16 +74,9 @@ export function toStr(data: any): string {
 /* ============================ 文件读取 ============================ */
 
 /**
- * Bot.Buffer 垫片
- *
- * TRSS 的 Bot.Buffer(file, {http, size}) 三路返回：
- *   - Buffer                      —— 读到内容
- *   - http URL 原样               —— opts.http 为真且入参是网址时不下载
- *   - file:// 路径                —— 超过 opts.size 时不读进内存
- *
- * 垫片必须保持这三路语义，否则 media.ts 的分支会走错。
- * 支持的入参形式对齐云崽的 file 字段：Buffer / base64:// / data: /
- * http(s):// / file:// / 裸路径。
+ * @description Bot.Buffer 垫片，保持 TRSS 的三路返回：Buffer / http URL 原样（opts.http 为真时）/ 超过 opts.size 时的 file:// 路径
+ * 注意：这三路语义必须保持，否则 media.ts 的分支会走错。
+ * 入参形式对齐云崽的 file 字段：Buffer / base64:// / data: / http(s):// / file:// / 裸路径。
  */
 export async function toBuffer(
   file: FileLike | null | undefined,
@@ -159,17 +136,10 @@ export async function toBuffer(
 /* ============================ 外链 ============================ */
 
 /**
- * Bot.fileToUrl 垫片
- *
- * TRSS 用自带的文件服务把本地文件转成 http 外链。Miao 没有这个服务，
- * **无法用垫片模拟**——没有 HTTP 服务就没有外链可给。
- *
- * 故此处不伪造，直接抛错，由调用方 catch 后降级（media.ts 会打日志并跳过该段）。
- * 后果：Miao 上超过 media_max_size 的大图/大文件发不出去，小文件走 base64 正常。
- * 这是能力缺失，不是 bug——伪造一个假 URL 只会让核心侧拿到打不开的链接。
- *
- * @types/trss-yunzai 把 fileToUrl 拼成了 fileToUrll（多一个 l），
- * 框架实际方法名见 lib/bot.js:274 —— 以框架源码为准，不迁就上游错拼。
+ * @description Bot.fileToUrl 垫片；Miao 没有文件服务，**无法模拟**，直接抛错让调用方 catch 后降级
+ * 后果：Miao 上超过 media_max_size 的大图/大文件发不出去，小文件走 base64 正常 —— 这是能力缺失不是 bug，
+ * 伪造假 URL 只会让核心侧拿到打不开的链接。
+ * 注意：@types/trss-yunzai 把它拼成了 fileToUrll，以框架源码（lib/bot.js:274）为准，不迁就上游错拼。
  */
 export function fileToUrl(
   file: string,
@@ -183,26 +153,13 @@ export function fileToUrl(
 /* ============================ 转发消息 ============================ */
 
 /**
- * Bot.makeForwardMsg 垫片
+ * @description Bot.makeForwardMsg 垫片，按**返回值形状**而非方法是否存在来分派
  *
- * 这是**唯一一个不能按"方法是否存在"探测**的能力——两个框架都有同名方法，
- * 但语义完全相反，直接调用会在 Miao 上同步抛 TypeError：
- *
- *   TRSS  lib/bot.js:554  makeForwardMsg(msg) { return { type:"node", data:msg } }
- *         纯标记，同步返回，由各适配器在 sendMsg 时自行处理
- *
- *   Miao  **Bot 上没有**（lib/bot.js 里 0 处）。但 `class Yunzai extends Client`，
- *         于是继承到 ICQQ 的 Client.prototype.makeForwardMsg（client.d.ts:227）：
- *           makeForwardMsg(fake, dm=false, nt) {
- *             return (dm ? this.pickFriend : this.pickGroup)(this.uin).makeForwardMsg(fake, nt)
- *           }
- *         —— async、要真的走协议上传、且**从 Bot 上调必然失败**：
- *         `(this.pickGroup)(this.uin)` 丢了 this 绑定，实测同步抛
- *         `TypeError: (intermediate value)(...) is not a function`（icqq client.js:397）。
- *
- * 所以 `typeof Bot.makeForwardMsg === "function"` 在两边都为真，探测不出差别。
- * 这里改按**返回值形状**判定：TRSS 同步返回带 type:"node" 的普通对象，
- * 拿到即用；否则走 target 上的原生 makeForwardMsg（ICQQ 的 Group/Friend 实现）。
+ * 注意：这是唯一不能按「方法是否存在」探测的能力 —— 两边都有同名方法但语义相反。
+ * TRSS（lib/bot.js:554）同步返回 `{ type:"node", data:msg }` 纯标记；Miao 的 Bot 上没有，
+ * 却从 ICQQ Client 继承到一个 async 版本，且从 Bot 上调必然同步抛
+ * `TypeError: (intermediate value)(...) is not a function`（icqq client.js:397，丢了 this 绑定）。
+ * 所以拿到 type:"node" 的同步对象就用它，否则走 target 上的原生实现。
  *
  * @param nodes  [{ message, nickname, user_id }]
  * @param target 已 pick 出的 Group/Friend，Miao 路径必须有它才能上传
@@ -230,8 +187,8 @@ export async function makeForwardMsg(nodes: any[], target?: any): Promise<any> {
 }
 
 /**
- * 当前框架能否制作转发消息。
- * 供自检使用——两边都"有方法"，得按上面的形状规则实际判定。
+ * @description 当前框架能否制作转发消息，供自检使用
+ * 两边都「有方法」，所以按上面那条形状规则实际判定。
  */
 export function forwardMode(): "native" | "target" | "none" {
   const B: any = globalThis.Bot
@@ -250,8 +207,8 @@ export function forwardMode(): "native" | "target" | "none" {
 const REQUIRED = ["makeLog", "String", "Buffer", "fileToUrl"] as const
 
 /**
- * 返回缺失的 Bot 方法名。空数组表示框架能力齐全。
- * 供启动自检使用——静默降级最难排查，缺什么要明说。
+ * @description 返回缺失的 Bot 方法名，空数组表示框架能力齐全
+ * 供启动自检使用 —— 静默降级最难排查，缺什么要明说。
  */
 export function missingBotApis(): string[] {
   const B: any = globalThis.Bot
@@ -259,12 +216,8 @@ export function missingBotApis(): string[] {
 }
 
 /**
- * 启动自检。在 online 之后调用（此时 Bot 已完成扩展，早于此刻检测会误报）。
- *
- * makeLog / String / Buffer 缺失都由本文件垫片补齐，属于"已处理"，
- * 只在 debug 里留痕，免得正常用户看见一堆无需处理的告警。
- *
- * fileToUrl 是唯一无法垫片的能力，会真实影响大文件发送，故单独 warn。
+ * @description 启动自检：垫片能补的只在 debug 留痕，fileToUrl 缺失单独 warn
+ * 注意：必须在 online 之后调用 —— 早于此刻 Bot 还没扩展完，会误报。
  */
 export function checkFrameworkApis(): void {
   const missing = missingBotApis()
