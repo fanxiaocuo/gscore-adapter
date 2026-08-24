@@ -8,6 +8,36 @@ import { FRAME_LOGO, PLUGIN_LOGO, imageDataUri } from "../assets.js"
 import { frameLabel, releaseType } from "../env.js"
 import { textWidth } from "../metrics.js"
 
+/**
+ * @description 液态玻璃卡面：面 + 边 + 厚度三件套，全套卡片共用
+ *
+ * 三件事一起才成立，缺一件就退回「半透明矩形」：
+ *   面    竖向渐变 .52 → .24 的白，上亮下暗是玻璃的体积感来源，底下的鳞片纹理透得上来
+ *   边    两条方向相反的 1px 内阴影代替描边：左上受光边、右下背光边 —— 描边四周同色，
+ *         而玻璃的边随光向一半亮一半暗，圆角处自然过渡（这也是不能用 border 的原因：
+ *         四条边只能同一个颜色）
+ *   厚度  顶部 28px 白色内发光（玻璃体内的漫射）＋ 一层外投影把卡片托起来
+ *
+ * 抽成常量而不是在五处各写一遍那串取值：改一处漏四处，而 classes.test.mjs 查的是
+ * 「类有没有定义」，查不出「五处材质不一致」——那正是这次要修的东西本身。
+ *
+ * 注意：底端停在 .24 而不是更透。按 test/glassink.mjs 实测，.17 那档第一张统计卡的最暗
+ * 单像素是 4.41，差 0.09 掉出正文 4.5；抬到 .24 后是 4.63，看不出画面差别。
+ * 注意：这串取值只在 Layout.tsx 里出现，但 Tailwind 扫的是 components/*.tsx 的正则级候选，
+ * 本文件在扫描范围内，所以别把它挪去 theme.ts 那类不被扫的文件 —— 会静默丢掉这几条规则。
+ */
+export const GLASS =
+  "[background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_1px_1px_0_rgba(255,255,255,.95),inset_-1px_-1px_0_var(--border),inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
+
+/**
+ * @description 无方向性边的玻璃：给自带描边的卡用（目前只有空态卡）
+ * 空态卡的虚线描边是语义标记（「这里本该有东西」），不是材质的边。两者叠在同一像素上会打架：
+ * 左上角是「虚线的 border 色」紧贴「受光白线」，读起来是脏边而不是玻璃。所以那里只取面与厚度，
+ * 边交给虚线本身。
+ */
+export const GLASS_SOFT =
+  "[background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
+
 /** @description 背景装饰层：光斑、压花玻璃、气氛大字、角落点缀 */
 export function Backdrop({
   word,
@@ -184,20 +214,11 @@ export function Stats({
     <div className="mb-[72px] grid [grid-template-columns:repeat(4,1fr)] gap-[24px]">
       {items.map((s, i) => (
         /*
-         * 四张卡等高（grid 默认 stretch），内部三行 flex 竖排；卡面是液态玻璃而不是「实心面 + 深色发丝边」
-         *
-         * 不透的卡片会把底下那片起伏的材质整块盖住 —— 出图里这四张卡明显比周围干净、平滑，是整页唯一不像
-         * 玻璃的东西（帮助页尤其突兀，其余内容全部直接压在背景上）。所以三件事一起改：
-         *   卡面  竖向渐变 .52 → .24 的白，上亮下暗是玻璃的体积感来源，底下的鳞片纹理透得上来
-         *   边    两条方向相反的 1px 内阴影代替描边：左上受光边、右下背光边 —— 描边四周同色，玻璃的边随光向
-         *         一半亮一半暗
-         *   厚度  顶部 28px 白色内发光（玻璃体内的漫射）＋ 一层外投影，让卡片浮起来
-         *
-         * 注意：底端停在 .24 而不是更透。按 test/glassink.mjs 实测，.17 那档第一张卡的最暗单像素是 4.41，
-         * 差 0.09 掉出正文 4.5；抬到 .24 后是 4.63，看不出画面差别。52px 的大数字走大字 3.0 那条线，本来宽裕。
+         * 四张卡等高（grid 默认 stretch），内部三行 flex 竖排；卡面走 {@link GLASS} —— 取值与理由见那里。
+         * 52px 的大数字走大字 3.0 那条线，比 GLASS 上的正文宽裕得多。
          */
         <div
-          className="flex flex-col gap-[10px] rounded-[22px] px-[26px] py-[24px] [background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_1px_1px_0_rgba(255,255,255,.95),inset_-1px_-1px_0_var(--border),inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
+          className={`flex flex-col gap-[10px] rounded-[22px] px-[26px] py-[24px] ${GLASS}`}
           key={i}
         >
           {/* 三行字号 16 / 52 / 18：原先是 19 / 60 / 21，19 与 21 几乎同级、层级读不出来，60 又跳得太远 */}
@@ -268,12 +289,18 @@ export function Section({
 
 /**
  * @description 空态卡：状态页「暂无连接」、更新日志页「已是最新」
- * 虚线描边而不是实线 —— 与两页的实线内容卡区分开，一眼能看出「这里本该有东西」。
+ *
+ * 虚线描边是这张卡的语义标记（「这里本该有东西」），它保留着 —— 但内容卡都迁成玻璃之后，
+ * 从前那句理由（「与实线内容卡区分开」）不再成立了：现在的对照是「虚线 vs 无描边」，
+ * 区分度反而比从前的「虚线 vs 实线」更大。
+ * 卡面走 {@link GLASS_SOFT} 而不是 GLASS：虚线与受光白线叠在同一像素上会读成脏边。
  * whitespace-pre-line 保留说明里的换行（提示文案带 \n 分段）。
  */
 export function Empty({ title, tip }: { title: string; tip: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-[16px] rounded-[32px] border border-dashed border-border bg-surface px-[80px] py-[96px] text-center">
+    <div
+      className={`flex flex-col items-center justify-center gap-[16px] rounded-[32px] border border-dashed border-border px-[80px] py-[96px] text-center ${GLASS_SOFT}`}
+    >
       <div className="text-[44px] font-black leading-[1.2]">{title}</div>
       {/* break-keep：提示里嵌着 #早柚设置适配器开启 这类指令，不能在字间劈开 */}
       <div className="text-[26px] leading-[1.7] whitespace-pre-line break-words break-keep text-muted">

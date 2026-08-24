@@ -8,7 +8,7 @@
  */
 import type { Palette } from "../theme.js"
 import { Icon, type IconName } from "./Icons.js"
-import { Footer, Header, Page } from "./Layout.js"
+import { Footer, GLASS, Header, Page } from "./Layout.js"
 
 /** @description 一项设置 */
 export interface SettingRow {
@@ -102,7 +102,7 @@ function Value({ text }: { text: string }) {
 function Row({ row, color, palette }: { row: SettingRow; color: string; palette: Palette }) {
   return (
     // 整宽单列卡片。刻意不给 items-center：三者各自 self-center 对齐整行中线，文字块自身按内容撑高（说明可能折行）
-    <div className="flex gap-[26px] rounded-[28px] border border-border bg-surface px-[32px] py-[26px]">
+    <div className={`flex gap-[26px] rounded-[28px] px-[32px] py-[26px] ${GLASS}`}>
       <div
         className="grid size-[62px] flex-none place-items-center self-center rounded-[18px] [&>svg]:block [&>svg]:size-[30px]"
         style={{ background: `${color}1f`, color, border: `1px solid ${color}3d` }}

@@ -4,7 +4,7 @@
  */
 import { statusRank } from "@/constants"
 import type { Palette } from "../theme.js"
-import { Empty, Footer, Header, Page, Section, Stats } from "./Layout.js"
+import { Empty, Footer, GLASS, Header, Page, Section, Stats } from "./Layout.js"
 
 /** @description 一条连接的展示数据 */
 export interface ConnRow {
@@ -153,7 +153,7 @@ export function Status(data: StatusData) {
               return (
                 // 刻意不给 items-center：序号、主信息、胶囊三者由各自的 self-center 对齐整行中线
                 <div
-                  className="flex gap-[26px] rounded-[28px] border border-border bg-surface px-[32px] py-[28px]"
+                  className={`flex gap-[26px] rounded-[28px] px-[32px] py-[28px] ${GLASS}`}
                   key={row.index}
                 >
                   {/* self-center 对齐整条连接的垂直中线：卡片行数是变的（带 token / 重连次数时多一行 meta），

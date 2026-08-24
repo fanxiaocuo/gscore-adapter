@@ -5,7 +5,7 @@
  */
 import type { Palette } from "../theme.js"
 import type { Commit } from "@/modules/update/git.js"
-import { Empty, Footer, Header, Notice, Page, Stats } from "./Layout.js"
+import { Empty, Footer, GLASS, Header, Notice, Page, Stats } from "./Layout.js"
 
 export interface ChangelogData {
   title: string
@@ -55,7 +55,7 @@ export function Changelog(data: ChangelogData) {
               // align-items:center 而不是 flex-start：右侧「标题 + 时间」两行、左边短 hash 只有一行，
               // 顶对齐会让 hash 明显偏上
               <div
-                className="flex items-center gap-[28px] rounded-[24px] border border-border bg-surface px-[32px] py-[26px]"
+                className={`flex items-center gap-[28px] rounded-[24px] px-[32px] py-[26px] ${GLASS}`}
                 key={c.hash + i}
               >
                 {/* hash 做成独立胶囊：等宽 + 定宽让标题左边缘对齐成一列，淡底把它和标题分层。
