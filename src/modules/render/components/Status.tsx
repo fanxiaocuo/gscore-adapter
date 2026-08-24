@@ -130,7 +130,7 @@ export function Status(data: StatusData) {
 
   return (
     <>
-      <Page palette={p} word={data.ghost}>
+      <Page word={data.ghost}>
         <Header
           title={data.heading}
           status="GSCORE_ADAPTER"
@@ -151,14 +151,22 @@ export function Status(data: StatusData) {
                 ? shownRuntime(row.runtime, data.compactRuntime)
                 : null
               return (
-                // 刻意不给 items-center：序号、主信息、胶囊三者由各自的 self-center 对齐整行中线
+                // 刻意不给 items-center：序号与胶囊 self-start 钉在标题行（见下），主信息列自己撑高
                 <div
                   className={`flex gap-[26px] rounded-[28px] px-[32px] py-[28px] ${GLASS}`}
                   key={row.index}
                 >
-                  {/* self-center 对齐整条连接的垂直中线：卡片行数是变的（带 token / 重连次数时多一行 meta），
-                      按「名字那一行」硬算负边距的话，三行内容下方块就贴到卡片最上沿、与右侧胶囊也不在一条线上 */}
-                  <div className="w-[60px] flex-none self-center rounded-[14px] border border-border bg-inset py-[16px] text-center font-mono text-[26px] font-extrabold leading-none text-muted">
+                  {/*
+                   * 对齐标题那一行，不是对齐卡片中线
+                   *
+                   * 原先给的是 self-center，理由是「卡片行数是变的，按名字那行硬算负边距会让下方块贴到卡片上沿」。
+                   * 实测这条推理反了：卡片高度差得很大（绑五个号带子行的那张 480px，只有名字加地址的那张 100px），
+                   * self-center 在高卡上把序号推到第三四行的高度 —— 序号标的是这条连接，读者找它时看的是标题，
+                   * 结果它离标题两百多像素远，像一个飘着的、不知道在标什么的数字。
+                   * 序号与状态一律钉在标题行上，无论卡片多高：负边距按 (标题行高 - 自身高) / 2 推，
+                   * 标题是 38px × 1.2 = 45.6 的行盒，本块 16+26+16 = 58 高，所以 -6。
+                   */}
+                  <div className="mt-[-6px] w-[60px] flex-none self-start rounded-[14px] border border-border bg-inset py-[16px] text-center font-mono text-[26px] font-extrabold leading-none text-muted">
                     {String(row.index).padStart(2, "0")}
                   </div>
                   {/* min-w-0 让长 url 在下面 break-all 得以生效，否则 flex 子项不肯收缩 */}
@@ -245,9 +253,18 @@ export function Status(data: StatusData) {
                                   {r.meta.join(" · ")}
                                 </span>
                               )}
+                              {/*
+                               * 常态那几条的状态文字压成 muted，只有异常的才拿语义色
+                               *
+                               * 原先每条都用自己的 tone 上色。五个号里四个绿的「已连接」加一个橙的「断线重连中」，
+                               * 四份饱和绿把唯一那条橙的淹掉了 —— 而这一整块存在的理由就是让人一眼找到出问题的号。
+                               * 左边那颗点仍按 tone 上色，状态信息一个字没少；被降下去的只是常态的嗓门。
+                               * 注意：判据用 status 而不是 tone —— tone 把 warn 与 err 之外的都归成同一类，
+                               * 分不出「已连接」和「已停用」，而后者也不该被压成背景。
+                               */}
                               <span
-                                className="flex-none text-[20px] font-bold leading-none"
-                                style={{ color: rc }}
+                                className={`flex-none text-[20px] font-bold leading-none ${r.status === 1 ? "text-muted" : ""}`}
+                                style={r.status === 1 ? undefined : { color: rc }}
                               >
                                 {r.state}
                               </span>
@@ -281,10 +298,11 @@ export function Status(data: StatusData) {
                   {/*
                    * 状态胶囊：形由 utility 定，色由语义色内联给。
                    * 1f / 3d 是给 hex 补 alpha（约 12% 底、24% 描边），var() 拼不出来。
-                   * self-center 是必须的——父级没有 items-center。
+                   * self-start + 负边距对齐标题行，理由与左侧序号那块相同（见上）：它是这条连接的状态，
+                   * 该与连接名平齐。本块 14+24+14 = 52 高，(45.6 - 52) / 2 ≈ -3。
                    */}
                   <div
-                    className="flex flex-none items-center gap-[11px] self-center rounded-[9999px] px-[22px] py-[14px] text-[24px] font-extrabold leading-none"
+                    className="mt-[-3px] flex flex-none items-center gap-[11px] self-start rounded-[9999px] px-[22px] py-[14px] text-[24px] font-extrabold leading-none"
                     style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
                   >
                     <span

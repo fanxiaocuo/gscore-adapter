@@ -79,8 +79,8 @@ export function About(data: AboutData) {
   return (
     <>
       {/* 大字压在两列摘要区，与帮助/状态页「大字落在列表区」一致。
-          这页不走 <Page>（它自己拼骨架），所以 gloss 要手动透传 */}
-      <Backdrop word="RUNTIME" ghostTop={1000} gloss={data.palette.gloss} />
+          这页不走 <Page>（它自己拼骨架），所以 Backdrop 要手动摆一次 */}
+      <Backdrop word="RUNTIME" ghostTop={1000} />
 
       <div className="relative z-10 p-[72px]">
         {/* 顶部一行小字，取代其他页的巨型 Header——这页的主视觉是版本号 */}

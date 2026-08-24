@@ -1,5 +1,5 @@
 /**
- * @description 画布骨架，对应 kkk 的 DefaultLayout：固定宽画布 + 弥散光 + 压花玻璃 + 角落装饰
+ * @description 画布骨架，对应 kkk 的 DefaultLayout：固定宽画布 + 弥散光 + 絮状调制 + 角落装饰
  * 注意：不做 transform:scale —— 本体 puppeteer 直接截 #container，缩放写进 DOM 会让截图尺寸算错。
  */
 import type { ReactNode } from "react"
@@ -12,7 +12,7 @@ import { textWidth } from "../metrics.js"
  * @description 液态玻璃卡面：面 + 边 + 厚度三件套，全套卡片共用
  *
  * 三件事一起才成立，缺一件就退回「半透明矩形」：
- *   面    竖向渐变 .52 → .24 的白，上亮下暗是玻璃的体积感来源，底下的鳞片纹理透得上来
+ *   面    竖向渐变 .52 → .24 的白，上亮下暗是玻璃的体积感来源，底下的弥散光透得上来
  *   边    两条方向相反的 1px 内阴影代替描边：左上受光边、右下背光边 —— 描边四周同色，
  *         而玻璃的边随光向一半亮一半暗，圆角处自然过渡（这也是不能用 border 的原因：
  *         四条边只能同一个颜色）
@@ -38,24 +38,18 @@ export const GLASS =
 export const GLASS_SOFT =
   "[background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
 
-/** @description 背景装饰层：光斑、压花玻璃、气氛大字、角落点缀 */
-export function Backdrop({
-  word,
-  ghostTop,
-  gloss,
-}: {
-  word: string
-  ghostTop?: number
-  /** 压花高光的强度与混合方式，深浅两套不同 —— 见 theme.ts 的 Palette.gloss */
-  gloss: Palette["gloss"]
-}) {
+/** @description 背景装饰层：弥散光、絮状调制、暗角、气氛大字、角落点缀 */
+export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }) {
   return (
     <>
       {/*
-       * 弥散渐变：五团大色斑互相咬合
+       * 弥散光：五团大色斑互相咬合
        *
        * 三团各自成形、能数出「三个光球」；提到五团并把半径放大到超出画布（负边距 + 超宽高），团边落在画布外，
        * 看到的只有中段过渡。尺寸/位置/旋转刻意各不相同：等距等大的斑会形成可辨的节奏，反而像图案。
+       *
+       * 这一层现在是画面的主体。压花高光去掉之后，「不显廉价」不再有纹理兜着，全靠色相跨度 + 下面那层絮状
+       * 调制 + 暗角三件事撑 —— 取值与理由见 theme.ts 的 glow。
        *
        * 注意：别给这几团加回 CSS 模糊。本体用 --disable-gpu 起 Chromium，模糊全走 CPU 且滤镜区域要按 3σ 外扩，
        * 五团约 5000 万像素 —— 实测帮助页有模糊 5090ms、无模糊 1530ms，而整页逐像素比对平均只差 1.93/255、
@@ -72,87 +66,51 @@ export function Backdrop({
         <div className="absolute top-[-160px] right-[-200px] h-[1020px] w-[1180px] rounded-[9999px] [transform:rotate(-26deg)] [background:radial-gradient(ellipse_at_54%_44%,var(--glow-5)_0%,transparent_74%)]" />
       </div>
 
-      {/* 关于噪点频率的教训（这层平铺颗粒已被下面的压花玻璃取代）：feTurbulence 的 baseFrequency 是 jpeg
-          体积的主因，透明度只改对比度。0.8 配 discrete 硬二值化时，帮助页光噪点就要吃掉 1.4MB。 */}
       {/*
-       * 压花玻璃：折射 + 镜面高光，取代原来那层平铺噪点
+       * 絮状调制：极低频的一层，专治「纯渐变像塑料」
        *
-       * 颗粒能去掉「大片纯渐变显廉价」，但它是平的 —— 画面仍读作「一张有噪点的渐变图」。参考图（浴室压花玻璃）
-       * 的质感来自两件缺一不可的事：折射（底下的色斑被起伏推歪）与高光（朝光坡面反白的短促鳞片）。
-       * 尺度是关键，试了三轮才对：baseFrequency 0.3 时周期只有 3px，渲出来是砂纸不是压花；参考图的起伏周期在
-       * 10~30px，对应折射 0.02、高光 0.1。高光还要再乘一张大尺度噪声当 mask（bf 0.008，周期约 125px）——
-       * 鳞片要有疏有密，均匀铺满就成了磨砂玻璃，那是另一种材质。
+       * 换掉压花鳞片的关键在**频率**，不在有没有噪声。旧的那层是 baseFrequency 0.1（周期约 10px）配
+       * feSpecularLighting，1~2px 的锐白点和字的笔画抢像素，读作雪花；而 jpeg 的 DCT 最压不动的正是
+       * 中间调 + 高频锐噪，所以它一个人吃掉七八成体积。
        *
-       * 注意：mask 必须和它的使用者在同一个 <svg> 里。filter 的 region 相对被应用元素算，所以 #refract 放在
-       * 0×0 的 svg 里跨引用没问题；mask 不一样 —— 它内容里的 100% 相对所在 svg 视口，放进 0×0 的 svg 就等于 0，
-       * 整个高光层会被遮光遮掉（踩过一次：DOM 与 filter 全都在，屏幕上什么都没有）。
-       * 同理 rect 用绝对高度而不是 100%：页面高度由内容决定，svg 拿不到确定参照。
+       * 这里只留 0.009（周期约 110px）的 fractalNoise，不加镜面光照。出来是大块柔和的明暗起伏，
+       * 肉眼不成形、也不与字争，只把纯渐变那种塑料感压掉。低频对 DCT 友好，几乎不涨体积。
+       *
+       * feColorMatrix 把亮度搬进 alpha 并压到很低（0.16 的斜率 + 负偏置），于是只有噪声的亮处留下
+       * 一点提亮，暗处直接透明 —— 这样它永远只提亮、不压暗，不会吃掉正文对比度。
+       *
+       * 注意：opacity 别往上抬。这层的作用是「让人说不出哪里不平」，一旦看得出颗粒就又回到旧问题了。
        */}
-      <div className="pointer-events-none absolute inset-0 z-0">
+      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.5] [mix-blend-mode:soft-light]">
         <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <filter id="gm" x="0%" y="0%" width="100%" height="100%">
+            <filter id="fl" x="0%" y="0%" width="100%" height="100%">
               <feTurbulence
                 type="fractalNoise"
-                baseFrequency="0.008"
-                numOctaves={2}
-                seed={21}
+                baseFrequency="0.009"
+                numOctaves={3}
+                seed={17}
                 result="n"
               />
-              {/* 把噪声的亮度搬进 alpha：亮处高光留、暗处高光被吃掉 */}
-              <feColorMatrix in="n" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0.9 0.9 0.9 0 -0.25" />
+              <feColorMatrix in="n" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  .16 .16 .16 0 -.04" />
             </filter>
-            <filter id="gl" x="0%" y="0%" width="100%" height="100%">
-              {/* type=turbulence 而不是 fractalNoise：前者的短促笔画更像压花的鳞片 */}
-              <feTurbulence
-                type="turbulence"
-                baseFrequency="0.1"
-                numOctaves={2}
-                seed={9}
-                result="n"
-              />
-              <feSpecularLighting
-                in="n"
-                lightingColor="#fff"
-                surfaceScale={4.4}
-                specularConstant={1.5}
-                specularExponent={15}
-                result="s"
-              >
-                <feDistantLight azimuth={228} elevation={54} />
-              </feSpecularLighting>
-              {/*
-               * 只留高光自己的 alpha，否则滤镜区域会带一层黑底。
-               *
-               * 这里刻意不接 feGaussianBlur
-               * -----------------------
-               * 出图是 jpeg，这层锐利噪声确实贵（help-dark 从 495KB 涨到约 900KB）。
-               * 试过三档省体积的改法，全部否掉：
-               *
-               *   bf 0.1→0.05 + blur 0.85   646KB  鳞片被拉成脑珊瑚那样的虫状纹
-               *   bf 0.1→0.07 + blur 0.55   900KB  介于两者之间，仍偏糊
-               *   1 octave                  ——    细节层没了，只剩一层大波浪
-               *
-               * 结论：blur 与降频率省下的体积，直接换掉了这层要的东西。压花玻璃的
-               * 鳞片必须是锐的，糊了就成磨砂玻璃 —— 那是另一种材质。参数照
-               * temp/proto/glass-test3.html 的 Q 档（实测选定的那组）原样落地。
-               */}
-              <feComposite in="s" in2="s" operator="in" />
-            </filter>
-            <mask id="gmask">
-              <rect width="1440" height="6000" filter="url(#gm)" />
-            </mask>
           </defs>
-          <g mask="url(#gmask)">
-            <rect
-              width="1440"
-              height="6000"
-              filter="url(#gl)"
-              style={{ mixBlendMode: gloss.blend, opacity: gloss.opacity }}
-            />
-          </g>
+          {/* rect 用绝对高度而不是 100%：页面高度由内容决定，svg 拿不到确定参照 */}
+          <rect width="1440" height="6000" filter="url(#fl)" />
         </svg>
       </div>
+
+      {/*
+       * 暗角：把视线收进画面
+       *
+       * 五团色斑铺满整幅之后四角最容易发飘 —— 尤其近白的那套，边缘几乎与页面外的白融在一起，
+       * 画面没有边。一道很轻的径向暗角给它收个口。
+       *
+       * 注意：用 --fg 而不是写死黑。COOL 的前景是 #0f1720（偏蓝），纯黑压在银灰底上会显脏。
+       * 注意：第一版给的是 58% + .055，四角根本没收住 —— 起点太靠外、浓度也太淡。现在 42% 起收、
+       * .085 收尾，画面才有边。再往内会压到统计条那一带的正文，inkprobe 会先报出来。
+       */}
+      <div className="pointer-events-none absolute inset-0 z-0 opacity-[.085] [background:radial-gradient(ellipse_at_50%_40%,transparent_42%,var(--fg)_100%)]" />
 
       {/*
        * 竖排气氛大字
@@ -188,9 +146,14 @@ export function Backdrop({
           <i key={w} className="h-[4px] bg-fg" style={{ width: w }} />
         ))}
       </div>
-      {/* 左下斜纹：45° 重复渐变，5px 实线接 5px 透明（transparent 的两个位置故意是
-          2px 与 10px，不是等分——渐变在 5→2 之间反向，产生一道柔边） */}
-      <div className="absolute bottom-0 left-0 z-0 h-[400px] w-[520px] opacity-[.04] [background:repeating-linear-gradient(45deg,var(--fg),var(--fg)_5px,transparent_2px,transparent_10px)]" />
+      {/*
+       * 左下角落：一团很淡的辉光，不再是 45° 斜纹
+       *
+       * 那条斜纹是压花时代的遗物：那时满屏鳞片，一块 5px 周期的规则纹理混在里面看不出来。背景一干净，
+       * 它就成了整幅唯一一块「机器画的几何」，而且只在左下角、右边没有对称物，读作画错了地方。
+       * 换成同色系的一团辉光：仍然给左下角一点分量（不然那片空得发虚），但它与五团色斑是同一种语言。
+       */}
+      <div className="pointer-events-none absolute bottom-[-220px] left-[-180px] z-0 h-[720px] w-[860px] rounded-[9999px] opacity-[.5] [background:radial-gradient(ellipse_at_46%_54%,var(--glow-2)_0%,transparent_70%)]" />
     </>
   )
 }
@@ -561,15 +524,17 @@ export function Footer({
   )
 }
 
-/** @description 一整页 */
+/**
+ * @description 一整页
+ * 注意：不收 palette。骨架曾经要读它给压花高光按主题分档，换成弥散渐变之后背景的颜色全部走 cssVars 下发的
+ * 自定义属性，骨架本身不再碰任何字面量色值。别为了「以后可能要用」把这个 prop 加回来 —— 一个什么都不做的
+ * prop 会让下一个人以为骨架的外观能按调色板变。
+ */
 export function Page({
-  // 骨架真的要读调色板：压花玻璃的高光强度必须按主题分档（深底上 screen 混合等于叠纯白，出来是一屏雪花）
-  palette,
   word,
   ghostTop,
   children,
 }: {
-  palette: Palette
   word: string
   /** 气氛大字的起点，默认见 styles/backdrop.ts 的 .ghost */
   ghostTop?: number
@@ -577,7 +542,7 @@ export function Page({
 }) {
   return (
     <>
-      <Backdrop word={word} ghostTop={ghostTop} gloss={palette.gloss} />
+      <Backdrop word={word} ghostTop={ghostTop} />
       <div className="relative z-10 p-[72px]">{children}</div>
     </>
   )

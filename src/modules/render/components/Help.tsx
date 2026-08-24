@@ -205,8 +205,10 @@ function Group({
         </div>
       </div>
 
-      {/* 条目区：左侧一条贯通竖线把同组圈住。竖线走 border-left 而不是伪元素（这层是纯静态块，border 最省事），
-          颜色取分组色压到 28% —— 满色的一条竖线比标题还抢眼 */}
+      {/* 条目区：只靠缩进归组，不再画竖线。
+          pl 的值不是随手给的 —— 标题那行是「12px 色条 + 24px 间距」，34px 让条目文字正对标题首字，
+          缩进本身就说清了从属关系。原先还有一条贯通的分组色竖线，去掉了：一页三四组就是三四条竖线，
+          而它标的是缩进已经标过的同一件事，重复的分隔线只会把版面切碎 */}
       {group.items.length > 0 && (
         <div
           /*
@@ -219,7 +221,6 @@ function Group({
            * 注意：break-inside:avoid 必须给 —— 不给的话一条会被拆到两栏（命令名在左栏底、说明跑到右栏顶）。
            */
           className="[column-count:2] [column-gap:44px] pl-[34px] [&>*]:mb-[30px] [&>*]:[break-inside:avoid]"
-          style={{ borderLeft: `2px solid ${color}47` }}
         >
           {group.items.map((it, i) => (
             <Item key={i} item={it} color={color} badge={!allMaster && it.master} />
@@ -234,11 +235,9 @@ function Group({
             <span className="size-[10px] flex-none rounded-[9999px] bg-fg" />
             {sub.title}
           </div>
-          {/* 子条目同样走多列流式，理由与主条目那段一致；break-inside:avoid 同样不能省 */}
-          <div
-            className="[column-count:2] [column-gap:44px] pl-[30px] [&>*]:mb-[26px] [&>*]:[break-inside:avoid]"
-            style={{ borderLeft: `2px solid ${color}2e` }}
-          >
+          {/* 子条目同样走多列流式，理由与主条目那段一致；break-inside:avoid 同样不能省。
+              竖线一并去掉了 —— 子分组这条比主分组那条更淡（2e vs 47），淡到几乎看不见还占着一列缩进 */}
+          <div className="[column-count:2] [column-gap:44px] pl-[30px] [&>*]:mb-[26px] [&>*]:[break-inside:avoid]">
             {sub.items.map((it, j) => (
               <Item key={j} item={it} color={color} sub />
             ))}
@@ -254,7 +253,7 @@ export function Help(data: HelpData) {
 
   return (
     <>
-      <Page palette={data.palette} word="COMMANDS">
+      <Page word="COMMANDS">
         <Header
           title="COMMANDS"
           status="GSCORE_ADAPTER"
