@@ -142,6 +142,26 @@ file_server:
   # 取走即删。核心拿到内容后立刻释放，缩小外链被重放的窗口
   # 若核心侧会重复拉取同一链接，改为 false
   once: true
+  # 图床转接口的凭据 —— 同机部署留空即可，不用填
+  #
+  # 干什么用：早柚核心生成 markdown 时要先把图传到「自定义图床 API」，而 ImageBed-Plugin 只提供
+  # 进程内的 Bot.imageToUrl()，核心那个独立的 Python 进程调不到。本插件因此挂一个转接口，
+  # 把 imageToUrl 包成核心要的响应形状（数组 + image_info_array.url，核心那边形状错了会直接抛）。
+  #
+  # 挂在哪：优先挂到本体的 Bot.express 上，复用它那个已经在跑的端口（config/bot.yaml 的 port，
+  # 默认 2536），所以本节的 port 是不是 0（随机）都不影响。只有 Miao 那种没有 Bot.express 的
+  # 框架才回落到本节的文件服务，那时才必须把 port 固定成非 0。路径恒为 /gscore/imagebed。
+  #
+  # 在早柚核心 pic_upload_config.json 里填：
+  #   PicUploader   = custom
+  #   custom_url    = http://127.0.0.1:2536/gscore/imagebed
+  #   custom_header = {}        ← 必须是合法 JSON，留空串会让核心在 import 期就抛 JSONDecodeError
+  #
+  # 访问控制：本机来源（127.0.0.1）免凭据 —— 能连上环回口的人已经在这台机器上了，口令挡不住谁。
+  # 核心跨机（Docker / 另一台机器）时才需要在这里配口令，并把地址写成 …/gscore/imagebed?token=<口令>。
+  # 注意：不配口令时非本机来源一律拒绝。别改成无条件放行 —— 本体的 serverAuth 在没配
+  # cfg.server.auth 时是完全放行的，挡不住任何人，这个接口的访问控制只能靠它自己。
+  imagebed_token: ""
 
 # 自定义图床（可选），内置文件服务的后备：
 #   关掉 file_server、或端口起不来时才会用到；
