@@ -15,7 +15,7 @@ import { inlineToken, redactUrl } from "@/utils/url.js"
 import { forName, snapshot } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import { Help } from "./components/Help.js"
-import { Status, type ConnRow, type StatusPanel } from "./components/Status.js"
+import { Status, type ConnAccount, type ConnRow, type StatusPanel } from "./components/Status.js"
 import { Settings, type SettingFacts, type SettingGroup } from "./components/Settings.js"
 import { Changelog } from "./components/Changelog.js"
 import { About } from "./components/About.js"
@@ -85,15 +85,12 @@ function sumCounters(names: string[]): { up: number; down: number } {
 }
 
 /**
- * @description 一条账号级运行时连接的子行
- * 不接「逻辑连接是否启用」：子行只由 expandConnections 的产物生成，而它对 `enable === false` 的行直接
+ * @description 一个 bind 账号那条 ws 的运行时状态
+ * 不接「逻辑连接是否启用」：只由 expandConnections 的产物生成，而它对 `enable === false` 的行直接
  * return，所以走到这里的一定是启用的（曾经带过这个参数并写了「已停用」分支，那个分支永远走不到）。
  * @param detail 与 {@link collect} 同义：只有 #早柚状态 才把收发计数摆进来
  */
-function runtimeRow(
-  rt: RuntimeWsConnection,
-  detail: boolean,
-): NonNullable<ConnRow["runtime"]>[number] {
+function runtimeRow(rt: RuntimeWsConnection, detail: boolean): NonNullable<ConnAccount["rt"]> {
   // 注意：认人按 runtimeKey，取数按 runtimeName —— 与 Web 面板同一套口径。名字会随改名与下标位移变而收敛器
   // 把客户端原地留着，按名字找会在改名那一瞬把一条连着的连接印成「未启动」；而计数的分桶键就是运行时名字，
   // 换成 runtimeKey 取不到桶、恒为 ↑0 ↓0
@@ -103,26 +100,28 @@ function runtimeRow(
   const meta: string[] = []
   // 措辞与主行的聚合值同一套：两处指的是同一个数，一处写「重连 N 次」一处写「已重连 N 次」会让人以为是两种计量
   if (live?.retry) meta.push(`已重连 ${live.retry} 次`)
+  // 心跳不进这里 —— 各账号的值在实践中一模一样（同一个 ping 周期），逐行印一遍等于把同一句话说 N 遍。
+  // 卡片层给一个「最差」的（见 collect），那个值才有诊断意义
   if (detail) {
     const n = sumCounters([rt.runtimeName])
     meta.push(`↑${n.up} ↓${n.down}`)
-    // 与主行同一条判据：不发 ping 时 lastPong 停在建连那一刻，显示出来会被误读成「卡了很久」
-    if (status === 1 && live?.lastPong && Number(config.client?.heartbeat) > 0)
-      meta.push(`心跳 ${Math.round((Date.now() - live.lastPong) / 1000)}s 前`)
   }
 
   return {
-    // 显示账号而不是 runtimeName：后者是 `${连接名} [${账号}]`，连接名就在卡片顶上那一行，每条子行再重复
-    // 一遍只会把这一列撑宽。兼容连接（account 为 null）只派生一条、走不到子行，回退只为不出现空名字
-    name: rt.account || rt.runtimeName,
-    // 注意：只取 pathname，不取整串 —— 这张图会发进群里，哪天上游又把鉴权参数放回地址，它就直接印在截图上。
-    // 更不能用 client.target / client.url，后者的 getter 会把 token 拼进查询串
-    path: new URL(rt.runtimeUrl).pathname || "/",
     // 组件折叠子行时要按状态挑，光给文案和色调排不出名次
     status,
-    // 没有「已停用」这一档：子行只由启用的连接派生（见函数头），那条分支永远走不到
+    // 没有「已停用」这一档：只由启用的连接派生（见函数头），那条分支永远走不到
     state: live ? STATUS_TEXT[status] : "未启动",
     tone: tone(status),
+    /*
+     * 不给路径
+     *
+     * 自动派生的路径恒为 `/ws/Yunzai-<账号>`，而账号就印在同一行的左边 —— 信息量是零，却占掉一整列。
+     * 那自定义路径呢？走不到这里：自定义路径的连接恒只派生一条 ws（expand.ts 的 automatic:false 那支），
+     * 而本函数只在派生出多条时才被调用，所以进到这里的 rt.automatic 永远是 true。曾经写过一个
+     * `rt.automatic ? undefined : pathname` 的三元，那个 else 分支永远走不到。
+     * 信息也没丢：自定义路径的连接，路径本来就印在卡片 URL 那一行（shownUrl 保留 pathname）。
+     */
     meta,
   }
 }
@@ -182,25 +181,49 @@ function collect(detail = false) {
     // 内联在地址里的凭据也算配过（那种配置的 c.token 是空的）：只看 c.token 的话，排查时这张图会对一条其实
     // 配了凭据的连接说「没设 token」，把人引向错误方向
     if (c.token || inlineToken(c.url) !== null) meta.push("token 已设置")
-    if (retry) meta.push(`已重连 ${retry} 次`)
-    // bind 账号带上档案（头像/昵称）渲染成胶囊：多 Bot 排查「消息为什么没进核心」第一个要看的就是这条连接
-    // 绑了谁，头像比一串号好认。离线账号 botProfile 会按号回退 qlogo，仍有图有名。
-    // 注意：铺的是 readIds 归一化之后的 bind，与子行同一个来源 —— 直接铺 c.bind 的话 `[111, 111, 222]` 会出
-    // 三个胶囊却只有两条子行，而重复项还会让两个胶囊撞上同一个 React key。
-    // 被 exclude 的号仍然出胶囊、另外标一下：它确实绑了只是不会连，藏掉反而看不出配置写矛盾了
+
+    /*
+     * bind 账号与它那条 ws 合成一层：一个账号一行
+     *
+     * 从前是两块平行的东西 —— 一排 bind 头像胶囊，底下再一块 runtime 子行，两者枚举的是同一份账号。
+     * 后果是同一个账号号码在一张卡里出现三次（胶囊、子行行首、子行路径尾巴），心跳与收发计数各出现三次
+     * （两条子行 + 卡片聚合），而读者还得在两块之间对着看才知道「这个胶囊对应哪条 ws」。合成一层之后
+     * 账号只出现一次，每行自带自己的状态与计数。
+     * 注意：铺的是 readIds 归一化之后的 bind，不是 c.bind —— 后者 `[111, 111, 222]` 会出三行却只有两条
+     * ws，重复项还会让两行撞上同一个 React key。
+     * 注意：被 exclude 挡掉的号仍然出一行、只是没有 rt（它确实绑了，只是不会连）。藏掉反而看不出配置写
+     * 矛盾了，而 meta 里那个光秃秃的 `exclude: 1` 说不出是哪个号。
+     */
     const excluded = new Set(effectiveAccounts(c).conflicts)
     const bound = readIds(c.bind)
-    const bots = bound.length
+    // 只派生一条时不给 rt：卡片右侧那个胶囊就是它的状态，逐行再印一遍只是噪音。比面板严格是因为画布固定、
+    // 没有交互 —— 既点不开，也没有滚动条能往下翻
+    const perAccount = views.length > 1
+    const byAccount = new Map(views.map(r => [r.account, r] as const))
+    const accounts: ConnAccount[] | undefined = bound.length
       ? bound.map(id => {
-          const p = profileWithPlatform(id)
-          return excluded.has(id) ? { ...p, excluded: true } : p
+          const base = profileWithPlatform(id)
+          if (excluded.has(id)) return { ...base, excluded: true }
+          const rt = perAccount ? byAccount.get(id) : undefined
+          return rt ? { ...base, rt: runtimeRow(rt, detail) } : base
         })
       : undefined
-    if (c.exclude?.length) meta.push(`exclude: ${c.exclude.length}`)
+    /*
+     * exclude 只在账号行说不出来的时候才由 meta 说
+     *
+     * 从前无条件给一个 `exclude: N` 胶囊，理由是「胶囊排看不出是哪个号被挡了」。合成一层之后被挡的那个号
+     * 自己那一行就写着「已排除」，这个胶囊成了同一件事的第二遍。
+     * 但 exclude 里写的号可能与 bind 不相交（写了却挡不到任何东西）—— 那种情况账号行里一个「已排除」都不会
+     * 出现，胶囊是唯一的线索，所以那时仍然给。
+     */
+    if (c.exclude?.length && !accounts?.some(a => a.excluded))
+      meta.push(`exclude: ${c.exclude.length}`)
+    // 逐账号那几行各自带着准确的重连次数，卡片这一层就不再说；没有逐账号行时才由卡片给「有账号在挣扎」
+    if (retry && !accounts?.some(a => a.rt)) meta.push(`已重连 ${retry} 次`)
 
     // 一条都没有时补一句「怎么办」：默认配置那种连接 meta 是空数组，卡片只剩名字和地址两行，右边一大片空，
     // 而这种卡片恰好最需要一句提示。有内容时不加 —— 那句话对已经连上的连接没有意义，只会挤占位置
-    if (meta.length === 0 && !bots) {
+    if (meta.length === 0 && !accounts) {
       if (!enabled) meta.push(`用 #早柚启用连接 ${c.name || i + 1} 恢复`)
       else if (!live.length) meta.push("尚未建立连接，可用 #早柚重载 重试")
       else meta.push("未配置 token / bind / exclude，按默认规则中转")
@@ -208,15 +231,23 @@ function collect(detail = false) {
 
     if (detail) {
       // 一条运行时连接都没有时用「本该有」的那些名字（见上面的 wouldBe）：停用的行取不到活着的运行时名字，
-      // 但它转过的量确实记在那些名字下。两者互斥地取，不会重复累加
-      const n = sumCounters(views.length ? views.map(r => r.runtimeName) : wouldBe.get(i) || [])
-      meta.push(`↑${n.up} ↓${n.down}`)
+      // 但它转过的量确实记在那些名字下。两者互斥地取，不会重复累加。
+      // 有逐账号行时不出这个聚合值 —— 它只是那几行的和，逐行都印着分量，卡片再印一次总数是第四遍重复
+      if (!accounts?.some(a => a.rt)) {
+        const n = sumCounters(views.length ? views.map(r => r.runtimeName) : wouldBe.get(i) || [])
+        meta.push(`↑${n.up} ↓${n.down}`)
+      }
       // 心跳年龄只在真的在 ping 时才给：lastPong 只因我们发 ping 而刷新，关掉 heartbeat 时它永远停在连接建立
       // 那一刻，显示出来会被误读成「卡了很久」。
-      // 多账号时这是代表账号（pickByStatus 选出的那条）的心跳 —— 心跳本来只对单条 ws 说得通，取最大/最小都会
-      // 让人以为是整条连接的值；逐账号的准确值在下面的子行里
-      if (lead?.status === 1 && lead.lastPong && Number(config.client?.heartbeat) > 0)
-        meta.push(`心跳 ${Math.round((Date.now() - lead.lastPong) / 1000)}s 前`)
+      // 取所有账号里最老的那条（最大年龄），不是代表账号：心跳本来只对单条 ws 说得通，而这一行要答的是
+      // 「这条核心有没有哪个号的心跳停了」，最老的那个才是该报警的。各账号的值在实践中几乎一致，所以
+      // 逐账号行里不再逐一印（见 runtimeRow），只在卡片这层给一个最差值
+      const pongs = (perAccount ? views : [lead])
+        .map(v => clients.find(x => x.runtimeKey === v?.runtimeKey))
+        .filter(x => x?.status === 1 && x.lastPong)
+        .map(x => x!.lastPong)
+      if (pongs.length && Number(config.client?.heartbeat) > 0)
+        meta.push(`心跳 ${Math.round((Date.now() - Math.min(...pongs)) / 1000)}s 前`)
     }
 
     return {
@@ -228,10 +259,7 @@ function collect(detail = false) {
       state,
       tone: tone(status, enabled),
       meta,
-      bots,
-      // 只派生出一条时不给子行：卡片右侧那个胶囊就是它，重复渲染只是噪音。比面板严格是因为画布固定、没有交互：
-      // 既点不开，也没有滚动条能往下翻
-      runtime: views.length > 1 ? views.map(r => runtimeRow(r, detail)) : undefined,
+      accounts,
     }
   })
 
