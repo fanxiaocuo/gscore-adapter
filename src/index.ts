@@ -8,6 +8,7 @@ import { loadApps } from "@/modules/loader"
 import { checkConflicts } from "@/modules/conflict"
 import { initStats } from "@/modules/stats"
 import { initPassive } from "@/modules/passive"
+import { initImagebed } from "@/utils/fileServer"
 import { makeLog } from "@/utils/compat"
 
 // 注意：连接一律等 online 再拉起。适配器 load() 早于 online，此时还没有登录号，在全局 Bot 上调发送方法会经
@@ -58,6 +59,10 @@ await initStats()
 
 // 被动回复的会话记录同理：晚于 startClients 时，重启后 4 分半窗口内的下发会全部不带 id，回复掉出引用形态
 await initPassive()
+
+// 图床转接口：只在配了 file_server.imagebed_token 时才挂载并提前监听端口。放在这里而不是等第一次用到 ——
+// 它的调用方是早柚核心那个独立进程，懒启动的话核心 POST 过来只会拿到 ECONNREFUSED
+await initImagebed()
 
 if (enabled()) makeLog("info", "早柚核心适配器已载入", "GsCore")
 else makeLog("warn", "早柚核心适配器已禁用（enable: false，改配置即时生效）", "GsCore")

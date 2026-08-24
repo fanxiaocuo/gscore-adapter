@@ -88,6 +88,20 @@ export interface FileServerConfig {
   public_host?: string
   /** 取走即删，默认 true。核心侧会重试时可设为 false */
   once?: boolean
+  /**
+   * @description 图床转接口的凭据；同机部署留空即可
+   *
+   * 早柚核心生成 markdown 时会把图先上传到「自定义图床 API」（pic_upload_config 的 custom_url），
+   * 而 ImageBed-Plugin 只提供进程内的 `Bot.imageToUrl()`，核心那个独立的 Python 进程调不到。
+   * 所以本插件挂一个 `POST /gscore/imagebed`，把 imageToUrl 包成核心要的响应形状。
+   *
+   * 优先挂到本体的 `Bot.express` 上（复用它已经在跑的端口），没有它才回落到自带文件服务 ——
+   * 因此 TRSS 上这个接口与 {@link FileServerConfig.port} 无关，Miao 上才需要把端口固定下来。
+   *
+   * 注意：访问控制只能靠它自己 —— 本体的 serverAuth 在 `cfg.server.auth` 没配时完全放行。
+   * 规则是本机来源免凭据（能连环回口的人已经在这台机器上了），非本机必须带 token，没配 token 就一律拒绝。
+   */
+  imagebed_token?: string
 }
 
 /**

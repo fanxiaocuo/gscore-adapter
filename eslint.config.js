@@ -53,6 +53,8 @@ export default ts.config(
         URL: "readonly",
         globalThis: "readonly",
         __dirname: "readonly",
+        // imagebed.test.mjs 打自己起的那个 HTTP 接口用它（Node 18 起是内置全局，不必 import）
+        fetch: "readonly",
         // 在 page.evaluate() 里执行的函数体跑在浏览器上下文，用得到这几个
         document: "readonly",
         getComputedStyle: "readonly",
