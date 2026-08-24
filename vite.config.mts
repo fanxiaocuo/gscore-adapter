@@ -4,11 +4,25 @@
  * 只管 src/webui/ 这一个前端：真正跑在浏览器里、需要打包的只有它。
  * 出图组件（modules/render/）刻意不走 Vite —— 那是 Node 侧运行时 SSR，
  * 逐文件 tsc 产物的理由见 docs/dev/architecture.md（sqlite3 降级路径、
- * 复用宿主依赖、组件可单独 import），且 build:css 扫的就是 lib/ 产物。
+ * 复用宿主依赖、组件可单独 import）。
  *
  * 做法参考 karin-plugin-kkk 的 feat-template-react 分支（vite build 出 Node
  * lib + 模板），但取向相反：kkk 是「全部进 bundle、原生模块 external」，
  * 我们是「只有浏览器端进 bundle」。
+ *
+ * 注意：build:css 扫的是**源码** src/modules/render/components/*.tsx，不是 lib/ 产物
+ * （这里原先写着「扫的就是 lib/ 产物」，是过时的说法，理由与实测见
+ * modules/render/styles/tailwind.css 的「@source 指向 tsx 源码」一段）。差别有后果：
+ * 扫源码时 build:css 与 tsc **谁先谁后都行**，扫产物才必须排在 tsc 之后。
+ *
+ * 注意：别把 @karinjs/template-react 的 ktrBuildPlugin() 挂进来收 build:css。
+ * 实测（挂上 cssEntry 指向出图那份样式，跑 vite build）三条都不行：
+ *   1. 它的 tailwindSourceScopePlugin 会盖掉我们的 source(none) + @source 作用域，
+ *      产物从 14.9 KB 涨到 479.5 KB —— 而这份 CSS 是要内联进每张图的 HTML 的
+ *   2. 输出名恒为 style.css、目录跟随打包器 outDir，于是落进下面那个宿主白名单目录
+ *   3. 它同时跑「注册表同步」，会生成 0 个模板的 .ktr/ 与 ktr/template/ 死脚手架
+ * 出图那半只借它的 HtmlWrapper / createRenderer（见 modules/render/index.ts 文件头），
+ * 「目录即路由」那套约定是刻意不接的。
  *
  * 产物契约（QQBot-Web-Adapter 的静态白名单按文件名放行，一个都不能改）：
  *   webadapter/panel.js  —— IIFE，page.html 用普通 <script> 引
