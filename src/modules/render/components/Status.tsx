@@ -207,7 +207,7 @@ export function Status(data: StatusData) {
                      * 成首字圆，不会出现碎图标。
                      */}
                     {subs && (
-                      <div className="mt-[6px] flex flex-col gap-[10px] rounded-[18px] bg-inset px-[18px] py-[14px]">
+                      <div className="mt-[6px] flex flex-col gap-[10px] self-start rounded-[18px] bg-inset px-[18px] py-[14px]">
                         {subs.shown.map(a => {
                           // 没有 rt 的是被 exclude 挡掉的号：没有 ws，也就没有状态色，点用 muted
                           const rc = a.rt ? toneColor(p, a.rt.tone) : p.muted
@@ -244,8 +244,15 @@ export function Status(data: StatusData) {
                                   {a.platform}
                                 </span>
                               )}
-                              {/* ml-auto 把右侧那组推到行尾：左边几段都是 flex-none，
-                                  不推的话计数会紧贴在平台标识后面，各行右端参差 */}
+                              {/*
+                               * ml-auto 把右侧那组推到行尾，**空的时候也照样渲染**
+                               *
+                               * 恒渲染是为了右缘对齐：#早柚连接列表 不带 detail，正常连着的账号 meta 是空的、
+                               * status 又是 1，右组一个字都没有；而正在重连的那个有「已重连 N 次」。曾经给它加过
+                               * 「空就不渲染」的判据，结果同一块里有的行有右组、有的没有，右缘跨度实测 325px。
+                               * 空的右组宽度为 0，不会把块撑宽 —— 块宽由最宽那行的内容定（外层 self-start），
+                               * ml-auto 只在块内分配剩余空间，所以「块贴合内容」与「右缘对齐」两件事同时成立。
+                               */}
                               <span className="ml-auto flex flex-none items-center gap-[12px]">
                                 {a.excluded && (
                                   <span className="font-mono text-[19px] leading-none text-muted">
