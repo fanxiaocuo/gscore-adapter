@@ -3,6 +3,14 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.2.0...v4.3.0) (2026-08-24)
+
+
+### ✨ 新功能
+
+* **imagebed:** 挂一个转接口，让核心的 markdown 图走 ImageBed 插件 ([7b49592](https://github.com/fanxiaocuo/gscore-adapter/commit/7b495921881393066f67af8b5dd206b379da1a67))
+* **render:** 四处卡面统一迁到液态玻璃，取值收成一处 ([1b4f454](https://github.com/fanxiaocuo/gscore-adapter/commit/1b4f454eebeee649b900ff795ca31f307c27dc56))
+
 ## [4.2.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.1.0...v4.2.0) (2026-08-23)
 
 
