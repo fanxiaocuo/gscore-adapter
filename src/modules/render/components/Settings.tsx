@@ -1,5 +1,5 @@
 /**
- * @description 设置页：逐行开关列表，一行一项，左侧图标与中文名，右侧开关胶囊或取值
+ * @description 设置页：逐行开关列表，一行一项，左侧图标与中文名，右侧开关或取值
  * 名字下面那行灰字既解释这项是什么、也直接给出改它的指令。与手机上的设置菜单同形 —— 用户看这页时手里正拿着手机。
  * 不复用 Status：那套「四张大数字卡 + 两列 key/value」答的是「现在是多少」，而两列明细里开关项与数值项长得
  * 完全一样，扫一眼看不出哪些开着，「改法」还得单独占一行挤在每块末尾。
@@ -18,7 +18,7 @@ export interface SettingRow {
   dsc: string
   icon: IconName
   /**
-   * 开关状态：true/false 出胶囊，undefined 表示这项不是开关（出 value）
+   * 开关状态：true/false 出开关控件，undefined 表示这项不是开关（出 value）
    *
    * 不用 `on?: boolean` 加 `value?: string` 的联合类型：两个可选字段的组合在 TS 上表达不出「恰好给一个」，
    * 而运行时这里只需要「有没有 on」这一个判断。
@@ -70,26 +70,35 @@ export interface SettingsData {
   tip?: string
 }
 
-/** @description 开关胶囊：开用 success、关用 muted */
+/**
+ * @description 开关：真的轨道 + 滑块，不带文字
+ * 曾经是「一颗点 + 开启/关闭」的胶囊，理由是「iOS 式轨道要 60px 宽，并排放文字会把右侧撑到三分之一页宽」。
+ * 那条推理的前提是文字要留着 —— 而开关一旦画成轨道，滑块的位置本身就是状态，文字是重复的。去掉文字之后
+ * 整个控件 96px，比原来那个带字的胶囊（约 123px）还窄，原来的顾虑不成立了。
+ * 状态走两个通道而不是只靠颜色：轨道填色（绿/灰）+ 滑块左右。截图里没有交互可试，两个通道才认得准。
+ * 注意：关态轨道用 muted 兑出来的灰，不能用 --inset —— inset 只比卡面深一档，白滑块压上去看不见边。
+ */
 function Toggle({ on, palette }: { on: boolean; palette: Palette }) {
-  const c = on ? palette.success : palette.muted
+  const c = palette.success
   return (
     <div
-      className="flex flex-none items-center gap-[12px] self-center rounded-[9999px] px-[24px] py-[15px] text-[25px] font-extrabold leading-none"
-      style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
+      className="relative h-[52px] w-[96px] flex-none self-center rounded-[9999px]"
+      style={
+        on
+          ? { background: c, border: `1px solid ${c}` }
+          : { background: `${palette.muted}30`, border: `1px solid ${palette.muted}47` }
+      }
     >
-      {/* 胶囊里那颗点兼当「滑块」：真做一个 iOS 式的轨道+滑块要 60px 宽，而这一列还要放「关闭」两个字，
-          并排会把右侧撑到三分之一页宽。一颗发光的点 + 文字已经足够区分状态 */}
+      {/* 40px 滑块 + 上下各 5px：52 - 2(描边) = 50 内高，正好卡住。开态 left 取 94-40-5 = 49 */}
       <span
-        className="size-[13px] flex-none rounded-[9999px]"
-        style={{ background: c, boxShadow: on ? `0 0 10px ${c}` : undefined }}
+        className={`absolute top-[5px] size-[40px] rounded-[9999px] bg-white ${on ? "left-[49px]" : "left-[5px]"}`}
+        style={{ boxShadow: "0 2px 6px rgba(16,26,40,.26)" }}
       />
-      {on ? "开启" : "关闭"}
     </div>
   )
 }
 
-/** 非开关项的取值胶囊：等宽字，描边比开关轻一档（它不表达状态） */
+/** 非开关项的取值胶囊：等宽字。与开关不同形也不同色 —— 它是个读数，不是能拨的东西 */
 function Value({ text }: { text: string }) {
   return (
     <div className="flex-none self-center rounded-[9999px] border border-border bg-inset px-[24px] py-[15px] font-mono text-[25px] font-extrabold leading-none">
@@ -146,7 +155,10 @@ function GroupTitle({ title, right, color }: { title: string; right: string; col
 }
 
 /**
- * @description 改动结果条：成功项用 success 色、失败项用 danger 色，各自一行
+ * @description 改动结果条：与下面的设置行同一副骨架（GLASS 卡面 + 图标方块 + 文字）
+ * 原先是「语义色描边 + 语义色底 + 6px 左粗边 + 语义色文字」，整条红或整条绿。问题不在于用了语义色，而在于
+ * 这一版全页只有这三条是彩色描边的块，别处一律是同一种玻璃边 —— 它们读起来不像这一页的东西。
+ * 现在语义色只落在图标那个方块上（与设置行的图标同一种画法），成败仍然一眼分得出，边框则回到全页唯一的那种。
  * 不做成卡片网格 —— 一次指令通常只改一两项，网格会为了对齐留出大片空白。
  */
 function Result({ done, errs, palette }: { done: string[]; errs: string[]; palette: Palette }) {
@@ -160,17 +172,31 @@ function Result({ done, errs, palette }: { done: string[]; errs: string[]; palet
     <div className="mb-[64px] flex flex-col gap-[16px]">
       {rows.map((r, i) => (
         <div
-          // break-keep：错误行里嵌着「可设置：适配器 / 仅响应at / …」这类清单，CJK 逐字断点会把「更新检查」
-          // 劈成「更新检 / 查」（预览里实际出现过）；keep-all 让断点落在 / 与空格上
-          className="flex items-center gap-[20px] rounded-[24px] border border-l-[6px] px-[30px] py-[24px] text-[27px] leading-[1.5] break-words break-keep"
+          className={`flex items-center gap-[24px] rounded-[28px] px-[32px] py-[22px] ${GLASS}`}
           key={i}
-          style={{ color: r.color, background: `${r.color}14`, borderColor: `${r.color}3d` }}
         >
-          {/* 成功/失败的记号用图标而不是 ✓ ✗ 字符，理由同 Icons.tsx 的文件头 */}
-          <span className="grid size-[34px] flex-none place-items-center [&>svg]:block [&>svg]:size-[30px]">
+          {/* 成功/失败的记号用图标而不是 ✓ ✗ 字符，理由同 Icons.tsx 的文件头。
+              52px 而不是设置行那个 62px：这几条只有一行字，照抄 62 会让单行文字占到双行设置卡一样的高度 */}
+          <span
+            className="grid size-[52px] flex-none place-items-center self-center rounded-[16px] [&>svg]:block [&>svg]:size-[27px]"
+            style={{
+              background: `${r.color}1f`,
+              color: r.color,
+              border: `1px solid ${r.color}3d`,
+            }}
+          >
             <Icon name={r.ok ? "check" : "cross"} />
           </span>
-          <span className="min-w-0 flex-1 font-extrabold">{r.text}</span>
+          {/* break-keep：错误行里嵌着「可设置：适配器 / 仅响应at / …」这类清单，CJK 逐字断点会把「更新检查」
+              劈成「更新检 / 查」（预览里实际出现过）；keep-all 让断点落在 / 与空格上。
+              注意：只有失败行给语义色文字。三条并排时若全用正文色，「指令没生效」这件事就和两条「已改好」
+              一样重，而它是这页唯一需要人再动一次手的信息。成功不需要颜色 —— 勾和「= 开启」已经说完了 */}
+          <span
+            className="min-w-0 flex-1 text-[27px] leading-[1.5] font-extrabold break-words break-keep"
+            style={r.ok ? undefined : { color: r.color }}
+          >
+            {r.text}
+          </span>
         </div>
       ))}
     </div>
@@ -182,7 +208,7 @@ export function Settings(data: SettingsData) {
 
   return (
     <>
-      <Page palette={p} word={data.ghost} ghostTop={420}>
+      <Page word={data.ghost} ghostTop={420}>
         <Header
           title={data.heading}
           status="GSCORE_ADAPTER"

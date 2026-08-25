@@ -202,6 +202,58 @@ export default async (buf, name) => "https://图床地址/xxx.png"
 
 返回 http(s) 链接算成功；返回空或抛错则跳过该段并打日志。也可以直接调大 `media_max_size` 让大文件走 base64（上限 256 MiB），代价是内存占用和单帧体积。
 
+## 图床转接口
+
+上面那条链管的是**上行**（云崽 → 核心）。反方向另有一件事：核心生成 markdown 时要先把图传到「自定义图床 API」（核心 `pic_upload_config.json` 的 `custom_url`），拿到公网 URL 再拼进 markdown 发给适配器 —— 这条路上的图**不经过适配器的媒体转换**。
+
+问题是 [ImageBed-Plugin](https://github.com/) 那类图床插件只提供进程内的 `Bot.imageToUrl()`，而核心是独立的 Python 进程，调不到。两边现成的接口也接不上：`QQBot-Web-Adapter` 的 `/api/bot/:selfId/upload-image` 内部确实就是调 `imageToUrl`，但它返回 `{"url": "..."}`，而核心是 `resp.json()` 之后**无条件** `raw_data[0]`，对一个对象取 `[0]` 直接 `KeyError`。
+
+所以本插件挂一个转接口，只做形状转换：
+
+```
+POST /gscore/imagebed        multipart，字段名恒为 file
+→ [{"image_info_array": {"url": "https://..."}}]
+```
+
+配置只有一项，**同机部署留空即可**：
+
+```yaml
+file_server:
+  imagebed_token: ""   # 留空 = 只放行本机来源
+```
+
+然后在核心的 `pic_upload_config.json` 里填：
+
+| 字段 | 值 |
+| --- | --- |
+| `PicUploader` | `custom` |
+| `custom_url` | `http://127.0.0.1:2536/gscore/imagebed` |
+| `custom_header` | `{}` |
+
+::: warning custom_header 必须是合法 JSON
+留空串会让核心在 **import 期**就抛 `JSONDecodeError` —— `CUSTOM.__init__` 在构造时就 `json.loads`，而 `pclient = CUSTOM()` 是 `segment.py` 模块级执行的。填 `{}`，不是 `""`。
+:::
+
+::: tip 挂在哪，端口从哪来
+优先挂到本体的 `Bot.express` 上，复用它已经在跑的端口（`config/bot.yaml` 的 `port`，默认 2536），所以这个接口**与上面的 `port` 无关**，`port: 0`（随机）也不影响。只有 Miao 那种没有 `Bot.express` 的框架才回落到内置文件服务，那时才必须把 `port` 固定成非 0。
+:::
+
+访问控制：**本机来源（`127.0.0.1`）免凭据** —— 能连上环回口的人已经在这台机器上了，口令挡不住谁。核心跨机（Docker / 另一台机器）时才需要配 `imagebed_token`，并把地址写成 `…/gscore/imagebed?token=<口令>`；不配口令时非本机来源一律拒绝。
+
+::: danger 为什么访问控制只能靠它自己
+本体的 `serverAuth` 在 `cfg.server.auth` 没配时是**完全放行**的，而它默认监听 `0.0.0.0`。所以这个接口自带的「本机免凭据 / 跨机要口令」是唯一的门。判来源只看 socket 对端地址，不看任何请求头 —— `X-Forwarded-For` 那类客户端可伪造，因此放在反向代理后面时**必须**配口令。
+:::
+
+### 不想用它也可以
+
+核心那边把 `EnablePicSrv` 关掉，图就原样以 base64 发过来，公网化交给平台适配器自己做（QQBot-Plugin 收到图会调 `Bot.imageToUrl`，icqq 走 `uploadImage` 直传，本来就不需要公网地址）。少一次上传往返，代价是 ws 帧里带着 base64。
+
+::: warning PicSrv 留空会发出坏地址
+`EnablePicSrv: true` + `PicUploader: local` + `PicSrv: ""` 时，核心拼出来的是 `link:///api/image/xxx.jpg` —— `link://` 后面主机名是空的。适配器剥掉前缀后补成 `http:///…`，图永远加载不出来。要么把 `PicSrv` 填成核心的可达地址，要么按上面两种方式之一走。
+
+另外：`pic_upload_config.json` 的这几项都是 `segment.py` 的**模块级常量**，改完必须重启核心才生效，热重载不管用。
+:::
+
 ## update_check
 
 `enable`（默认 `false`，关掉后 `#早柚检查更新` 仍可手动用）、`interval`（间隔分钟，默认 180，低于 30 按 30 处理）、`delay`（启动后多久做第一次检查，默认 5 分钟，错开启动高峰）、`notify`（发现新版本时私聊通知主人，默认 `true`）。改完即时生效，不用重启。

@@ -101,7 +101,6 @@
 @source not inline("blur tabular-nums -mt-[7px] [align-items:start]");
 @source not inline("rounded-full grid-cols-4");
 
-
 /*
  * 设计 token
  *
@@ -135,6 +134,6 @@
      （点阵宋体等宽），和 JetBrains Mono 的拉丁在同一行里差着一个年代。
      理由与实测见 theme.ts 的 MONO_STACK 注释，两边必须一致。 */
   --font-mono:
-    "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono",
-    "HarmonyOS Sans SC", "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
+    "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, "DejaVu Sans Mono", "HarmonyOS Sans SC",
+    "MiSans", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
 }

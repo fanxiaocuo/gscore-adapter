@@ -114,7 +114,29 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 - `ws` / `yaml` / `chokidar` 复用宿主那一份
 - 单文件产物既不导出组件供测试 import，import 它还会触发插件的全部副作用
 
-出图组件（`modules/render/`）也在这一侧：它是 Node 里跑的 SSR，只把 JSX 拼成 HTML 字符串，不进浏览器。而且 `build:css` 扫的就是 `lib/` 下的组件产物。
+出图组件（`modules/render/`）也在这一侧：它是 Node 里跑的 SSR，只把 JSX 拼成 HTML 字符串，不进浏览器。
+
+### 出图借了 template-react 的哪半
+
+`modules/render/index.ts` 用 `@karinjs/template-react` 的 `HtmlWrapper`（DOCTYPE / meta / `#container` 外壳）与 `createRenderer`（SSR + 写盘），**但刻意只借这两个**。搜代码时注意包名是 `template-react`，不是 `react-template`。
+
+刻意不接的那半，以及为什么：
+
+| 它的约定 | 我们的做法 | 不接的理由 |
+| :--- | :--- | :--- |
+| 目录即路由（`ktr/template/<板块>/<模板>/index.tsx` + `ktr sync` 生成 `.ktr/`） | `createRenderer` 收一张普通「路由 → 组件」映射表，在 `render()` 里现构 | 迁过去要动 10+ 个 `test/probe` 的引用路径与 tailwind 的 `@source`，而 `Layout.tsx` / `Icons.tsx` 这类跨模板共享组件在它的约定里没有位置。省下的是那张表的一行 |
+| 样式基座 `@import '@karinjs/template-react/styles'` | 自己的 `styles/tailwind.css` + `base.ts` | 它带整套 HeroUI v3，三条直接对撞：① HeroUI 的重置与 `base.ts` 那条 `*,*::before,*::after` 叠加会改像素，而本模块的验收标准是「像素不变」；② 它要求 `dark:` 走类选择器、框架挂 `dark` 类，本模块靠 `cssVars` 换 `:root` 变量、不挂主题类；③ 它明文禁止再写普通 `@theme` 映射块（会盖掉 HeroUI 的 `@theme inline`），而那正是本模块 token 体系的地基 |
+| `ktrBuildPlugin()` 收 `build:css` | 独立一条 `build:css` | 实测三条都不行，见下 |
+
+::: danger 别把 ktrBuildPlugin() 挂进 vite.config.mts
+挂上去（`cssEntry` 指向出图那份样式）跑一次真实 `vite build` 的结果：
+
+1. CSS **14.9 KB → 479.5 KB** —— 它的基座把整套 HeroUI 拉进来，而这份 CSS 是要**内联进每张图的 HTML** 的
+2. 输出名恒为 `style.css`、目录跟随打包器 `outDir`，于是落进 `webadapter/` —— 那是宿主白名单目录
+3. 它同时跑注册表同步，生成 0 个模板的 `.ktr/` 与 `ktr/template/style.css` 死脚手架
+
+重验的话记得删 `webadapter/style.css`、`.ktr/`、`ktr/`（它会自己建）。
+:::
 
 **面板（`src/webui/`）打包**：`build:panel` 走 `vite build`（Vite 8 内置 Rolldown），配置见 `vite.config.mts`。这份代码真的跑在浏览器里，React 运行时必须进 bundle。产物两个，文件名是 QQBot-Web-Adapter 的静态白名单写死的，改名就 403：
 
@@ -133,8 +155,14 @@ lib 模式下 Vite 按「库由使用方定义」的约定不替换 `process.env
 
 框架 loader 只认 `plugins/<name>/index.js`，根目录 `index.js` 只是 `export * from "./lib/index.js"`；`src/dir.ts` 也靠 `import.meta.url` 上跳一级定位插件根。
 
-## build:css 的顺序约束
+## build:css 扫源码，与 tsc 顺序无关
 
-::: warning build:css 必须排在 tsc 之后
-`build:css` 把 `src/modules/render/styles/tailwind.css` 编译到 `resources/template/css/`（不入库）。它扫的是 **`lib/` 下的组件产物**。
+`build:css` 把 `src/modules/render/styles/tailwind.css` 编译到 `resources/template/css/`（不入库）。它扫的是**源码** `src/modules/render/components/*.tsx`。
+
+::: tip 这里原先写着相反的话
+旧文档断言「它扫的是 `lib/` 下的组件产物」，因此「`build:css` 必须排在 `tsc` 之后」。两句都是错的：`tailwind.css` 里那行是 `@source "../components/*.tsx"`，相对该文件解析到 `src/`，与 `lib/` 无关。
+
+实测（删掉整个 `lib/` 后单独跑 `pnpm run build:css`）：产物 14903 字节，与有 `lib/` 时**逐字节相同**。所以两步谁先谁后都行。
+
+历史上确实扫过 `lib/*.js`，理由是「产物一定与实际渲染同步」；中途改用打包器时那个目录消失过一阵才改成扫源码，之后没再改回去 —— 扫源码正是为了摆脱这条顺序约束。详见 `styles/tailwind.css` 的「@source 指向 tsx 源码」一段。
 :::

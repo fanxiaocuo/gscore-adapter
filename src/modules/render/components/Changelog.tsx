@@ -34,7 +34,7 @@ export function Changelog(data: ChangelogData) {
 
   return (
     <>
-      <Page palette={p} word={data.ghost}>
+      <Page word={data.ghost}>
         <Header
           title={data.heading}
           status="GSCORE_ADAPTER"

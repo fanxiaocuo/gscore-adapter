@@ -6,6 +6,37 @@ import { statusRank } from "@/constants"
 import type { Palette } from "../theme.js"
 import { Empty, Footer, GLASS, Header, Page, Section, Stats } from "./Layout.js"
 
+/**
+ * @description 一个 bind 账号：档案 + 它那条 ws 的运行时状态
+ * 合成一层而不是「一排头像胶囊 + 一块 runtime 子行」两块并列：那两块枚举的是同一份账号，结果同一个号码
+ * 在一张卡里出现三次（胶囊、行首、路径尾巴），心跳与收发计数各出现三次，而读者还得两块对着看才知道
+ * 哪个胶囊对应哪条 ws。
+ */
+export interface ConnAccount {
+  id: string
+  name: string
+  avatar: string
+  platform?: string
+  /**
+   * 写在 bind 里但被 exclude 挡掉：没有 ws，所以没有 {@link rt}
+   * 仍然列出来 —— 它确实绑了只是不会连，藏掉就看不出配置写矛盾了，而 meta 里那个 `exclude: 1` 说不出是哪个号。
+   */
+  excluded?: boolean
+  /** 这个账号那条 ws 的运行时状态。只派生一条时不给（卡片右侧那个胶囊就是它） */
+  rt?: {
+    /**
+     * 插件自己的状态码（见 constants 的 STATUS_TEXT）
+     *
+     * 已经有 state 文案和 tone 了还要它：折叠时得按 STATUS_ORDER 的名次挑出最该被看见的几条，而 tone 把 2 和 3
+     * 并成了同一个 warn、把 0 归进 err，排不出序。
+     */
+    status: 0 | 1 | 2 | 3
+    state: string
+    tone: ConnRow["tone"]
+    meta: string[]
+  }
+}
+
 /** @description 一条连接的展示数据 */
 export interface ConnRow {
   index: number
@@ -18,31 +49,11 @@ export interface ConnRow {
   /** 附加标签 */
   meta: string[]
   /**
-   * bind 账号的档案（头像 + 昵称），渲染成头像胶囊；没有绑定时不给。
-   * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
-   * excluded 是「写在 bind 里但又被 exclude 挡掉」的那些：它们有胶囊却没有子行，不标出来就像子行渲染丢了一条。
-   */
-  bots?: { id: string; name: string; avatar: string; platform?: string; excluded?: boolean }[]
-  /**
-   * 账号级运行时连接，一条一行
+   * bind 账号，一个一行；没有绑定时不给
    *
-   * 一条逻辑连接在运行时是 N 条 ws，卡片右侧那个胶囊是聚合值、看不出是哪个账号没连上。派生出多条时才给
-   * （pages.ts 判），只有一条时那个胶囊就是它。比面板严格是因为画布固定宽高、没有交互：点不开，也没有滚动条。
+   * avatar 为空串时回退成首字圆 —— 未知平台的离线账号取不到图。
    */
-  runtime?: {
-    name: string
-    path: string
-    /**
-     * 插件自己的状态码（见 constants 的 STATUS_TEXT）
-     *
-     * 已经有 state 文案和 tone 了还要它：折叠时得按 STATUS_ORDER 的名次挑出最该被看见的几条，而 tone 把 2 和 3
-     * 并成了同一个 warn、把 0 归进 err，排不出序。
-     */
-    status: 0 | 1 | 2 | 3
-    state: string
-    tone: ConnRow["tone"]
-    meta: string[]
-  }[]
+  accounts?: ConnAccount[]
 }
 
 /**
@@ -100,29 +111,39 @@ function toneColor(p: Palette, tone: ConnRow["tone"]) {
 }
 
 /**
- * @description 账号级子行最多列几条（只在 {@link StatusData.compactRuntime} 时生效）
+ * @description 账号行最多列几条（只在 {@link StatusData.compactRuntime} 时生效）
  * 一条核心绑十几个号是可能的（QQBot 多实例），逐条列出会把卡片拉成半页、把分组明细挤到第二屏。3 条足够看出
- * 「是不是有账号掉线」—— 前提是挑的是该看的那 3 条，见 {@link shownRuntime}。
+ * 「是不是有账号掉线」—— 前提是挑的是该看的那 3 条，见 {@link shownAccounts}。
  */
 const RUNTIME_LIMIT = 3
 
 /**
- * @description 折叠时真正画出来的那几条子行：按状态名次挑最糟的，按 bind 原顺序画
+ * @description 折叠优先级：真故障 > 被 exclude > 正常
+ * `statusRank` 只认状态码，而被 exclude 的账号没有 ws、没有状态码。它不是故障（配置就那么写的），
+ * 但也不是「一切正常」—— 它是一处配置矛盾，藏掉就看不出来了。所以给它排在正常之上、任何异常之下。
+ * ×2 是为了在 statusRank 的整数档之间腾出 1 这个位置：正常 0 < 被排除 1 < warn 2 < err 4 < 未启动 6。
+ */
+function foldRank(a: ConnAccount): number {
+  return a.rt ? statusRank(a.rt.status) * 2 : 1
+}
+
+/**
+ * @description 折叠时真正画出来的那几行：按名次挑最该被看见的，按 bind 原顺序画
  * 注意：不能按 bind 顺序取前 N 条 —— 绑了 5 个号、坏的是第 4 个时，前 3 条全是绿的，那个唯一需要人动手的账号
- * 恰好落进「+2 个账号未显示」里，而子行存在的理由正是补上主行说不出的那句「是哪个账号在挣扎」。
+ * 恰好落进「+N 个账号未显示」里，而这一列存在的理由正是补上主行说不出的那句「是哪个账号在挣扎」。
  * 注意：挑与画分开 —— 挑按名次，画按原顺序，这样状态抖动时卡片不会重排。sort 里显式带上下标做第二比较键，
  * 不依赖 Array.prototype.sort 的稳定性。
- * 注意：主行那个代表账号（决定右侧胶囊颜色的那条）可能不在列出的子行里 —— 它状态最好、最先被折叠掉。
- * 这是有意的，别「修」回去：主行已经说过它的状态，子行的位置要留给说不出来的那些。
+ * 注意：主行那个代表账号（决定右侧胶囊颜色的那条）可能不在列出的行里 —— 它状态最好、最先被折叠掉。
+ * 这是有意的，别「修」回去：主行已经说过它的状态，这几行的位置要留给说不出来的那些。
  */
-function shownRuntime(list: NonNullable<ConnRow["runtime"]>, compact?: boolean) {
+function shownAccounts(list: ConnAccount[], compact?: boolean) {
   if (!compact || list.length <= RUNTIME_LIMIT) return { shown: list, hidden: 0 }
   const keep = list
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => statusRank(b.r.status) - statusRank(a.r.status) || a.i - b.i)
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => foldRank(y.a) - foldRank(x.a) || x.i - y.i)
     .slice(0, RUNTIME_LIMIT)
-    .sort((a, b) => a.i - b.i)
-  return { shown: keep.map(x => x.r), hidden: list.length - keep.length }
+    .sort((x, y) => x.i - y.i)
+  return { shown: keep.map(x => x.a), hidden: list.length - keep.length }
 }
 
 export function Status(data: StatusData) {
@@ -130,7 +151,7 @@ export function Status(data: StatusData) {
 
   return (
     <>
-      <Page palette={p} word={data.ghost}>
+      <Page word={data.ghost}>
         <Header
           title={data.heading}
           status="GSCORE_ADAPTER"
@@ -147,18 +168,26 @@ export function Status(data: StatusData) {
           <div className="flex flex-col gap-[22px]">
             {data.rows.map(row => {
               const c = toneColor(p, row.tone)
-              const subs = row.runtime?.length
-                ? shownRuntime(row.runtime, data.compactRuntime)
+              const subs = row.accounts?.length
+                ? shownAccounts(row.accounts, data.compactRuntime)
                 : null
               return (
-                // 刻意不给 items-center：序号、主信息、胶囊三者由各自的 self-center 对齐整行中线
+                // 刻意不给 items-center：序号与胶囊 self-start 钉在标题行（见下），主信息列自己撑高
                 <div
                   className={`flex gap-[26px] rounded-[28px] px-[32px] py-[28px] ${GLASS}`}
                   key={row.index}
                 >
-                  {/* self-center 对齐整条连接的垂直中线：卡片行数是变的（带 token / 重连次数时多一行 meta），
-                      按「名字那一行」硬算负边距的话，三行内容下方块就贴到卡片最上沿、与右侧胶囊也不在一条线上 */}
-                  <div className="w-[60px] flex-none self-center rounded-[14px] border border-border bg-inset py-[16px] text-center font-mono text-[26px] font-extrabold leading-none text-muted">
+                  {/*
+                   * 对齐标题那一行，不是对齐卡片中线
+                   *
+                   * 原先给的是 self-center，理由是「卡片行数是变的，按名字那行硬算负边距会让下方块贴到卡片上沿」。
+                   * 实测这条推理反了：卡片高度差得很大（绑五个号带子行的那张 480px，只有名字加地址的那张 100px），
+                   * self-center 在高卡上把序号推到第三四行的高度 —— 序号标的是这条连接，读者找它时看的是标题，
+                   * 结果它离标题两百多像素远，像一个飘着的、不知道在标什么的数字。
+                   * 序号与状态一律钉在标题行上，无论卡片多高：负边距按 (标题行高 - 自身高) / 2 推，
+                   * 标题是 38px × 1.2 = 45.6 的行盒，本块 16+26+16 = 58 高，所以 -6。
+                   */}
+                  <div className="mt-[-6px] w-[60px] flex-none self-start rounded-[14px] border border-border bg-inset py-[16px] text-center font-mono text-[26px] font-extrabold leading-none text-muted">
                     {String(row.index).padStart(2, "0")}
                   </div>
                   {/* min-w-0 让长 url 在下面 break-all 得以生效，否则 flex 子项不肯收缩 */}
@@ -167,89 +196,91 @@ export function Status(data: StatusData) {
                     <div className="break-all font-mono text-[23px] leading-[1.45] text-muted">
                       {row.url}
                     </div>
-                    {/* bind 胶囊：头像 + 昵称 + 账号。头像可能来自外链（qlogo），截图用 waitUntil:"load"
-                        会等它加载完；取不到头像的账号回退成首字圆，不会出现碎图标 */}
-                    {row.bots && row.bots.length > 0 && (
-                      <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
-                        <span className="font-mono text-[20px] leading-none text-muted">bind</span>
-                        {row.bots.map(b => (
-                          <span
-                            className="flex items-center gap-[9px] rounded-[9999px] border border-border bg-inset py-[4px] pr-[15px] pl-[5px]"
-                            key={b.id}
-                          >
-                            <span className="grid size-[34px] flex-none place-items-center overflow-hidden rounded-[9999px] border border-border bg-surface text-[17px] font-bold text-muted">
-                              {b.avatar ? (
-                                <img
-                                  className="block size-full object-cover"
-                                  src={b.avatar}
-                                  alt=""
-                                />
-                              ) : (
-                                (b.name || b.id).slice(0, 1)
-                              )}
-                            </span>
-                            {b.name && b.name !== b.id && (
-                              <span className="text-[21px] font-bold leading-none">{b.name}</span>
-                            )}
-                            <span className="font-mono text-[19px] leading-none text-muted">
-                              {b.id}
-                            </span>
-                            {b.platform && (
-                              <span className="font-mono text-[17px] leading-none text-muted">
-                                {b.platform}
-                              </span>
-                            )}
-                            {/* 注意：被 exclude 挡掉的账号要当场说明 —— 这排胶囊来自原始 bind，而下面的子行是
-                                bind - exclude 之后的结果，不标一句的话「bind 三个号却只有两条子行」看起来像
-                                子行渲染丢了，而 meta 里那个光秃秃的 `exclude: 1` 说不出是哪个号 */}
-                            {b.excluded && (
-                              <span className="font-mono text-[17px] leading-none text-muted">
-                                已排除
-                              </span>
-                            )}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {/* 账号级子行：一个绑定账号一条 ws，各自的状态与计数。刻意不再造一套卡片，这是主信息列里
-                        的一小组紧凑行，靠一层 bg-inset 与卡片区分。右侧那个大胶囊是聚合值，只有这里能看出是
-                        哪个号没连上 */}
+                    {/*
+                     * bind 账号，一个一行：头像 + 昵称 + 账号 + 平台 + 状态点 + 该账号的计数
+                     *
+                     * 从前这里是两块：一排 bind 头像胶囊，底下再一块 runtime 子行。两块枚举的是同一份账号，
+                     * 于是同一个号码在一张卡里出现三次（胶囊、行首、路径尾巴），心跳与收发计数各出现三次，
+                     * 读者还得两块对着看才知道哪个胶囊对应哪条 ws。合成一层之后账号只出现一次。
+                     * 仍然靠一层 bg-inset 与卡面区分，不另造一套卡片 —— 这是主信息列里的一小组紧凑行。
+                     * 头像可能来自外链（qlogo），截图用 waitUntil:"load" 会等它加载完；取不到头像的账号回退
+                     * 成首字圆，不会出现碎图标。
+                     */}
                     {subs && (
-                      <div className="mt-[6px] flex flex-col gap-[8px] rounded-[18px] bg-inset px-[18px] py-[12px]">
-                        {subs.shown.map(r => {
-                          const rc = toneColor(p, r.tone)
+                      <div className="mt-[6px] flex flex-col gap-[10px] self-start rounded-[18px] bg-inset px-[18px] py-[14px]">
+                        {subs.shown.map(a => {
+                          // 没有 rt 的是被 exclude 挡掉的号：没有 ws，也就没有状态色，点用 muted
+                          const rc = a.rt ? toneColor(p, a.rt.tone) : p.muted
                           return (
-                            // flex-wrap 是溢出兜底：bind 里的账号 id 可能是十八九位的平台雪花号，三段定宽内容
-                            // 加起来能顶破这块 bg-inset，而这一行没有任何环节会裁切或折行。给 meta 加 min-w-0
+                            // flex-wrap 是溢出兜底：账号 id 可能是十八九位的平台雪花号，几段定宽内容加起来
+                            // 能顶破这块 bg-inset，而这一行没有任何环节会裁切或折行。给 meta 加 min-w-0
                             // 治不了 —— 它是 flex-none，收缩因子本身就是 0，min-width 压根不参与计算
-                            <div className="flex flex-wrap items-center gap-[12px]" key={r.name}>
+                            <div className="flex flex-wrap items-center gap-[12px]" key={a.id}>
                               <span
-                                className="size-[10px] flex-none rounded-[9999px]"
+                                className="size-[11px] flex-none rounded-[9999px]"
                                 style={{ background: rc }}
                               />
-                              <span className="flex-none font-mono text-[21px] font-bold leading-none">
-                                {r.name}
+                              <span className="grid size-[36px] flex-none place-items-center overflow-hidden rounded-[9999px] border border-border bg-surface text-[17px] font-bold text-muted">
+                                {a.avatar ? (
+                                  <img
+                                    className="block size-full object-cover"
+                                    src={a.avatar}
+                                    alt=""
+                                  />
+                                ) : (
+                                  (a.name || a.id).slice(0, 1)
+                                )}
                               </span>
-                              {/*
-                               * 只到 pathname —— 完整地址可能带 token，而这张图会发进群里。truncate 而不是
-                               * break-all：路径尾巴就是账号，左边那一列已经写着它。
-                               * 注意：这一个 span 例外地不用 leading-none —— truncate 带着 overflow:hidden，
-                               * 而 19px 等宽字的 ascent+descent 超过 19px 的行盒，自定义路径里的 `_`、`g`
-                               * 会被切掉半截（根路径全是 `/ws/Yunzai-数字`，没有下伸笔画，所以一直没露出来）。
-                               */}
-                              <span className="min-w-0 flex-1 truncate font-mono text-[19px] leading-[1.2] text-muted">
-                                {r.path}
-                              </span>
-                              {r.meta.length > 0 && (
-                                <span className="flex-none font-mono text-[19px] leading-none text-muted">
-                                  {r.meta.join(" · ")}
+                              {a.name && a.name !== a.id && (
+                                <span className="flex-none text-[22px] font-bold leading-none">
+                                  {a.name}
                                 </span>
                               )}
-                              <span
-                                className="flex-none text-[20px] font-bold leading-none"
-                                style={{ color: rc }}
-                              >
-                                {r.state}
+                              <span className="flex-none font-mono text-[21px] leading-none text-muted">
+                                {a.id}
+                              </span>
+                              {a.platform && (
+                                <span className="flex-none font-mono text-[18px] leading-none text-muted">
+                                  {a.platform}
+                                </span>
+                              )}
+                              {/*
+                               * ml-auto 把右侧那组推到行尾，**空的时候也照样渲染**
+                               *
+                               * 恒渲染是为了右缘对齐：#早柚连接列表 不带 detail，正常连着的账号 meta 是空的、
+                               * status 又是 1，右组一个字都没有；而正在重连的那个有「已重连 N 次」。曾经给它加过
+                               * 「空就不渲染」的判据，结果同一块里有的行有右组、有的没有，右缘跨度实测 325px。
+                               * 空的右组宽度为 0，不会把块撑宽 —— 块宽由最宽那行的内容定（外层 self-start），
+                               * ml-auto 只在块内分配剩余空间，所以「块贴合内容」与「右缘对齐」两件事同时成立。
+                               */}
+                              <span className="ml-auto flex flex-none items-center gap-[12px]">
+                                {a.excluded && (
+                                  <span className="font-mono text-[19px] leading-none text-muted">
+                                    已排除
+                                  </span>
+                                )}
+                                {a.rt && a.rt.meta.length > 0 && (
+                                  <span className="font-mono text-[19px] leading-none text-muted">
+                                    {a.rt.meta.join(" · ")}
+                                  </span>
+                                )}
+                                {/*
+                                 * 状态文字只在异常时出，正常那几行一个字都不给
+                                 *
+                                 * 左边那颗点已经按 tone 上了色，而卡片右上那个大胶囊也已经说过「已连接」——
+                                 * 每行再写一遍「已连接」是同一句话的第三遍。五个号里四行绿字会把唯一那行
+                                 * 橙的「断线重连中」淹掉，而这一整块存在的理由就是让人一眼找到出问题的号。
+                                 * 注意：判据用 status 而不是 tone —— tone 把 warn 与 err 之外的都归成同一类，
+                                 * 分不出「已连接」和「已停用」，而后者是该说出来的。
+                                 */}
+                                {a.rt && a.rt.status !== 1 && (
+                                  <span
+                                    className="text-[20px] font-bold leading-none"
+                                    style={{ color: rc }}
+                                  >
+                                    {a.rt.state}
+                                  </span>
+                                )}
                               </span>
                             </div>
                           )
@@ -259,7 +290,8 @@ export function Status(data: StatusData) {
                             {/* 「异常的已优先列出」只在真有异常时说：五个号全好的时候这句话读起来像
                                 「出了问题，我们把问题挑出来给你看了」 */}
                             +{subs.hidden} 个账号未显示
-                            {subs.shown.some(r => r.status !== 1) && "（异常的已优先列出）"}
+                            {subs.shown.some(a => a.rt && a.rt.status !== 1) &&
+                              "（异常的已优先列出）"}
                           </div>
                         )}
                       </div>
@@ -281,10 +313,11 @@ export function Status(data: StatusData) {
                   {/*
                    * 状态胶囊：形由 utility 定，色由语义色内联给。
                    * 1f / 3d 是给 hex 补 alpha（约 12% 底、24% 描边），var() 拼不出来。
-                   * self-center 是必须的——父级没有 items-center。
+                   * self-start + 负边距对齐标题行，理由与左侧序号那块相同（见上）：它是这条连接的状态，
+                   * 该与连接名平齐。本块 14+24+14 = 52 高，(45.6 - 52) / 2 ≈ -3。
                    */}
                   <div
-                    className="flex flex-none items-center gap-[11px] self-center rounded-[9999px] px-[22px] py-[14px] text-[24px] font-extrabold leading-none"
+                    className="mt-[-3px] flex flex-none items-center gap-[11px] self-start rounded-[9999px] px-[22px] py-[14px] text-[24px] font-extrabold leading-none"
                     style={{ color: c, background: `${c}1f`, border: `1px solid ${c}3d` }}
                   >
                     <span

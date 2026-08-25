@@ -301,7 +301,6 @@ async function serveBed(req: http.IncomingMessage, res: http.ServerResponse) {
     .end(JSON.stringify(out.payload))
 }
 
-
 function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   const path = String(req.url || "").split("?")[0]
 
@@ -432,10 +431,12 @@ export async function initImagebed(): Promise<void> {
   if (typeof app?.post === "function") {
     // 加进 skip_auth：用户若配了 cfg.server.auth，核心那个 POST 不会带那对头/查询参数，会被 401 挡掉。
     // 本接口自己有 bedAuth（本机 / token），不靠本体那道
-    if (Array.isArray(app.skip_auth) && !app.skip_auth.includes(BED_PATH)) app.skip_auth.push(BED_PATH)
+    if (Array.isArray(app.skip_auth) && !app.skip_auth.includes(BED_PATH))
+      app.skip_auth.push(BED_PATH)
     app.post(BED_PATH, serveBed)
 
-    const port = Number((globalThis as { cfg?: { server?: { port?: number } } }).cfg?.server?.port) || 2536
+    const port =
+      Number((globalThis as { cfg?: { server?: { port?: number } } }).cfg?.server?.port) || 2536
     makeLog(
       "mark",
       `图床转接口已挂载：POST http://127.0.0.1:${port}${BED_PATH}\n` +

@@ -64,8 +64,10 @@ export function frameLabel(): string {
  * 注意：判据是分支名而不是版本号形状，而且 main 算 Dev —— 本插件三个分支的 package.json 是同一个版本号
  * （release-please 只在发版时改它）。kkk 的分支表把 main 映射成 Stable、上游 karin-plugin-kkk 用
  * `/^\d+\.\d+\.\d+$/` 判，两种都会把 main 上的开发版标成正式版。
- * 注意：取不到分支名（压缩包安装、没装 git、游离 HEAD）时按 Preview 算 —— 宁可把正式版误标成预览版，也别
- * 把开发版说成正式版，后者会让人以为跑的是发布版本、白查半天。
+ * 注意：表里没有的分支（功能分支）与取不到分支名（压缩包安装、没装 git、游离 HEAD）都按 Dev 算。
+ * 原则仍是「宁可把稳的说成不稳的，也别把开发版说成正式版」—— 后者会让人以为跑的是发布版本、白查半天；
+ * 但兜底档从 Preview 换成了 Dev：从前 feat/xxx 这类功能分支会被标成「预览版」，比 main 那档还稳，
+ * 而它显然是最不稳的一种。Dev 同样满足上面那条原则，且不会给临时分支一个它不配的稳定度。
  */
 export type ReleaseType = "Stable" | "Preview" | "Dev"
 
@@ -77,7 +79,7 @@ const RELEASE_BRANCH: Record<string, ReleaseType> = {
 }
 
 export function releaseType(_version?: string): ReleaseType {
-  return RELEASE_BRANCH[branch] || "Preview"
+  return RELEASE_BRANCH[branch] || "Dev"
 }
 
 /** @description 角标上那两个字 */
