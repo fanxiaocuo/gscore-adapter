@@ -3,6 +3,13 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.4.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.3.0...v4.4.0) (2026-08-25)
+
+
+### ✨ 新功能
+
+* **render:** 背景改纯弥散渐变、连接卡账号去重，并修掉三处失效文档 ([#17](https://github.com/fanxiaocuo/gscore-adapter/issues/17)) ([ef1bbb4](https://github.com/fanxiaocuo/gscore-adapter/commit/ef1bbb4632f8c8ac1d0fa179e346e8d612f1de9d))
+
 ## [4.3.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.2.0...v4.3.0) (2026-08-24)
 
 
