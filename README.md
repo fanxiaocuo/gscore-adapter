@@ -6,7 +6,7 @@
 
 📖 **[完整文档](https://fanxiaocuo.github.io/gscore-adapter/)** · 🙏 [致谢与参考实现](CREDITS.md)
 
-## 装
+## 🛠️ 装
 
 在 **Yunzai 根目录**（不是 `plugins/`）运行。两个分支都是编译好的 js，不用自己编译：
 
@@ -28,7 +28,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 
 更新：`git pull && pnpm install --prod`
 
-## 连上核心
+## ☄️ 连上核心
 
 核心跑在本机默认端口时，**给机器人发一条指令就行**：
 
@@ -42,7 +42,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 
 发 `#早柚状态` 看连上没有。
 
-## 之后想改什么
+## 📝 之后想改什么
 
 三个入口，改哪个都一样生效，**yaml 里的注释不会丢**：
 
@@ -56,7 +56,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 
 配置项逐条说明见 **[配置文档](https://fanxiaocuo.github.io/gscore-adapter/guide/config)**，面板的用法见 **[面板文档](https://fanxiaocuo.github.io/gscore-adapter/guide/panel)**。
 
-## 常用指令
+## ⌨️ 常用指令
 
 全部限主人使用，`#` 可省略。
 
@@ -74,7 +74,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 
 完整指令表（含 `bind+=` 这类批量改法）见 **[指令文档](https://fanxiaocuo.github.io/gscore-adapter/guide/commands)**。
 
-## 出问题了
+## ❓ 出问题了
 
 最常见的两个：
 
@@ -84,7 +84,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 
 其余情况（消息被处理两次、图片发不出去、按钮丢失、撤回失效……）见 **[常见问题](https://fanxiaocuo.github.io/gscore-adapter/guide/faq)**。
 
-## 能做什么
+## ✨ 能做什么
 
 - **多连接**：同时连多个核心，各自独立重连、独立账号绑定
 - **消息双向转换**：文本 / 图片 / 语音 / 视频 / 文件 / @ / 引用 / 按钮 / 合并转发 / markdown
@@ -93,7 +93,7 @@ cd plugins/gscore-adapter && pnpm install --prod
 - **双框架兼容**：TRSS / Miao 都能跑，按能力探测自动适配，改过名的 fork 也认得
 - **出图**：状态 / 帮助 / 版本 / 更新日志四页，深浅主题按时段切
 
-## 更多
+## 📖 更多
 
 - [完整文档站](https://fanxiaocuo.github.io/gscore-adapter/) —— 安装、配置、指令、面板、常见问题
 - [协议与兼容](https://fanxiaocuo.github.io/gscore-adapter/protocol/segments) —— 消息段映射、非消息事件、回环防护、双框架差异
