@@ -184,7 +184,7 @@ export function applyConnections(opts: { sourceIndex?: number } = {}): Reconcile
   return reconcileClients(runtime)
 }
 
-/** @description 按当前配置重建所有连接（用于 #早柚重载） */
+/** @description 按当前配置重建所有连接（reloadClients） */
 export function reloadClients() {
   stopClients()
   startClients()

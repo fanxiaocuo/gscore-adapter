@@ -10,7 +10,7 @@
  *
  * 为什么放模块级而不是挂在 GsCoreClient 上
  * ----------------------------------------
- * #早柚重载 会把 clients 整个重建（lifecycle.ts reloadClients），挂在实例上的
+ * reloadClients 会把 clients 整个重建（lifecycle.ts reloadClients），挂在实例上的
  * 计数会跟着归零。累计值放模块级才能跨重载存活。按连接名分桶的那份也放这里，
  * 同名连接重建后计数能接上——连接名就是它的身份（lifecycle 用它去重）。
  *
