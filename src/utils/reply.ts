@@ -201,6 +201,48 @@ function fromIcqqSource(e: AdapterEvent): string {
 }
 
 /**
+ * @description QQBot 的引用索引可能挂在事件的哪几处
+ *
+ * 早先只看 `e.msg_elements`，而 QQBot-Plugin 按事件种类把原始 payload 分别挂在 `raw` / `raw_event`
+ * 上（各自还可能再套一层 `d`），于是那些形状下的引用一律取不到。
+ * 参考 xiowo/yunzai-gscore-adapter 的 f2febe2（他那边同样是从固定链路扩成扫一组候选）。
+ * 注意：去重靠 Set —— 同一个对象可能被两条路径指到（如 `e.raw === e.raw_event`），重复扫没有意义
+ */
+function rawPayloads(e: AdapterEvent): unknown[] {
+  const raw = e?.raw as Record<string, unknown> | undefined
+  const rawEvent = e?.raw_event as Record<string, unknown> | undefined
+  return [...new Set([e, raw, raw?.d, rawEvent, rawEvent?.d].filter(Boolean))]
+}
+
+/**
+ * @description 从各候选 payload 里找 QQBot 的引用索引
+ * 判据是 `msg_elements` 必须真的是数组：那几个字段在部分适配器上是对象或字符串，
+ * 不判类型会让 `[0]` 静默取到 undefined，白跑一遍
+ */
+function fromQQBotRefIdx(e: AdapterEvent): string {
+  for (const payload of rawPayloads(e)) {
+    const list = (payload as Record<string, unknown>)?.msg_elements
+    if (!Array.isArray(list)) continue
+    for (const el of list) {
+      const idx = (el as Record<string, unknown>)?.msg_idx
+      if (idx != null && idx !== "") return String(idx)
+    }
+  }
+  return ""
+}
+
+/**
+ * @description CQ 码兜底：`[CQ:reply,id=…]`（部分适配器只在原始文本里留下引用）
+ * 两个键都收：`id` 与 `message_id` 都有适配器在用
+ */
+function fromCQReply(e: AdapterEvent): string {
+  const text = String(e?.raw_message ?? e?.msg ?? "")
+  if (!text) return ""
+  const m = /\[CQ:reply,(?:[^\]]*,)?(?:id|message_id)=([^,\]]+)/.exec(text)
+  return m ? m[1].trim() : ""
+}
+
+/**
  * @description 解析事件引用的消息 id，顺序即可信度：适配器直接给的 > 框架派生的 > 消息段里的 > 由 source 反算的
  * @returns 没有引用返回空串
  */
@@ -222,8 +264,9 @@ export function resolveReplyId(e: AdapterEvent): string {
 
   // 5) QQBot：只有 REFIDX 引用索引可用。它与 msg_id 不同源、核心查不到缓存，但仍上报 ——
   //    它是 QQ 侧真实的引用标识，能让下游「有没有引用」的判断成立；引用图靠随后单独上报的 image 段。
-  const refIdx = e?.msg_elements?.[0]?.msg_idx
-  if (refIdx != null && refIdx !== "") return String(refIdx)
+  const refIdx = fromQQBotRefIdx(e)
+  if (refIdx) return refIdx
 
-  return ""
+  // 6) 只在原始文本里留了 CQ 码的适配器
+  return fromCQReply(e)
 }
