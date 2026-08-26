@@ -26,7 +26,7 @@
 @source "./**/*.{ts,tsx}";
 
 /*
- * 配色：中性石灰 + 宝蓝
+ * 配色：中性石灰 + 赤陶
  *
  * 浅色一套写在 :root，深色只覆盖需要变的几项。
  * 不用 Tailwind 的 dark: 变体 —— 那要求每处用到颜色的地方都写两遍
@@ -56,18 +56,21 @@
   --border-strong: #8b8b83;
   --fg: #1a1a18;
   --muted: #605f58;
-  --accent: #1f3fc9;
+  --accent: #b8431f;
   /*
    * 压在 --accent 上的字色，深浅**不同**（这是深色下唯一一处「按钮文字不是白的」）
    *
-   * 宝蓝在深色下必须提亮才够对底的对比度，而提亮之后白字压上去只有 2.37:1。
-   * 所以深色那套换成深墨 #0d1330（7.68:1）。写成 token 而不是就地写死：主按钮、
+   * 强色在深色下必须提亮才够对底的对比度，而提亮之后白字压上去就不够了。
+   * 所以深色那套换成深墨 #2b1207（6.52:1）。写成 token 而不是就地写死：主按钮、
    * chip 的删除键、tab 选中态都要用它，漏一处就是一处不可读的按钮。
+   *
+   * 注意：中性色必须跟着强色的色相走 —— 石灰这批中性色偏暖，先前配的是宝蓝（冷），
+   * 「说不上哪里怪」的根因就在这儿；换赤陶之后暖对暖。别再单换强色不看中性色
    */
   --accent-fg: #fff;
   /* accent 的弱化底 + 配套字色：tab 选中态、聚焦提示这类「要显眼但不是按钮」的地方 */
-  --accent-soft: #e8ecfb;
-  --accent-soft-fg: #16267a;
+  --accent-soft: #fbeee9;
+  --accent-soft-fg: #8f3417;
   --success: #1a7f37;
   --warning: #8a5300;
   --danger: #b3261e;
@@ -110,11 +113,11 @@
     --border-strong: #767680;
     --fg: #ebebe8;
     --muted: #a2a29b;
-    --accent: #8ba4ff;
+    --accent: #e8825a;
     /* 唯一一处深浅不同向的字色，理由见浅色那节的 --accent-fg */
-    --accent-fg: #0d1330;
-    --accent-soft: #1e2547;
-    --accent-soft-fg: #b9c6ff;
+    --accent-fg: #2b1207;
+    --accent-soft: #3a1e14;
+    --accent-soft-fg: #f0b49a;
     --success: #5fd67f;
     --warning: #e0a33c;
     --danger: #f2837a;

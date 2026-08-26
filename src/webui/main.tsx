@@ -27,7 +27,19 @@ import {
   type TabId,
 } from "./fields.js"
 import { errMsg, request } from "./http.js"
-import { BTN, BTN_DANGER, BTN_PRIMARY, DOT, FHINT, HINT, INPUT, MONO, TAG, toList } from "./ui.js"
+import {
+  BTN,
+  BTN_DANGER,
+  BTN_ACCENT,
+  BTN_PRIMARY,
+  DOT,
+  FHINT,
+  FOCUS,
+  HINT,
+  INPUT,
+  MONO,
+  toList,
+} from "./ui.js"
 import "./styles.css"
 
 /**
@@ -241,10 +253,13 @@ function Conn({
     }
   }
 
+  /** 账号行的 id，给折叠按钮的 aria-controls 指 */
+  const panelId = `conn-${c.index}-accounts`
+
   return (
-    <div className="rounded-[10px] border border-border p-[12px]">
+    <div className="overflow-hidden rounded-[10px] border border-border">
       {/* flex-wrap + 按钮组窄屏占满一行：390px 下三个按钮与状态点挤在一行会溢出 */}
-      <div className="flex flex-wrap items-center gap-[12px]">
+      <div className="flex flex-wrap items-center gap-[12px] p-[12px]">
         <span
           className={`size-[10px] flex-none rounded-[50%] ${DOT[c.enable ? c.status : "off"] ?? "bg-muted"}`}
         />
@@ -252,48 +267,38 @@ function Conn({
           <div className="font-semibold">{c.name}</div>
           {/* 字体栈与 Tailwind 的 font-mono 略有出入，按原样式表逐项写死 */}
           <div className={`truncate text-[12px] text-muted ${MONO}`}>{c.url}</div>
-          <div className="mt-[6px] flex flex-wrap items-center gap-[6px]">
-            <span className={TAG}>{c.status_text}</span>
-            {c.retry > 0 && <span className={TAG}>已重连 {c.retry} 次</span>}
-            {c.has_token && <span className={TAG}>已配 token</span>}
-            {/* 绑定标签升级成折叠开关：缩起时预览前几个已开的头像，点开进管理区 */}
-            <button
-              className={`${TAG} flex cursor-pointer items-center gap-[5px] hover:border-accent`}
-              onClick={() => setOpen(o => !o)}
-              aria-expanded={open}
-              title="展开绑定账号管理"
-            >
-              {/* 叠放靠负外边距，描边用 ring（border 会与 Avatar 自己的边框打架） */}
-              {bindBots
-                .filter(b => on.includes(b.id))
-                .slice(0, 3)
-                .map((b, i) => (
-                  <Avatar
-                    key={b.id}
-                    p={b}
-                    size={18}
-                    className={i ? "-ml-[6px] ring-2 ring-surface" : ""}
-                  />
-                ))}
-              {/* 只说开着几个，不给分母：分母是候选数（在线的 + 绑过的），10 个 Bot 在线时
-                  「绑定 1/10」看起来像 9 个绑定没成功 */}
-              <span>{unlimited ? "不限账号" : `绑定 ${on.length} 个账号`}</span>
-              <span className="text-[9px]">{open ? "▲" : "▼"}</span>
-            </button>
-            {c.exclude?.length > 0 && <span className={TAG}>排除 {c.exclude.join("、")}</span>}
-            <span className={TAG}>
-              ↑{c.up} ↓{c.down}
-            </span>
+          {/*
+           * 只读信息一律**纯文字**，不套胶囊。
+           * 原先这些和折叠开关一样都是 TAG 描边胶囊，于是唯一能点的那个混在四五个不能点的
+           * 里头，只靠 hover 变色区分（触屏上根本没有 hover）。现在这个面板里
+           * 「有描边 = 可点」是一条硬规则，别再给只读信息加描边
+           */}
+          <div className="mt-[4px] text-[12px] text-muted [overflow-wrap:anywhere]">
+            {[
+              c.status_text,
+              c.retry > 0 ? `已重连 ${c.retry} 次` : "",
+              c.has_token ? "已配 token" : "",
+              c.exclude?.length > 0 ? `排除 ${c.exclude.join("、")}` : "",
+              `↑${c.up} ↓${c.down}`,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </div>
         </div>
-        <div className="flex flex-none gap-[6px] max-[720px]:w-full max-[720px]:justify-end">
+        {/*
+         * 主次分明：编辑给主色（最常用），停用次要，删除平时不红、hover 才变。
+         * 窄屏整行平分 —— 三个按钮各自至少 44px 高，够手指点
+         */}
+        <div className="flex flex-none gap-[8px] max-[720px]:w-full max-[720px]:*:flex-1">
           <button
             className={BTN}
             onClick={() => onAct({ action: "toggle", key: c.index, enable: !c.enable })}
           >
             {c.enable ? "停用" : "启用"}
           </button>
-          <button className={BTN} onClick={() => onEdit(c)}>
+          {/* 强调而非实心主色：每张卡都有一个编辑，实心会在整页平铺出四五个蓝块，
+              与页面级唯一的主按钮「添加连接」抢注意力（见 ui.ts 的 BTN_ACCENT） */}
+          <button className={BTN_ACCENT} onClick={() => onEdit(c)}>
             编辑
           </button>
           <button
@@ -306,46 +311,82 @@ function Conn({
           </button>
         </div>
       </div>
-      {open && (
-        <BotSwitchList
-          bots={bindBots}
-          checked={on}
-          conflicts={c.conflicts || []}
-          lockLast={c.automatic}
-          saving={saving}
-          runtime={byAccount}
-          connEnabled={c.enable}
-          onToggle={toggle}
-          empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
-        />
-      )}
+
       {/*
+       * 账号行：**整行都是折叠开关**。
+       * 单独占一行而不是挤进上面那排信息里 —— 这样命中区是整张卡的宽度（远超 44px），
+       * 而且与右边那三个按钮天然分开，不会出现「按钮套按钮」这种嵌套。
+       * 注意：不用 hover 承载可点线索（触屏没有 hover），靠底色 + 整行 + 右侧箭头三重提示
+       */}
+      <button
+        className={`flex w-full min-h-[44px] cursor-pointer items-center gap-[8px] border-t border-border bg-surface2 px-[12px] py-[8px] text-left text-[13px] hover:bg-accent-soft ${FOCUS}`}
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
+      >
+        {/* 叠放靠负外边距，描边用 ring（border 会与 Avatar 自己的边框打架） */}
+        {bindBots
+          .filter(b => on.includes(b.id))
+          .slice(0, 3)
+          .map((b, i) => (
+            <Avatar
+              key={b.id}
+              p={b}
+              size={20}
+              className={i ? "-ml-[6px] ring-2 ring-surface2" : ""}
+            />
+          ))}
+        {/* 只说开着几个，不给分母：分母是候选数（在线的 + 绑过的），10 个 Bot 在线时
+            「绑定 1/10」看起来像 9 个绑定没成功 */}
+        <span className="min-w-0 flex-1">
+          {unlimited ? "不限账号" : `绑定 ${on.length} 个账号`}
+        </span>
+        <span className="flex-none text-muted">{open ? "收起 ▲" : "管理 ▼"}</span>
+      </button>
+
+      <div id={panelId} className="px-[12px] pb-[12px]">
+        {open && (
+          <BotSwitchList
+            bots={bindBots}
+            checked={on}
+            conflicts={c.conflicts || []}
+            lockLast={c.automatic}
+            saving={saving}
+            runtime={byAccount}
+            connEnabled={c.enable}
+            onToggle={toggle}
+            empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
+          />
+        )}
+        {/*
         剩下的运行时连接：**没有对应账号行**的那些才列在这儿（兼容连接的自定义路径，account 为空）。
         逐账号的那些已经画在上面的账号行上了 —— 原先这一块把它们再列一遍，于是同一个号在卡片里
         出现两次（号码与状态都重复），绑两个号就是四行说三件事。
         判据用 open 而不是「多于一条」：这些行没有对应的开关，展开与否是用户唯一的控制
       */}
-      {loose.length > 0 && open && (
-        <div className="mt-[10px] flex flex-col gap-[6px] rounded-[10px] border border-border bg-bg p-[10px]">
-          {loose.map(r => (
-            <div className="flex flex-wrap items-center gap-[8px]" key={r.name}>
-              <span
-                className={`size-[8px] flex-none rounded-[50%] ${DOT[c.enable ? r.status : "off"] ?? "bg-muted"}`}
-              />
-              <span className="text-[12px] font-semibold">{r.name}</span>
-              {/* 只到 pathname，地址里的 token 查询串后端已经砍掉了 */}
-              <span className={`min-w-0 flex-1 truncate text-[12px] text-muted ${MONO}`}>
-                {r.path}
-              </span>
-              <span className={TAG}>{r.status_text}</span>
-              {r.retry > 0 && <span className={TAG}>已重连 {r.retry} 次</span>}
-              <span className={TAG}>
-                ↑{r.up} ↓{r.down}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+        {loose.length > 0 && open && (
+          <div className="mt-[10px] flex flex-col gap-[6px] rounded-[10px] border border-border bg-bg p-[10px]">
+            {loose.map(r => (
+              <div className="flex flex-wrap items-center gap-[8px]" key={r.name}>
+                <span
+                  className={`size-[8px] flex-none rounded-[50%] ${DOT[c.enable ? r.status : "off"] ?? "bg-muted"}`}
+                />
+                <span className="text-[12px] font-semibold">{r.name}</span>
+                {/* 只到 pathname，地址里的 token 查询串后端已经砍掉了 */}
+                <span className={`min-w-0 flex-1 truncate text-[12px] text-muted ${MONO}`}>
+                  {r.path}
+                </span>
+                {/* 同上：只读信息不套胶囊 */}
+                <span className="text-[12px] text-muted">
+                  {[r.status_text, r.retry > 0 ? `已重连 ${r.retry} 次` : "", `↑${r.up} ↓${r.down}`]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

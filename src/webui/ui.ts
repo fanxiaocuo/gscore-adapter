@@ -31,12 +31,24 @@ export const FOCUS =
  */
 export const INPUT = `rounded-[8px] border border-border-strong bg-surface2 px-[10px] py-[7px] text-[13px] text-fg ${FOCUS}`
 
-/** 按钮的形状部分，配色由下面三个变体各自写全 */
+/** 按钮的形状部分，配色由下面四个变体各自写全 */
 const BTN_SHAPE = `cursor-pointer rounded-[8px] border px-[14px] py-[6px] text-[13px] ${FOCUS}`
 /** 次要按钮 */
 export const BTN = `${BTN_SHAPE} border-border-strong bg-surface text-fg hover:border-accent hover:text-accent`
-/** 主按钮。字色走 accent-fg 而不是 white：深色下那是深墨，写死白字只有 2.37:1 */
+/**
+ * @description 主按钮。字色走 accent-fg 而不是 white：深色下那是深墨，写死白字只有 2.37:1
+ * 注意：**一处上下文只能有一个** —— 实心主色是「这一屏最该点的那个」，出现四五个就等于没有主次。
+ * 列表里逐项重复的主操作用 {@link BTN_ACCENT}
+ */
 export const BTN_PRIMARY = `${BTN_SHAPE} border-transparent bg-accent text-accent-fg hover:opacity-90`
+/**
+ * @description 强调按钮：描边与文字走主色，底仍是卡面
+ *
+ * 给「列表里每一项都有的主操作」用（连接卡的编辑）。实心主色在这种位置会平铺出四五个蓝块，
+ * 与页面级那个唯一的主按钮（添加连接）抢注意力；描边保留了「这是本卡最常用的那个」的层级，
+ * 又不会让整页看起来到处都是主按钮。
+ */
+export const BTN_ACCENT = `${BTN_SHAPE} border-accent bg-surface text-accent hover:bg-accent-soft`
 /** 危险动作按钮，平时不红，hover 才变 —— 常驻红色会让「删除」比「保存」更抢眼 */
 export const BTN_DANGER = `${BTN_SHAPE} border-border-strong bg-surface text-fg hover:border-danger hover:text-danger`
 
