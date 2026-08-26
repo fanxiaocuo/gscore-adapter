@@ -6,7 +6,7 @@
 
 📖 **[完整文档](https://fanxiaocuo.github.io/gscore-adapter/)** · 🙏 [致谢与参考实现](CREDITS.md)
 
-## 🛠️ 装
+## 🛠️ 安装
 
 在 **Yunzai 根目录**（不是 `plugins/`）运行。两个分支都是编译好的 js，不用自己编译：
 
