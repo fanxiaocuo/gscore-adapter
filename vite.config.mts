@@ -42,7 +42,22 @@ export default defineConfig({
   // lib 模式下 Vite 不替换 process.env.NODE_ENV（按「库由使用方定义」的约定留给
   // 下游），但这是浏览器 IIFE，没有下游：不定义的话 react-dom 的开发版会整个
   // 打进来（591KB vs 183KB），运行时还会因 process 未定义直接抛错
-  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+    /*
+     * 构建戳，面板页脚显示它。
+     *
+     * 用途是**分辨手上这一份是不是新包**：panel.js 的文件名被宿主的静态白名单钉死，
+     * 换不了名字；page.html 是入库文件，给它加 `?v=` 等于让构建去改一个已跟踪文件；
+     * 而从脚本注入样式表会引入一次无样式闪烁。三条路都不划算，所以不做 URL 层的防缓存，
+     * 改成把戳显示出来 —— 页脚的时间与你刚构建的时间对不上，就是浏览器还拿着旧包，
+     * 硬刷新（Ctrl+F5）即可。
+     * 注意：取值在配置求值时算一次，所以同一次 build 里的戳是一致的
+     */
+    __BUILD__: JSON.stringify(
+      new Date().toLocaleString("zh-CN", { hour12: false, timeZoneName: "short" }),
+    ),
+  },
   build: {
     // 与原 esbuild 配置对齐：es2020、压缩、无 sourcemap
     target: "es2020",

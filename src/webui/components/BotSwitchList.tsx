@@ -5,10 +5,13 @@
  * 改成收自己真正要的那几项，连接卡片与弹层就能共用同一份行渲染。
  * 注意：开关的开合判据是「有效账号」（调用方传 {@link ConnView.accounts}）而不是 bind —— 被 exclude
  * 排除的号仍要列出来，只是灰着并挂 conflicts 标记，绿着却不转发是在说谎、抹掉它会让用户以为没绑过
+ * 注意：运行时状态（连上没连上、收发计数、ws 路径）也画在**同一行**上，见 {@link runtime}。
+ * 原先它们另起一块逐条列，于是同一个账号在卡片里出现两次（一次开关行、一次运行时行），
+ * 号码与状态都重复；一条连接绑两个号就是四行说三件事
  */
 import { useId } from "react"
-import type { BotProfile } from "../api.js"
-import { MONO, TAG } from "../ui.js"
+import type { BotProfile, RuntimeConnView } from "../api.js"
+import { DOT, MONO, TAG } from "../ui.js"
 import { Avatar } from "./Avatar.js"
 import { Switch } from "./Switch.js"
 
@@ -31,6 +34,8 @@ export function BotSwitchList({
   conflicts,
   lockLast = false,
   saving = null,
+  runtime,
+  connEnabled = true,
   onToggle,
   empty,
 }: {
@@ -48,6 +53,13 @@ export function BotSwitchList({
   lockLast?: boolean
   /** 正在保存的账号，非 null 时整组禁用，避免连点把状态叠乱 */
   saving?: string | null
+  /**
+   * @description 这条连接派生出的运行时连接，按账号索引；不给就只画开关（新增/编辑弹层那边）
+   * 一个账号对应一条 ws，状态与计数直接画在它那一行上，不再另起一块重复列一遍
+   */
+  runtime?: Record<string, RuntimeConnView>
+  /** 整条连接是否启用。停用时状态灯一律灰，不然会显示成「未连接」像是故障 */
+  connEnabled?: boolean
   onToggle: (id: string, on: boolean) => void
   /** 没有候选账号时显示的话术，随场景不同（连接卡片 / 新增弹层） */
   empty: string
@@ -68,6 +80,8 @@ export function BotSwitchList({
           const on = checked.includes(b.id)
           const last = locked && on
           const noteId = `${uid}-${b.id}`
+          // 这个账号派生出的那条 ws（没绑就没有，弹层里也没有）
+          const rt = runtime?.[b.id]
           return (
             <div className={ROW} key={b.id}>
               <Avatar
@@ -96,6 +110,29 @@ export function BotSwitchList({
                   <span className={NOTE} id={noteId}>
                     最后一个绑定，不能关
                   </span>
+                )}
+                {/*
+                 * 这一行的运行时状态：ws 通没通、重连了几次、收发多少。
+                 * 注意：整条连接停用时状态灯走 `off`（灰）而不是状态码 0 —— 0 会画成红点，
+                 * 而「用户自己停用的」不是故障
+                 */}
+                {rt && (
+                  <>
+                    <span className={`${NOTE} inline-flex items-center gap-[5px]`}>
+                      <span
+                        className={`size-[8px] flex-none rounded-[50%] ${DOT[connEnabled ? rt.status : "off"] ?? "bg-muted"}`}
+                      />
+                      {rt.status_text}
+                    </span>
+                    {rt.retry > 0 && <span className={NOTE}>已重连 {rt.retry} 次</span>}
+                    <span className={`${NOTE} tabular-nums`}>
+                      ↑{rt.up} ↓{rt.down}
+                    </span>
+                    {/* 只到 pathname（token 查询串后端已砍掉）：核心侧看到的客户端标识就是它 */}
+                    <span className={`${NOTE} ${MONO} min-w-0 max-w-full truncate`} title={rt.path}>
+                      {rt.path}
+                    </span>
+                  </>
                 )}
               </div>
               <div className="flex justify-end max-[720px]:col-start-3 max-[720px]:row-span-2 max-[720px]:row-start-1">

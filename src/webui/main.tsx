@@ -27,8 +27,15 @@ import {
   type TabId,
 } from "./fields.js"
 import { errMsg, request } from "./http.js"
-import { BTN, BTN_DANGER, BTN_PRIMARY, FHINT, HINT, INPUT, MONO, TAG, toList } from "./ui.js"
+import { BTN, BTN_DANGER, BTN_PRIMARY, DOT, FHINT, HINT, INPUT, MONO, TAG, toList } from "./ui.js"
 import "./styles.css"
+
+/**
+ * @description 构建时间戳，由 vite 的 define 注入（见 vite.config.mts 那段说明）
+ * 页脚显示它，用来分辨浏览器手上这一份是不是刚构建的那个包 —— panel.js 的文件名被宿主的
+ * 静态白名单钉死、换不了名，所以没有 URL 层的防缓存，只能靠这个戳加一次硬刷新
+ */
+declare const __BUILD__: string
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
 const WEB_BASE = new URLSearchParams(location.search).get("__webBase") || ""
@@ -133,16 +140,6 @@ function Stat({ k, v, sub }: { k: string; v: string; sub: string }) {
   )
 }
 
-/* 状态码对应 constants/index.ts 的 STATUS_TEXT：0 未连接 1 已连接 2 连接中 3 断线重连中。
-   已连接那档带同色光晕，box-shadow 用变量拼 utility 太长，留在 styles.css 里当 .dot-on */
-const DOT: Record<string, string> = {
-  0: "bg-danger",
-  1: "dot-on",
-  2: "bg-warning",
-  3: "bg-warning",
-  off: "bg-muted",
-}
-
 /**
  * @description 面板发给 /connection 的请求体
  * 五个动作共用一个接口、字段随动作变，所以除 action 外都是可选 —— 后端 `locate()` / `bool()` 自己兜缺失值
@@ -193,6 +190,17 @@ function Conn({
   // 开着的账号 = 有效账号（bind 减 exclude），后端算好回在 accounts 里
   const on = c.accounts || []
   const runtime = c.runtime || []
+  /**
+   * @description 逐账号的运行时连接，按账号索引，交给账号行自己画状态
+   * 一条自动端点连接的每个绑定账号各派生一条 ws，所以这是一对一的
+   */
+  const byAccount: Record<string, (typeof runtime)[number]> = {}
+  for (const r of runtime) if (r.account) byAccount[r.account] = r
+  /**
+   * @description 没有对应账号行的运行时连接：兼容连接（自定义路径）只有一条 ws、account 为空
+   * 它们没有开关可挂，只能单独列
+   */
+  const loose = runtime.filter(r => !r.account || !byAccount[r.account])
   /**
    * @description 这条连接现在「不限账号」：兼容连接且一个有效账号都没有
    * 注意：判据是 `accounts` 而不是 `bind` —— bind 非空但被 exclude 吃干净时实际行为就是不限，
@@ -305,15 +313,21 @@ function Conn({
           conflicts={c.conflicts || []}
           lockLast={c.automatic}
           saving={saving}
+          runtime={byAccount}
+          connEnabled={c.enable}
           onToggle={toggle}
           empty="没有可选账号：当前没有机器人在线，这条连接也没绑过账号。可以在「编辑」里手填账号。"
         />
       )}
-      {/* 逐条运行时连接：只在展开或多于一条时列 —— 一条时头部那行状态就是它，
-          多条时头部是聚合值，必须能看出是哪个账号没连上 */}
-      {runtime.length > 0 && (open || runtime.length > 1) && (
+      {/*
+        剩下的运行时连接：**没有对应账号行**的那些才列在这儿（兼容连接的自定义路径，account 为空）。
+        逐账号的那些已经画在上面的账号行上了 —— 原先这一块把它们再列一遍，于是同一个号在卡片里
+        出现两次（号码与状态都重复），绑两个号就是四行说三件事。
+        判据用 open 而不是「多于一条」：这些行没有对应的开关，展开与否是用户唯一的控制
+      */}
+      {loose.length > 0 && open && (
         <div className="mt-[10px] flex flex-col gap-[6px] rounded-[10px] border border-border bg-bg p-[10px]">
-          {runtime.map(r => (
+          {loose.map(r => (
             <div className="flex flex-wrap items-center gap-[8px]" key={r.name}>
               <span
                 className={`size-[8px] flex-none rounded-[50%] ${DOT[c.enable ? r.status : "off"] ?? "bg-muted"}`}
@@ -1102,6 +1116,8 @@ function App() {
         <Settings config={state.config} tab={tab} onSave={b => send("/config", b)} />
         {/* 配置文件路径只在设置页说一次：三页都挂等于同一句话重复三遍 */}
         {tab === "settings" && <p className={HINT}>配置文件：{state.plugin.configFile}</p>}
+        {/* 构建戳三页都显示：它的用途是「我现在看的是不是新包」，而那个疑问在哪一页都会有 */}
+        <p className={HINT}>面板构建于 {__BUILD__}</p>
       </div>
 
       {modal !== undefined && (

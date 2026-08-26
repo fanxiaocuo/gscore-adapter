@@ -15,11 +15,15 @@ import type { guoba } from "trss-yunzai"
 
 /**
  * @description 面板上的全部配置项
+ *
+ * 顺序即锅巴导航上的组顺序，与 web 面板的三个 tab 一致：连接 / 设置 / 过滤。
+ * 注意：**client 必须排第一**。三个数组各自以一个 `SOFT_GROUP_BEGIN` 开头，而锅巴把首个标记
+ * 之前的字段全归进一个叫「默认」的组 —— 把没有标记的东西放到最前面就会凭空多出那个组。
  * 注意：必须每次调用重算，提成模块级常量会冻在首次 import 的时刻（那时账号还没登录完，
  * client 那节的账号候选会永远是空的）
  */
 function buildSchemas() {
-  return [...baseSchemas, ...clientSchemas(), ...filterSchemas]
+  return [...clientSchemas(), ...baseSchemas, ...filterSchemas]
 }
 
 /** 用户黑名单真正落盘的 key，选择器与手输两栏都归到它 */
@@ -105,9 +109,14 @@ export function supportGuoba() {
       getConfigData() {
         const data: Record<string, unknown> = {}
         for (const schema of schemas) {
-          // Divider 没有 field
+          /*
+           * 分组标记（SOFT_GROUP_BEGIN）与 Divider 都没有 field。
+           * 注意：String() 不能省 —— 三个 schema 数组的成员形状不一，联合起来 `schema.field`
+           * 推不成 string（会退化成 unknown），而这里要拿它当键
+           */
           if (!("field" in schema) || !schema.field) continue
-          data[schema.field] = toDisplay(schema.field, getValue(schema.field))
+          const field = String(schema.field)
+          data[field] = toDisplay(field, getValue(field))
         }
         // 一份 black_user 分给两个控件显示
         const { picked, manual } = splitBlackUser(data[BLACK_USER_FIELD])

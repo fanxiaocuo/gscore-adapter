@@ -46,6 +46,20 @@ export const HINT = "mt-[2px] text-[12px] text-muted"
 export const FHINT = "text-[11px] text-muted"
 
 /**
+ * @description 状态灯的配色，键对应 constants/index.ts 的 STATUS_TEXT
+ * 0 未连接 1 已连接 2 连接中 3 断线重连中，另加一个 `off`（整条连接被停用）。
+ * 已连接那档带同色光晕，box-shadow 用变量拼 utility 太长，留在 styles.css 里当 `.dot-on`。
+ * 注意：连接卡头部与账号行都要用它 —— 各写一份必然出现「同一个状态两处颜色不同」
+ */
+export const DOT: Record<string, string> = {
+  0: "bg-danger",
+  1: "dot-on",
+  2: "bg-warning",
+  3: "bg-warning",
+  off: "bg-muted",
+}
+
+/**
  * @description 逗号分隔的文本 → 数组。中英文逗号都收，顺手去空项与首尾空白
  *
  * 面板上有两个「粘一串进来」的入口：连接弹层的绑定/排除账号（`type: "list"` 文本框）与

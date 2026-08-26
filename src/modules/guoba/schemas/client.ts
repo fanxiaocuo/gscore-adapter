@@ -4,6 +4,7 @@
  * 理由见 types/Config.ts 的 client 那段
  */
 import { onlineBots } from "@/utils/bots.js"
+import { group } from "./group.js"
 
 /**
  * @description 账号候选项，给 bind / exclude 两个下拉用，取的是调用那一刻的在线账号
@@ -37,6 +38,8 @@ function accountSelect(placeholder: string) {
 
 export function clientSchemas() {
   return [
+    // 「连接」组：与 web 面板的连接 tab 对应
+    group("连接"),
     {
       component: "Divider",
       label: "客户端（云崽 → 早柚核心）",

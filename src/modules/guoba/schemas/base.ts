@@ -1,10 +1,13 @@
 /** @description 基础配置项：运行模式与其它杂项 */
 import { displayRange } from "@/config/units.js"
+import { group } from "./group.js"
 
 /** @description 两个大小上限在面板里的取值区间，单位 MB（落盘仍是字节）。换算表在 config/units.ts */
 const SIZE_RANGE = displayRange("media_max_size")
 
 export const baseSchemas = [
+  // 「设置」组：与 web 面板的设置 tab 对应。组内仍用 Divider 分小节
+  group("设置"),
   {
     component: "Divider",
     label: "总开关",

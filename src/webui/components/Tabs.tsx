@@ -1,10 +1,11 @@
 /**
  * @description 顶部 tab 条（连接 / 设置 / 过滤），真 `role="tablist"` + 左右方向键切换
  *
- * 注意：用真 `<button>` 而不是 div —— Tab 聚焦、Enter/Space 激活、禁用态都是浏览器给的，
- * div 上要自己补 tabindex 与 keydown，漏一样键盘用户就走不进来
- * 注意：选中态用 accent-soft 底 + accent-soft-fg 字，**不加下划线** —— 下划线在 iframe 窄屏里
- * 与下方卡片的描边贴在一起，看起来像卡片顶边裂了一条
+ * 视觉是**分段控件**（segmented control）：整条一个凹底槽，选中项白/浮起一块并带阴影。
+ * 注意：不能只靠底色深浅区分选中 —— 原先选中项是 accent-soft 底、未选中透明底，两者在浅色
+ * 主题下差一点点，实测「看不出哪个是当前页」。分段控件靠**形状**（浮起的块 + 阴影 + 凹槽）
+ * 而不只是颜色，弱视与快速扫视都分得开。
+ * 注意：仍**不加下划线** —— 下划线在 iframe 窄屏里与下方卡片的描边贴在一起，看起来像卡片顶边裂了
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { FOCUS } from "../ui.js"
@@ -91,13 +92,15 @@ export function Tabs<T extends string>({
   }
 
   return (
-    /* 窄屏可横向滑动，但**不撑页面**：overflow-x-auto 让溢出留在这个容器里。
+    /* 凹槽用页面底色（bg，比卡面深一档）+ 描边，选中的那块以 surface 浮在它上面。
+       注意：凹槽不能用 surface2 —— 它对 surface 只有 1.03:1，浮起完全看不出来（实测过）。
+       窄屏可横向滑动，但**不撑页面**：overflow-x-auto 让溢出留在这个容器里。
        min-w-0 不能省 —— grid/flex 子项默认 min-width:auto，不给 0 时它会按内容撑宽父级 */
     <div
       role="tablist"
       aria-label="面板分页"
       onKeyDown={onKey}
-      className="mb-[16px] flex min-w-0 gap-[6px] overflow-x-auto rounded-[12px] border border-border bg-surface p-[6px] shadow-[var(--shadow)]"
+      className="mb-[16px] flex min-w-0 gap-[4px] overflow-x-auto rounded-[12px] border border-border bg-bg p-[4px]"
     >
       {items.map(x => {
         const on = x.id === tab
@@ -115,9 +118,17 @@ export function Tabs<T extends string>({
                组内移动交给方向键 */
             tabIndex={on ? 0 : -1}
             onClick={() => onSelect(x.id)}
-            /* 44px 高是触控下限；flex-none + whitespace-nowrap 让标签不会被压成两行 */
-            className={`h-[44px] flex-none cursor-pointer whitespace-nowrap rounded-[8px] border-0 px-[16px] text-[14px] ${FOCUS} ${
-              on ? "bg-accent-soft font-semibold text-accent-soft-fg" : "bg-transparent text-muted"
+            /*
+             * 44px 高是触控下限；flex-1 让三块等分整条（分段控件的样子），
+             * whitespace-nowrap 让标签不会被压成两行。
+             * 选中态**三个通道一起给**：形状（surface 底 + 描边 + 阴影，从凹槽里浮起）、
+             * 字重、字色（accent）。只靠底色深浅区分是这一版之前的做法，实测「看不出哪个是当前页」——
+             * 而弱视与快速扫视的人本来就分不出一档灰。描边用 border-strong（控件边界要过 3:1）
+             */
+            className={`h-[40px] min-w-[72px] flex-1 cursor-pointer whitespace-nowrap rounded-[8px] px-[14px] text-[14px] ${FOCUS} ${
+              on
+                ? "border border-border-strong bg-surface font-semibold text-accent shadow-[var(--shadow)]"
+                : "border-0 bg-transparent text-muted hover:text-fg"
             }`}
           >
             {x.label}
