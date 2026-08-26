@@ -65,12 +65,17 @@ import { pathToFileURL } from "node:url"
 
 /**
  * @description 宿主传进来的 express req / res，只按实际用到的成员声明
- * 注意：别图省事标成 any —— 那样 `res.jsno(...)` 这种拼错也不会报。本仓库不装 @types/express
+ *
+ * 注意：别图省事标成 any，也别留 `[k: string]: any` —— 两者一样会放过 `res.jsno(...)` 这种拼错。
+ * 先前这里有那个索引签名，于是上面这句话是空的（实测：拼错的方法名 tsc 一声不响）；
+ * 去掉之后才真的报 `Property 'jsno' does not exist on type 'WebResponse'`。
+ * 本仓库不装 @types/express，所以宿主给什么就在这儿列什么；用到新成员时补一行，别开索引签名
  */
 interface WebRequest {
   /** 已被宿主的 body 解析中间件填好；面板送的是任意 JSON，先过 safeBody */
   body?: unknown
-  [k: string]: any
+  /** 查询串，`/targets?kind=group` 用它 */
+  query?: Record<string, unknown>
 }
 
 interface WebResponse {
@@ -78,7 +83,6 @@ interface WebResponse {
   status(code: number): WebResponse
   setHeader(name: string, value: string): unknown
   end(data?: unknown): unknown
-  [k: string]: any
 }
 
 /**
@@ -93,8 +97,8 @@ interface WebCtx {
     handler: (req: WebRequest, res: WebResponse) => unknown,
   ): unknown
   /** 宿主的 logger，未必存在，调用点一律 `?.` */
-  logger?: { warn?: (msg: string) => unknown; [k: string]: any }
-  [k: string]: any
+  logger?: { warn?: (msg: string) => unknown }
+  // 注意：同 WebRequest / WebResponse，不留索引签名 —— 那会让 ctx 上的拼错也静默通过
 }
 
 /**
