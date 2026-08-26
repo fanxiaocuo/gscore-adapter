@@ -3,6 +3,34 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.5.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.4.0...v4.5.0) (2026-08-26)
+
+
+### ✨ 新功能
+
+* **panel:** 三 tab 重排、配置项对齐锅巴、大小单位统一为 MB ([3a9b4d7](https://github.com/fanxiaocuo/gscore-adapter/commit/3a9b4d7bce95ba705265fcf04651ee6f1805f7f2))
+* **panel:** 账号行改整行折叠、配色换赤陶暖调 ([7a8e316](https://github.com/fanxiaocuo/gscore-adapter/commit/7a8e316da98ef4213e1106ef81cf1a33fedd419e))
+* **panel:** 连接卡账号行去重、tab 改分段控件、锅巴改真分组 ([4c1bfc9](https://github.com/fanxiaocuo/gscore-adapter/commit/4c1bfc9b68881f1cfb780863d529a3c045e4bbdb))
+
+
+### 🐛 问题修复
+
+* **admin:** 添加连接命中停用的示例连接时顺手启用 ([31e4278](https://github.com/fanxiaocuo/gscore-adapter/commit/31e4278b5d95ce578b10c375f598ffaa36c926c2))
+* **config:** 手改配置文件不再被自身写盘的抑制闩吞掉 ([5e947fe](https://github.com/fanxiaocuo/gscore-adapter/commit/5e947fe307b3db6d27eff40a3326457ea44c986b))
+* **convert:** 回调按钮「所有人」权限被当成用户白名单 ([1f5daaf](https://github.com/fanxiaocuo/gscore-adapter/commit/1f5daaf6fe194743186b680006a29777651462ac))
+* **passive:** 按钮回调的 event_id 可用于被动回复 ([fce7f5e](https://github.com/fanxiaocuo/gscore-adapter/commit/fce7f5ec67c2f02e388b5f4943b4ba967250057d))
+* **reply:** 引用 id 补 raw/raw_event 与 CQ 码来路 ([d5ca776](https://github.com/fanxiaocuo/gscore-adapter/commit/d5ca77672b65ceeaa8b542fd6881171db16e096d))
+
+
+### 📝 文档
+
+* README 精简为面向用户，致谢移入 CREDITS.md ([f556014](https://github.com/fanxiaocuo/gscore-adapter/commit/f556014702fc72513bf54b438cdb8c3789a8ea3a))
+* README 补一句复用出厂示例连接 ([e9b5db0](https://github.com/fanxiaocuo/gscore-adapter/commit/e9b5db015ae1a4897c1771878d3dfd566174fcc9))
+* **spec:** 面板那轮设计文档入库，附落地偏离 ([3c3ab49](https://github.com/fanxiaocuo/gscore-adapter/commit/3c3ab4904e5f0d47e37fc0e6ade930d775317948))
+* 五页指南改写为任务导向 ([e1b142b](https://github.com/fanxiaocuo/gscore-adapter/commit/e1b142bfb6e51cfb6ad709173ca99d42ee99301e))
+* 标题「装」改回「安装」 ([601e484](https://github.com/fanxiaocuo/gscore-adapter/commit/601e4842db9d6d04f90b8f25e135c68d2b623043))
+* 补回标题 emoji ([b6ee728](https://github.com/fanxiaocuo/gscore-adapter/commit/b6ee728a66f84acbf47a15656232aa5838accc47))
+
 ## [4.4.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.3.0...v4.4.0) (2026-08-25)
 
 
