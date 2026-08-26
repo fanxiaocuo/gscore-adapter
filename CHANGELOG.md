@@ -3,6 +3,19 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.5.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.5.0...v4.5.1) (2026-08-26)
+
+
+### 🐛 问题修复
+
+* **convert:** 空串的 link/callback/input 不再产出点不动的按钮 ([349e0ea](https://github.com/fanxiaocuo/gscore-adapter/commit/349e0eabe912b6a837ced0e594d412c96628c12e))
+* **webadapter:** 去掉宿主接口的索引签名，拼错的成员名现在真会报 ([6df246e](https://github.com/fanxiaocuo/gscore-adapter/commit/6df246e0d6ccdeed5e517186460312ab8f1d73fe))
+
+
+### 📝 文档
+
+* 更正构建戳的用途，宿主静态路由本就每次回源校验 ([36fcd6d](https://github.com/fanxiaocuo/gscore-adapter/commit/36fcd6d2cdbf046f73583d6820eedf1da7d098bc))
+
 ## [4.5.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.4.0...v4.5.0) (2026-08-26)
 
 
