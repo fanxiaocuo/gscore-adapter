@@ -124,16 +124,53 @@ export function isQQBot(bot: SendBot | undefined | null): boolean {
 }
 
 /**
+ * 交互事件 id 的前缀
+ *
+ * QQBot-Plugin 把按钮回调这类交互事件的凭据挂成 `message_id: event_<真实 id>`
+ *（它自己 index.js:1692 那行拼的），而官方接口收这类凭据的字段是 `event_id` 而不是 `id`。
+ * 前缀在本模块里**原样存**：发送侧靠它分辨该填哪个字段（见 GsCoreClient.doSend）
+ */
+const EVENT_PREFIX = "event_"
+
+/** 这个凭据是交互事件而不是消息 */
+export function isEventId(id: string): boolean {
+  return id.startsWith(EVENT_PREFIX)
+}
+
+/** 剥掉前缀，得到官方 `event_id` 字段要的值 */
+export function eventIdOf(id: string): string {
+  return id.slice(EVENT_PREFIX.length)
+}
+
+/**
  * QQBot 的 message_id 是否可用于被动回复
  *
- * `event_*` 前缀的是事件 id（入群、按钮回调等），不是消息 id，拿它当被动回复
- * 的凭据会被平台拒收。空值与 0 同理。判据取自参考实现的 isValidQQBotMessageId。
+ * 空值、`0`、`null` / `undefined` 字面量都不行。
+ * 注意：`event_<id>` **是可用的** —— 它是按钮回调这类交互事件的凭据，官方按 `event_id` 字段收。
+ * 早先这里一律拒 `event_` 开头的，于是点按钮触发的回复全部退化成主动消息、不与那次交互关联；
+ * 判据当时抄的是参考实现的旧版（xiowo 已在 26374f7 修掉，同一处）。
+ * 光秃秃一个 `event_` 后面没东西的仍然不行
  */
 export function isValidId(id: unknown): boolean {
   if (id == null) return false
   const s = String(id)
   if (!s || s === "0" || s === "null" || s === "undefined") return false
-  return !s.startsWith("event_")
+  if (isEventId(s)) return eventIdOf(s) !== ""
+  return true
+}
+
+/**
+ * 这个凭据还能带几次
+ *
+ * 消息 id 按场景取满（{@link MAX_USES}）。交互事件**保守只算 1 次** —— 官方文档
+ *（v2_groups_group_openid_messages / v2_users_user_openid_messages）只写了消息被动回复的
+ * 次数与时长，没有公布交互事件的上限。多算的代价是撞
+ * `40034128 回复消息失败，被动回复时间或者次数超过限制`：白打一次请求、留一条错误日志，
+ * 再靠 doSend 的失败回退改成主动发出去；少算的代价只是后面几段少了引用形态。
+ * 两者不对等，所以取保守的那个。真实上限确认后改这一处即可
+ */
+function usesFor(targetType: TargetType, id: string): number {
+  return isEventId(id) ? 1 : MAX_USES[targetType]
 }
 
 /**
@@ -212,7 +249,7 @@ export function take(
   // 库里那行的 used 还是上一轮的旧值（通常 0）。DELETE 没落地就重启，initPassive 的守卫读到 0
   // 直接放行，这个 id 会被重新灌进内存再用一轮，撞 40034128。留着则 used=上限 走正常 save 落盘，
   // 守卫读到的就是真值，删除退化成单纯的回收空间
-  if (hit.used >= MAX_USES[targetType]) return ""
+  if (hit.used >= usesFor(targetType, hit.id)) return ""
 
   hit.used += 1
   dirty.add(key)

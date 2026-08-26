@@ -14,7 +14,7 @@ import { setLocalHint } from "@/utils/fileServer.js"
 import { yunzaiToGscore, gscoreToYunzai } from "@/modules/convert"
 import { metaToGscore, metaLogStr, type MetaEvent } from "@/modules/notice"
 import { count } from "@/modules/stats/index.js"
-import { isQQBot, take } from "@/modules/passive"
+import { eventIdOf, isEventId, isQQBot, take } from "@/modules/passive"
 import type {
   AdapterEvent,
   MessageSend,
@@ -470,7 +470,14 @@ export class GsCoreClient {
     }
 
     try {
-      const ret = await fn(target, message, { id: msgId })
+      /*
+       * 交互事件走 `event_id`，消息走 `id` —— 两个不同的字段，不能混。
+       * QQBot-Plugin 的发送函数第三参同时认这两个键（index.js:1386），而官方接口对按钮回调
+       * 这类交互只收 event_id；填进 id 里平台不认，那次被动回复白费。
+       * 前缀由 modules/passive 原样存着，剥前缀的活在它那儿（eventIdOf）
+       */
+      const event = isEventId(msgId) ? { event_id: eventIdOf(msgId) } : { id: msgId }
+      const ret = await fn(target, message, event)
       // 只在「一条都没投出去」时才回退：QQBot 内部自愈过的发送带着陈旧 error 回来，照 sendError
       // 判会重发整条；部分成功的也不能重发，那会复制已经投出去的分组 —— 见 utils/send.ts 的 classifyDelivery
       if (deliveryDelivered(classifyDelivery(ret))) {
@@ -503,7 +510,13 @@ export class GsCoreClient {
     const name = type === "direct" ? "sendFriendMsg" : isGuild ? "sendGuildMsg" : "sendGroupMsg"
     const fn = adapter[name]
     if (typeof fn !== "function") return null
-    return (t: SendTarget, msg: any[], event: { id: string }) => fn.call(adapter, t, msg, event)
+    /*
+     * 第三参是两种凭据之一：消息走 `id`、交互事件走 `event_id`（QQBot-Plugin 的发送函数
+     * index.js:1386 同时认这两个键）。标成联合类型而不是 `{ id: string }` —— 后者会把
+     * 交互事件那一支挡在编译期外，而它正是按钮回调唯一能用的形式
+     */
+    return (t: SendTarget, msg: any[], event: { id: string } | { event_id: string }) =>
+      fn.call(adapter, t, msg, event)
   }
 
   /* ---------- 下行：早柚核心 -> 云崽 ---------- */
