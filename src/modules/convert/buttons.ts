@@ -30,21 +30,43 @@ export function buttonToGscore(raw: unknown): Button | false {
     ...b.GSUIDCore,
   }
 
+  /*
+   * 三种动作的取值。
+   * 注意：空串按「没给」算，不能当成有值 —— `b.link != null` 对 `""` 是真，于是
+   * `segment.button({ text: "x", link: someVar })` 在 someVar 为空时会产出一个 action 0、
+   * 地址空白的按钮：点下去什么都不会发生，而本函数的约定是「造不出可用按钮就返回 false」，
+   * 由调用方跳过它。空的回调 data 更糟 —— 核心分辨不出用户点的是哪个按钮
+   */
+  const pick = (v: unknown): string | null => {
+    if (v == null) return null
+    const s = String(v)
+    return s ? s : null
+  }
+
   // action: 0 跳转 1 回调 2 命令
-  if (b.input != null) {
-    btn.data = String(b.input)
+  const input = pick(b.input)
+  const callback = pick(b.callback)
+  const link = pick(b.link)
+  const data = pick(b.data)
+  if (input !== null) {
+    btn.data = input
     btn.action = 2
-  } else if (b.callback != null) {
-    btn.data = String(b.callback)
+  } else if (callback !== null) {
+    btn.data = callback
     btn.action = 1
-  } else if (b.link != null) {
-    btn.data = String(b.link)
+  } else if (link !== null) {
+    btn.data = link
     btn.action = 0
-  } else if (b.data != null) {
-    btn.data = String(b.data)
-    // 早柚形状直接塞进来时 action 已经在 b 上，但那是用户写的任意数字，协议只认 0/1/2。
-    // 不在范围内按 2（发送命令）算 —— 最保守的一档，点了只会往会话里发一句文本，不会跳到意外的链接
-    const a = b.action
+  } else if (data !== null) {
+    btn.data = data
+    /*
+     * 早柚形状直接塞进来时 action 已经在 b 上，但那是用户写的任意值，协议只认 0/1/2。
+     * 数字字符串（`action: "1"`）按数字收 —— `segment.button()` 什么都不校验，从 JSON 或
+     * 表单来的按钮很容易带成字符串，而把「回调」错当成 2 会往会话里发一句文本而不是触发回调，
+     * 那是看得见的错行为，不是「保守」。
+     * 认不出来的才落 2（发送命令）—— 最保守的一档，点了只会发一句文本，不会跳到意外的链接
+     */
+    const a = typeof b.action === "string" && b.action.trim() ? Number(b.action) : b.action
     btn.action = a === 0 || a === 1 || a === 2 ? a : 2
   } else return false
 
