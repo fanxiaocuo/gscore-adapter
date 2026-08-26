@@ -90,7 +90,7 @@ export function releaseLabel(t: ReleaseType = releaseType()): string {
 /** @description 字节数转可读单位，保留一位小数 */
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0 B"
-  const u = ["B", "KiB", "MiB", "GiB", "TiB"]
+  const u = ["B", "KB", "MB", "GB", "TB"]
   const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
   return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${u[i]}`
 }

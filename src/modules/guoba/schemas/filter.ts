@@ -103,10 +103,18 @@ export const filterSchemas = [
     componentProps: { placeholder: "请选择不上报的群" },
   },
   {
+    /*
+     * 注意：QQBot 账号在这一栏的头像必然是 Bot 自己那张，插件改不了 —— 锅巴的 g-avatar 把
+     * URL 写死成 `q1.qlogo.cn/g?b=qq&nk=<id>`（QQ 号模板），而它传进去的 id 是 fl 的键
+     * `<appid>:<openid>`，q.qlogo 认出开头那个 appid 就回了 Bot 的图；fl 条目里本来带着正确的
+     * `q.qlogo.cn/qqapp/<appid>/<openid>/0` 被整个忽略。schema 过序列化、塞不进自定义渲染函数，
+     * 所以只能在说明里点明并指向 web 面板（那边的 /targets 自己取图）
+     */
     field: "filter.black_user",
     label: "用户黑名单（好友里选）",
     bottomHelpMessage:
-      "从账号已知的好友里挑。QQBot 官方号只有私聊过的人才在列表里，挑不到的填下面那栏",
+      "从账号已知的好友里挑。QQBot 官方号只有私聊过的人才在列表里，挑不到的填下面那栏。" +
+      "注意：QQBot 账号在这里头像全是 Bot 自己那张、昵称也可能对不上，认人请看 web 面板",
     component: "GSelectFriend",
     componentProps: { placeholder: "请选择不上报的用户" },
   },

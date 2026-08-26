@@ -7,7 +7,7 @@
 
 /**
  * @description 中文设置项 → 内部字段名，让 `#早柚设置最大媒体大小 2` 代替 `media_max_size=2097152`
- * kind 决定后面那个词怎么解析：bool 认开关词表，mb 收 MiB 数再换算成字节
+ * kind 决定后面那个词怎么解析：bool 认开关词表，mb 收 MB 数再换算成字节
  * （配置文件里仍存字节，字段语义没变，锅巴与 web 面板都不用动）。
  */
 export const CN_KEYS: { cn: string; key: string; kind: "bool" | "mb" }[] = [

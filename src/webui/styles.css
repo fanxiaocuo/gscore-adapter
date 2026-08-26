@@ -26,23 +26,51 @@
 @source "./**/*.{ts,tsx}";
 
 /*
- * 配色
+ * 配色：中性石灰 + 宝蓝
  *
- * 原样搬自手写版的 page.css：浅色一套写在 :root，深色只覆盖需要变的几项。
+ * 浅色一套写在 :root，深色只覆盖需要变的几项。
  * 不用 Tailwind 的 dark: 变体 —— 那要求每处用到颜色的地方都写两遍
  * （bg-surface dark:bg-surface-dark），而这里的深浅差异只是同一批 token 换值，
  * 变量覆盖一处就够。
+ *
+ * 每一格的比值都是 test/contrast.mjs 实测（那个脚本从**本文件**解析取值，不另存一份
+ * 十六进制），改任何一格都要重跑。正文按 4.5:1、控件边界按 3:1（SC 1.4.11）卡。
  */
 :root {
-  --bg: #f6f7f9;
-  --surface: #fff;
-  --border: #e3e6ea;
-  --fg: #1a1d21;
-  --muted: #6b7280;
-  --primary: #5b7cfa;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
+  --bg: #f1f1ef;
+  --surface: #fbfbfa;
+  /* 卡内再低一层的底（输入框、名单区）。原先这些地方借用 --bg，两者相等时嵌套层次消失 */
+  --surface2: #f5f5f2;
+  /*
+   * 分隔线与控件边界是**两个** token，别互相替
+   *
+   * --border 是装饰性分隔线（对 surface 1.33:1 / 1.42:1），行与行本来靠标题和间距分开，
+   * WCAG 没有 3:1 的要求；--border-strong 是输入框、chip、按钮的**控件边界**，
+   * 属于非文本对比度（SC 1.4.11 要 3:1），而且三种底都要过 —— 控件自己的底是
+   * surface2、卡片是 surface、行落到页面上是 bg。控件用弱的那个等于边界消失。
+   */
+  --border: #dcdcd7;
+  /* 注意：比设计表里的 #8c8c84 压暗一档 —— 那个值对 --bg 实测 2.9952:1，写进文档时四舍五入
+     成「3.00」看着达标，按 SC 1.4.11 的 3:1 严格算却是差的。输入框自己的底是 surface2、
+     外面是 surface，两侧都要过，所以这一档不能省（对 bg 3.03:1、对 surface 3.31:1） */
+  --border-strong: #8b8b83;
+  --fg: #1a1a18;
+  --muted: #605f58;
+  --accent: #1f3fc9;
+  /*
+   * 压在 --accent 上的字色，深浅**不同**（这是深色下唯一一处「按钮文字不是白的」）
+   *
+   * 宝蓝在深色下必须提亮才够对底的对比度，而提亮之后白字压上去只有 2.37:1。
+   * 所以深色那套换成深墨 #0d1330（7.68:1）。写成 token 而不是就地写死：主按钮、
+   * chip 的删除键、tab 选中态都要用它，漏一处就是一处不可读的按钮。
+   */
+  --accent-fg: #fff;
+  /* accent 的弱化底 + 配套字色：tab 选中态、聚焦提示这类「要显眼但不是按钮」的地方 */
+  --accent-soft: #e8ecfb;
+  --accent-soft-fg: #16267a;
+  --success: #1a7f37;
+  --warning: #8a5300;
+  --danger: #b3261e;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%);
   /*
    * Apple 系统开关的两个态色，与状态色刻意分开
@@ -50,6 +78,8 @@
    * 绿开关表达的是「用户选择了启用/绑定」，连接通不通由状态点与文字说（--success
    * 那批）。两者同色会让「开关绿着但连不上」看起来像自相矛盾。
    * 深浅两套值只出现在这一段与下面的 dark 块里，别在组件里再写一次十六进制。
+   * 注意：换配色时这两个绿**原样保留** —— 它们与配色无关（表达的是用户意图而不是角色色）；
+   * 浅色下 2.14:1 不达标也不是缺陷，控件边界由下面 --switch-edge 那圈内描边给
    */
   --switch-off: #e5e5ea;
   --switch-on: #34c759;
@@ -61,35 +91,55 @@
    * 比不描边还糟。浅色压黑、深色提白，两边才都过 3:1（SC 1.4.11 的非文本对比度）。
    */
   --switch-edge: rgb(0 0 0 / 40%);
-  /* 平台标签（QQBot / onebot…）：淡蓝底深蓝字，不用 --primary —— 那是按钮色 */
-  --chip: #edf4ff;
-  --chip-fg: #1663bd;
+  /*
+   * 平台标签（QQBot / onebot…）：与 accent-soft 同色，不另配一套蓝
+   * 原先是自己一对十六进制（#edf4ff / #1663bd），换配色后它是全页唯一一处旧蓝。
+   * 指向 --accent-soft 而不是抄一份值：那一对的对比度已经被 test/contrast.mjs 卡住了
+   */
+  --chip: var(--accent-soft);
+  --chip-fg: var(--accent-soft-fg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #16181d;
-    --surface: #1e2127;
-    --border: #2c313a;
-    --fg: #e6e8eb;
-    --muted: #9aa3af;
+    --bg: #17171a;
+    --surface: #212124;
+    --surface2: #2a2a2e;
+    --border: #3a3a3f;
+    /* 设计稿写 #70707a，那个值对 --surface2 只有 2.92:1（差 0.08），理由同浅色那节 */
+    --border-strong: #767680;
+    --fg: #ebebe8;
+    --muted: #a2a29b;
+    --accent: #8ba4ff;
+    /* 唯一一处深浅不同向的字色，理由见浅色那节的 --accent-fg */
+    --accent-fg: #0d1330;
+    --accent-soft: #1e2547;
+    --accent-soft-fg: #b9c6ff;
+    --success: #5fd67f;
+    --warning: #e0a33c;
+    --danger: #f2837a;
     --shadow: none;
     --switch-off: #636366;
     --switch-on: #30d158;
     --switch-edge: rgb(255 255 255 / 22%);
-    --chip: #12345b;
-    --chip-fg: #6eb4ff;
+    /* --chip / --chip-fg 不在这儿覆盖：它们指向 --accent-soft，上面那两行改了就跟着变 */
   }
 }
 
-/* 把上面那批变量接进 Tailwind 的 token 体系，于是 bg-surface / text-muted 可用 */
+/* 把上面那批变量接进 Tailwind 的 token 体系，于是 bg-surface2 / text-accent 可用。
+   新增语义 token 必须在这儿登记一行，漏了的话 `bg-surface2` 编不出来、className 静默失效 */
 @theme {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
-  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-fg: var(--accent-soft-fg);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
@@ -129,6 +179,18 @@ body {
   }
 }
 
+/*
+ * 底部悬浮保存条出现时，给页面尾部让出条高
+ *
+ * SaveBar 是 position: fixed 贴底的，不占文档流：不让出这段空白时它会盖住最后一行的
+ * 控件，而最后一行恰是「用户名单」那种最长的一节，滚到底也点不到。
+ * 类挂在 body 上（由 main.tsx 按有没有未保存改动加减）而不是写死 padding-bottom ——
+ * 没有未保存改动时条不存在，白留一段空白会让页面看着没到底。
+ */
+body.has-savebar {
+  padding-bottom: 84px;
+}
+
 /* 状态灯：亮起时带同色光晕，对应 constants/index.ts 的 STATUS_TEXT 四个状态码 */
 .dot-on {
   background: var(--success);
@@ -153,8 +215,8 @@ body {
   /*
    * 关态必须有可见边界
    *
-   * 浅色下 --switch-off(#e5e5ea) 对 --surface(#fff) 只有 1.26:1，白滑块对轨道同样是
-   * 1.26:1 —— 整个控件几乎只靠滑块那点投影才看得出来。这圈内描边给的是「组件边界」
+   * 浅色下 --switch-off(#e5e5ea) 对 --surface 只有 1.2:1 上下，白滑块对轨道同样如此
+   * —— 整个控件几乎只靠滑块那点投影才看得出来。这圈内描边给的是「组件边界」
    * 而不是填充色对比，开态一起留着（两态都要能看见边界）。颜色按主题取，理由见
    * --switch-edge；实测脚本 test/switch-contrast.mjs。
    */
@@ -195,10 +257,16 @@ body {
   left: 20px;
 }
 
-/* 前庭功能障碍者把「减少动态效果」打开就是不想看东西滑动，滑块直接跳位 */
+/* 前庭功能障碍者把「减少动态效果」打开就是不想看东西滑动，滑块直接跳位。
+   注意：`*` 那一条是给新组件兜底的（保存条上滑、tab 换底色、chip 的 hover）——
+   逐个组件写 motion-reduce: 变体只会漏，而这些过渡全是装饰性的，一律归零没有副作用 */
 @media (prefers-reduced-motion: reduce) {
-  .sw,
-  .sw::after {
-    transition: none;
+  /* `*` 已经涵盖 .sw 与 .sw::after，别再单列它们：留着会让读者以为那两条是必需的
+     （特异性或伪元素的缘故），照着往下抄，列表就一对一对地长死选择器 */
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
   }
 }

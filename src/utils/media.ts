@@ -197,7 +197,7 @@ export async function toGscoreFile(
   if (buf.length > fileMaxSize()) {
     makeLog(
       "warn",
-      `file 段 ${(buf.length / 1048576).toFixed(1)}MiB 超过上限 ${(fileMaxSize() / 1048576).toFixed(1)}MiB，已跳过`,
+      `file 段 ${(buf.length / 1048576).toFixed(1)}MB 超过上限 ${(fileMaxSize() / 1048576).toFixed(1)}MB，已跳过`,
       "GsCore",
     )
     return ""

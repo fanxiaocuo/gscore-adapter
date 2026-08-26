@@ -24,7 +24,7 @@ export interface SettingRow {
    * 而运行时这里只需要「有没有 on」这一个判断。
    */
   on?: boolean
-  /** 非开关项的取值，如 `2.00 MiB` */
+  /** 非开关项的取值，如 `2.0 MB` */
   value?: string
 }
 

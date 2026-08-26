@@ -5,7 +5,12 @@
  * 选中状态仍由 `checked` 隐式提供，不必再写 `aria-checked`（两者不一致时读屏以 aria 为准）。
  * 视觉细节（滑块、上色、动画、prefers-reduced-motion）与 44px 触控区在 styles.css 的 `.sw`：
  * 那一套写成任意值 utility 会长到读不出意图，而触控区靠 `.sw::before`，命中算在宿主元素上
+ * 注意：聚焦环走 ui.ts 的 {@link FOCUS} 而不是就地写 —— 换配色时 `--primary` 改成了 `--accent`，
+ * 而 Tailwind 对未注册的颜色不报错、直接不生成那个类，就地写死过的 `outline-primary` 曾静默失效
+ * 成 currentcolor（这个面板上开关是主控件，聚焦环是键盘用户唯一的落点提示）
  */
+import { FOCUS } from "../ui.js"
+
 export function Switch({
   checked,
   onChange,
@@ -35,7 +40,7 @@ export function Switch({
     /* title 挂在外层而不是 input 上：禁用的表单控件在部分浏览器里不触发 tooltip */
     <span className="inline-flex h-[44px] flex-none items-center px-[2px]" title={hint}>
       <input
-        className="sw cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-45"
+        className={`sw cursor-pointer disabled:cursor-not-allowed disabled:opacity-45 ${FOCUS}`}
         id={id}
         type="checkbox"
         role="switch"

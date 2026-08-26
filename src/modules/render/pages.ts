@@ -493,7 +493,7 @@ function settingGroups(): SettingGroup[] {
       rows: [
         {
           name: "最大媒体大小",
-          dsc: "超过这个体积改用外链 · #早柚设置最大媒体大小 2（单位 MiB）",
+          dsc: "超过这个体积改用外链 · #早柚设置最大媒体大小 2（单位 MB）",
           icon: "plus",
           value: formatBytes(Number(config.media_max_size) || 0),
         },

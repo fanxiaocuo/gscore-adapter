@@ -108,6 +108,61 @@ function start(): Promise<http.Server | null> {
 }
 
 /**
+ * @description 重起文件服务的结果，三种情形要分开报给用户
+ * 注意：不能压成一个 `number` —— 「本来就没在听」与「起不来」都会得到 0，而前者是正常的
+ * （TRSS 上这个服务永远不该起），后者是故障（端口被占用，大文件外链从此全废）
+ */
+export interface RestartResult {
+  /** 之前有没有在听。false 表示这次什么都没做 */
+  was: boolean
+  /** 重起后实际监听的端口；`was` 为 false 或起不来时为 null */
+  port: number | null
+}
+
+/**
+ * @description 按新配置重起文件服务 —— **只重起本来就在听的那个，绝不凭空起新的**
+ *
+ * 只在 `port` / `host` / `enable` 真的改了时调用：`public_host` / `once` / `imagebed_token`
+ * 每次请求现读，为它们重启纯属白丢在途外链。
+ *
+ * 注意：**必须先判「现在有没有在听」**。这个服务是懒起的 —— 只有框架的 `Bot.fileToUrl` 抛错时
+ * 才会走 media.ts 的 viaFallback 起它（即只有 Miao 那类框架）。TRSS 自带文件服务、这一节
+ * 完全无效，而面板上仍然摆着这几栏；无条件 start() 会在 TRSS 上凭空绑一个本不存在的监听端口，
+ * 还把 BED_PATH 暴露在第二个端口上，直到进程退出。
+ * 注意：重启会作废在途外链（旧端口没人听了），{@link files} 里的暂存内容留给各自的定时器清，
+ * 最长一个 link_expire；不在这里清空，端口没变的话老链接还能用
+ * 注意：图床转接口不用重挂 —— 挂在 `Bot.express` 上的那条与本服务无关，没有 express 的框架（Miao）
+ * 走的是本服务的 {@link handle}，重起后照样分流 BED_PATH
+ */
+export async function restartFileServer(): Promise<RestartResult> {
+  // 注意：先等在途的 start() 落定 —— 它 resolve 时会写模块变量 server，不等就会让它把刚重起的服务顶掉
+  if (starting) await starting
+
+  const old = server
+  // 本来就没在听：什么都不做。改动已经落盘，下次真需要外链时 start() 自然按新配置起
+  if (!old) return { was: false, port: null }
+
+  server = null
+  starting = null
+  await new Promise<void>(resolve => {
+    old.close(() => resolve())
+    // close 会等现有连接自己结束，核心正拉一个大文件时能挂住整个保存请求
+    old.closeAllConnections?.()
+  })
+
+  // 关掉就是关掉：enable 由 true 改 false 时不再听端口，也不用起新的
+  if (!fileServerEnabled()) return { was: true, port: null }
+
+  /*
+   * 注意：start() 把启动失败吞成 resolve(null)（一个端口占不到不该让消息发送整体崩掉），
+   * 所以这里必须把 null 与「起来了」分开回，否则端口被占用会被报成「已按新配置重启」，
+   * 而实际上旧服务已经 close、新的没起来，此后所有大文件外链都拿不到
+   */
+  const srv = await start()
+  return { was: true, port: srv ? ((srv.address() as AddressInfo)?.port ?? null) : null }
+}
+
+/**
  * @description 图床转接口的路径，本体 express 与自带服务两条路共用
  * 带 gscore 前缀是因为挂到 `Bot.express` 上时那是全局命名空间，别的插件也在往上挂路由，
  * 一个裸的 /imagebed 太容易撞（ImageBed-Plugin 自己就占了 /imagebed-config 与 /imagebed-test）。
@@ -173,7 +228,7 @@ function pickFilePart(body: Buffer, boundary: string): { buf: Buffer; name?: str
 
 /**
  * @description 读完请求体，超过上限就断开
- * 上限借 file_max_size（默认 50 MiB）：这个接口收的是要发出去的图，比它更大的本来也发不出去。
+ * 上限借 file_max_size（默认 50 MB）：这个接口收的是要发出去的图，比它更大的本来也发不出去。
  * 不设上限的话一个大 POST 就能把云崽的内存顶穿。
  */
 function readBody(req: http.IncomingMessage, cap: number): Promise<Buffer | null> {
@@ -247,7 +302,8 @@ async function bedUpload(body: Buffer | null, ct?: string): Promise<BedResult> {
   if (!boundary) return bedFail("不是 multipart/form-data")
 
   const cap = Number(config.file_max_size) || 50 * 1024 * 1024
-  if (!body) return bedFail(`请求体超过 ${(cap / 1048576).toFixed(0)} MiB 或读取中断`, 413)
+  // 除数仍是 1048576，只把字样写成 MB：口语一致（用户说的就是 mb），换成 1000 会与 #早柚设置算出不同的字节数
+  if (!body) return bedFail(`请求体超过 ${(cap / 1048576).toFixed(0)} MB 或读取中断`, 413)
 
   const part = pickFilePart(body, boundary)
   if (!part?.buf.length) return bedFail("multipart 里没有名为 file 的段")
@@ -265,8 +321,7 @@ async function bedUpload(body: Buffer | null, ct?: string): Promise<BedResult> {
   // imageToUrl 由 ImageBed-Plugin 挂在全局 Bot 上；没装那个插件时退回本体的 fileToUrl，
   // 至少还能给出一个云崽自己的外链（公网可达性由调用方的 public_host 决定）
   const B = globalThis.Bot as
-    | { imageToUrl?: (f: Buffer, o?: { name?: string }) => Promise<string> }
-    | undefined
+    { imageToUrl?: (f: Buffer, o?: { name?: string }) => Promise<string> } | undefined
 
   try {
     const url = B?.imageToUrl

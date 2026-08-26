@@ -55,10 +55,15 @@ export default ts.config(
         __dirname: "readonly",
         // imagebed.test.mjs 打自己起的那个 HTTP 接口用它（Node 18 起是内置全局，不必 import）
         fetch: "readonly",
+        // panel-verify.mjs 用它深拷一份「服务端当前值」（Node 17 起是内置全局）
+        structuredClone: "readonly",
         // 在 page.evaluate() 里执行的函数体跑在浏览器上下文，用得到这几个
         document: "readonly",
         getComputedStyle: "readonly",
         window: "readonly",
+        // panel-verify.mjs 的 evaluate 里用：读 tab 记忆、以及把 localStorage 覆盖成抛错的实现
+        localStorage: "readonly",
+        DOMException: "readonly",
         // inkprobe.mjs 在浏览器里解码 PNG 再逐像素统计：Node 没有内置图像解码器，
         // 所以那段 evaluate 用的是 DOM 的 Image + canvas
         Image: "readonly",

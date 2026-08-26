@@ -52,7 +52,7 @@ export const DEFAULT_MAX_RECONNECT = 5
 /**
  * @description media_max_size / file_max_size 的硬上限（字节），三个写入口共用
  * 这两项是「超过就改用 link:// 外链」的阈值，调爆等于关掉外链兜底、每个附件都在内存里 base64 一份。
- * 注意：256 MiB 远高于任何真实 QQ 附件，它拦的是「把面板里读到的字节数原样敲进按 MB 收的中文指令」
+ * 注意：256 MB 远高于任何真实 QQ 附件，它拦的是「把配置文件里读到的字节数原样敲进按 MB 收的中文指令」
  */
 export const MEDIA_SIZE_MAX = 256 * 1024 * 1024
 

@@ -110,19 +110,92 @@ export interface ConnView {
   down: number
 }
 
-/** 全局设置区，字段与 FIELDS 表一一对应 */
+/**
+ * @description 全局设置区，字段与 `webui/fields.ts` 的字段表一一对应
+ *
+ * 分层照 yaml 原样（client / filter / update_check / file_server 各一层），不摊平：字段表里的 key
+ * 写成 `filter.report_private` 这种点号路径，前端 `dig()` 按它取值。
+ *
+ * 注意：三栏的**单位不是落盘单位** —— 换算在服务端做（`config/units.ts`），面板收 MB 与秒，
+ * yaml 里仍是字节与毫秒。前端一个换算都不做，否则 `MEDIA_SIZE_MAX` 那道校验与显示会各持一种口径
+ * 注意：回的是**效力值**而不是 yaml 原值 —— `media_max_size` 等项写 0 时下游按「没配」跑默认值
+ *（utils/media.ts 的 `|| 默认`），原样回 0 会让面板与实际生效值一致地对不上
+ */
 export interface PayloadConfig {
   enable: boolean
-  heartbeat: number
-  heartbeat_timeout: number
-  notify_master: boolean
+  /** 媒体内联上限，**单位 MB**（落盘字节） */
   media_max_size: number
+  /** file 段内联上限，**单位 MB**（落盘字节） */
+  file_max_size: number
+  /** 外链有效期，**单位秒**（落盘毫秒） */
+  link_expire: number
+  log_truncate: boolean
+  notify_master: boolean
+  /** 自定义图床模块路径，空串为没配。不是凭据，原样回 */
+  upload_hook: string
+  client: {
+    heartbeat: number
+    heartbeat_timeout: number
+    /**
+     * @description ws 这条通路的开关，与顶层 {@link PayloadConfig.enable} 不同
+     * enable 关掉连都不连；这一项只关 ws。改了必须 reloadClients，否则等于没生效
+     */
+    enable_ws: boolean
+  }
   filter: {
     report_private: boolean
     report_group: boolean
     report_meta: boolean
     only_reply_at: boolean
+    prefix: string[]
+    block_prefix: string[]
+    block_include: string[]
+    /** 群号原样回（yaml 里写成数字就是数字），前端只显示与增删，不改类型 */
+    white_group: (string | number)[]
+    black_group: (string | number)[]
+    black_user: (string | number)[]
   }
+  update_check: {
+    enable: boolean
+    /** 分钟。低于 30 会被下游按 30 处理，面板照原值显示 */
+    interval: number
+    delay: number
+    notify: boolean
+  }
+  /**
+   * @description 内置文件服务。仅 Miao-Yunzai 生效（TRSS 自带文件服务），面板要说清这件事
+   * 注意：`imagebed_token` 不在这里 —— 凭据不回前端，只回 {@link has_imagebed_token}
+   */
+  file_server: {
+    enable: boolean
+    /** 0 为每次随机取可用端口 */
+    port: number
+    host: string
+    public_host: string
+    once: boolean
+    /** 只说明配没配，不回原值（同连接的 `has_token`） */
+    has_imagebed_token: boolean
+  }
+}
+
+/**
+ * @description 群 / 好友选择器的候选，`GET /targets?kind=group|friend` 回这个
+ * 不进 {@link Payload} 整包：整包每 10 秒轮询一次，几千个群跟着来回传毫无必要，所以开弹层时才拉
+ */
+export interface TargetsPayload {
+  ok: true
+  kind: "group" | "friend"
+  /**
+   * @description 候选条目。`avatar` 可能是空串 —— 前端回退成首字圆
+   * 注意：QQBot 的群**没有**头像（官方 API 不提供），那一档恒为空串，别当成 bug 去「补上」
+   */
+  items: { id: string; name: string; avatar: string }[]
+  /**
+   * @description 列表取不到时的说明，正常时为空串
+   * 注意：取不到必须说出来而不是回空数组了事 —— 账号离线时列表是空的，用户以为「本来就没有」
+   * 一按保存就把存着的名单抹平（锅巴那边 `friendIds()` 返回 null 就是为这件事）
+   */
+  note: string
 }
 
 /** 中转计数 */

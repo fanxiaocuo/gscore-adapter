@@ -11,62 +11,31 @@ import { createRoot } from "react-dom/client"
 import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api.js"
 import { Avatar } from "./components/Avatar.js"
 import { BotSwitchList } from "./components/BotSwitchList.js"
+import { Chips } from "./components/Chips.js"
+import { PickerModal } from "./components/PickerModal.js"
+import { SaveBar } from "./components/SaveBar.js"
 import { Switch } from "./components/Switch.js"
-import { MONO, TAG } from "./ui.js"
+import { Tabs, useTab } from "./components/Tabs.js"
+import { useAutoFocus, useDialog } from "./components/useDialog.js"
+import {
+  ALL_FIELDS,
+  DEFERRED,
+  FIELD_BY_KEY,
+  TAB_IDS,
+  TABS,
+  type Field,
+  type TabId,
+} from "./fields.js"
+import { errMsg, request } from "./http.js"
+import { BTN, BTN_DANGER, BTN_PRIMARY, FHINT, HINT, INPUT, MONO, TAG, toList } from "./ui.js"
 import "./styles.css"
 
 /** 宿主可能挂在 /qqbot-web 这类前缀下，接口前缀只能从它注入的查询参数取 */
 const WEB_BASE = new URLSearchParams(location.search).get("__webBase") || ""
 const API = `${WEB_BASE}/api/gscore-adapter`
 
-async function api(path: string, body?: unknown): Promise<Payload> {
-  const res = await fetch(`${API}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  })
-  let data: unknown
-  try {
-    data = await res.json()
-  } catch {
-    // 鉴权失败时宿主回的是 HTML 登录页，不是 JSON
-    throw new Error(
-      res.status === 401 || res.status === 403 ? "未登录或无权限" : `HTTP ${res.status}`,
-    )
-  }
-  const result = data as { ok?: boolean; error?: string }
-  if (!res.ok || result.ok === false) throw new Error(result.error || `HTTP ${res.status}`)
-  return data as Payload
-}
-
-/** catch 到的是 unknown，统一取一句能显示的话 */
-function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
-}
-
-function bytes(n: number) {
-  if (!n) return "0 B"
-  const u = ["B", "KiB", "MiB", "GiB"]
-  let i = 0
-  while (n >= 1024 && i < u.length - 1) {
-    n /= 1024
-    i++
-  }
-  return `${n % 1 ? n.toFixed(1) : n} ${u[i]}`
-}
-
-/** 全局设置的字段表，渲染与收集共用 */
-const FIELDS = [
-  { k: "enable", label: "启用适配器", type: "switch", hint: "关掉则完全不连核心，改完即时生效" },
-  { k: "heartbeat", label: "心跳间隔（秒）", type: "number", hint: "0 关闭；改后自动重连" },
-  { k: "heartbeat_timeout", label: "心跳超时（秒）", type: "number", hint: "0 关闭" },
-  { k: "media_max_size", label: "媒体内联上限", type: "bytes", hint: "超过改用外链" },
-  { k: "notify_master", label: "断线通知主人", type: "switch" },
-  { k: "filter.report_private", label: "上报私聊", type: "switch" },
-  { k: "filter.report_group", label: "上报群聊", type: "switch" },
-  { k: "filter.report_meta", label: "上报进群/退群/戳一戳", type: "switch" },
-  { k: "filter.only_reply_at", label: "仅被 @ 或带前缀才上报", type: "switch" },
-]
+/** 整包接口。错误处理（含「宿主回 HTML 登录页」那一支）在 http.ts，选择器走同一条 */
+const api = (path: string, body?: unknown) => request<Payload>(API, path, body)
 
 /**
  * @description 连接弹层的字段表
@@ -105,15 +74,8 @@ const CFIELDS = [
   },
 ]
 
-/** 逗号分隔的文本 <-> 数组。中英文逗号都收，顺手去空项 */
-const toList = (s: string) =>
-  s
-    .split(/[,，]/)
-    .map(v => v.trim())
-    .filter(Boolean)
-
 /**
- * @description 按点号路径取值，供 FIELDS 里的 `filter.xxx` 用
+ * @description 按点号路径取值，供 ALL_FIELDS 里的 `filter.xxx` 用
  * 注意：返回 unknown 而不是 any —— 标 any 会让 `form[x.k]` 直接进 JSX 而不报错（对象会渲染成崩溃）
  */
 const dig = (o: unknown, path: string): unknown => {
@@ -126,21 +88,12 @@ const dig = (o: unknown, path: string): unknown => {
 }
 
 /*
- * 复用的 utility 组合，抽成常量免得各处手抄跑偏。只有本文件用到的留在这儿，
- * 组件也要用的（MONO / TAG）在 ui.ts。
- * 注意：形状与配色分开写 —— 同一属性的两个 utility 写在一起时，谁生效由样式表里的先后
- * 决定而非 className 的顺序，所以变体不叠加基础色
+ * 只有本文件用到的 utility 组合。跨组件共用的那批（BTN / INPUT / MONO / TAG / FOCUS…）
+ * 已经挪进 ui.ts —— 新组件也要用它们，两处各留一份必然漂移。
  */
-const BTN_SHAPE = "cursor-pointer rounded-[8px] border px-[14px] py-[6px] text-[13px]"
-const BTN = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-primary`
-/* 主按钮不跟 hover 描边：原样式表里 .btn.primary 排在 .btn:hover 之后，同权重下后者不生效 */
-const BTN_PRIMARY = `${BTN_SHAPE} border-transparent bg-primary text-white`
-const BTN_DANGER = `${BTN_SHAPE} border-border bg-surface text-fg hover:border-danger hover:text-danger`
-const INPUT = "rounded-[8px] border border-border bg-bg px-[10px] py-[7px] text-[13px] text-fg"
-const HINT = "mt-[2px] text-[12px] text-muted"
-const FHINT = "text-[11px] text-muted"
 const FIELD = "flex flex-col gap-[4px]"
 const GRID = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-[12px]"
+/* 卡片：描边是装饰性的（区分卡与页面底），用弱的那个 border 而不是 border-strong */
 const PANEL =
   "mb-[16px] rounded-[12px] border border-border bg-surface p-[16px] shadow-[var(--shadow)]"
 /* 面板头的「靠右」变体：margin 上 12 下 0，与常规 phead 的下 12 相反 */
@@ -159,6 +112,16 @@ const ROW_HINT =
   "min-w-0 text-[12px] text-muted [overflow-wrap:anywhere] max-[720px]:col-start-1 max-[720px]:row-start-2"
 const ROW_CTRL =
   "flex justify-end max-[720px]:col-start-2 max-[720px]:row-span-2 max-[720px]:row-start-1"
+
+/*
+ * chip 那几行的变体：控件占满整行宽度，标题与说明摞在它上面。
+ * 不能沿用 ROW —— 那一套把控件塞进 `auto` 那列，chip 输入框只剩一个词的宽，
+ * 十几个群号会竖着叠成一长条；名单是这个面板上最需要横向铺开的东西。
+ * items-start 而不是 center：chip 区会长高，标题该钉在顶上而不是飘到中间。
+ */
+const ROW_WIDE =
+  "grid min-h-[54px] grid-cols-[minmax(0,1fr)] items-start gap-y-[6px] border-t border-border px-[16px] py-[12px] first:border-t-0 max-[720px]:px-[4px]"
+const ROW_CTRL_WIDE = "flex min-w-0 flex-col"
 
 function Stat({ k, v, sub }: { k: string; v: string; sub: string }) {
   return (
@@ -214,7 +177,8 @@ function Conn({
   onEdit,
 }: {
   c: ConnView
-  onAct: (body: ConnAction) => Promise<void>
+  /** 发一个连接动作。只 await 完成，不读返回值（成败已由 App 弹 toast） */
+  onAct: (body: ConnAction) => Promise<unknown>
   onEdit: (conn: ConnView) => void
 }) {
   /**
@@ -286,7 +250,7 @@ function Conn({
             {c.has_token && <span className={TAG}>已配 token</span>}
             {/* 绑定标签升级成折叠开关：缩起时预览前几个已开的头像，点开进管理区 */}
             <button
-              className={`${TAG} flex cursor-pointer items-center gap-[5px] hover:border-primary`}
+              className={`${TAG} flex cursor-pointer items-center gap-[5px] hover:border-accent`}
               onClick={() => setOpen(o => !o)}
               aria-expanded={open}
               title="展开绑定账号管理"
@@ -403,6 +367,10 @@ function Modal({
     return f
   })
 
+  // Esc 关 + Tab 焦点锁 + 打开时把焦点送进层内，与选择器共用同一套
+  const { box, onKeyDown } = useDialog(onClose)
+  useAutoFocus(box)
+
   const bind = toList(form.bind || "")
   const exclude = toList(form.exclude || "")
   /*
@@ -451,11 +419,23 @@ function Modal({
   }
 
   return (
+    /*
+     * 遮罩收键盘事件（层内按键会冒泡上来），点遮罩本身关闭。
+     * 注意：Esc 关闭、Tab 焦点锁、role/aria-modal 三样都走 useDialog —— 这个弹层原先一样都没有，
+     * 而选择器那个全做了：同一个面板上两个弹层的可达性各说一套，且没有任何编译期信号
+     */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(0_0_0/45%)] p-[20px] max-[720px]:p-[8px]"
       onClick={e => e.target === e.currentTarget && onClose()}
+      onKeyDown={onKeyDown}
     >
-      <div className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px] max-[720px]:p-[14px]">
+      <div
+        ref={box}
+        className="max-h-[90vh] w-[min(560px,100%)] overflow-auto rounded-[14px] bg-surface p-[20px] max-[720px]:p-[14px]"
+        role="dialog"
+        aria-modal="true"
+        aria-label={conn ? `编辑连接 ${conn.name}` : "添加连接"}
+      >
         <h2 className="mb-[16px] text-[17px] font-semibold">
           {conn ? `编辑：${conn.name}` : "添加连接"}
         </h2>
@@ -519,102 +499,360 @@ function Modal({
   )
 }
 
-/** 全局设置提交体。filter 那四项在后端是嵌在 filter 下的，所以单独一层 */
+/**
+ * @description 全局设置提交体。嵌套层按 yaml 原样分层（client / filter / update_check / file_server）
+ * 注意：后端 `saveGlobal()` 只写 body 里出现的键，所以「单字段提交」与「整批提交」是同一条路，
+ * 不用两个接口 —— 开关即时写发的就是只带一个键的同一个 body
+ */
 interface SettingsBody {
-  filter: Record<string, boolean | number>
   [k: string]: unknown
 }
 
-/** 把 config 摊平成表单值。初始化与「外部真的变了吗」的比对都用它 */
+/**
+ * @description 把点号路径的一批值塞成嵌套 body（`filter.prefix` → `{filter:{prefix:…}}`）
+ * 只建路径上真的用到的那几层：多写一个空的 `file_server: {}` 会让后端按「这一节提交了」处理
+ */
+function nest(values: Map<string, unknown>): SettingsBody {
+  const body: SettingsBody = {}
+  for (const [k, v] of values) {
+    const parts = k.split(".")
+    let cur = body
+    for (const p of parts.slice(0, -1)) {
+      if (typeof cur[p] !== "object" || cur[p] === null) cur[p] = {}
+      cur = cur[p] as SettingsBody
+    }
+    cur[parts.at(-1)!] = v
+  }
+  return body
+}
+
+/**
+ * @description 把表单里的值收成能提交的形状
+ * 数字栏在编辑期存的是字符串（输入框的原值，允许中途空着与 `4.` 这种半截小数），提交这一刻才转数字
+ *
+ * 注意：空的数字框交空串而**不是 0**。`Number("")` 是 0 且过 isFinite，直接转数字会架空服务端
+ * 那条「空串就这一栏不写」的保护，而 0 在这些字段各有含义：client.heartbeat 的 0 是关掉心跳
+ *（还连带 reloadClients 把所有 ws 断线重连）、file_server.port 的 0 是随机端口（连带重起文件服务、
+ * 作废在途外链）、三个换算字段的 0 会被 boundsError 拦下来让整批保存失败。
+ * 全选删掉想重新输入是最常见的操作，不能让它写出这些后果
+ */
+function coerce(f: Field, v: unknown): unknown {
+  if (f.type === "switch") return !!v
+  if (f.type === "number") {
+    if (typeof v === "string" && !v.trim()) return ""
+    const n = Number(v)
+    // 半截小数（`4.`、`1e`）也交空串：那不是用户想存的值，让服务端跳过这一栏
+    return Number.isFinite(n) ? n : ""
+  }
+  if (f.type === "chips") return Array.isArray(v) ? v : []
+  return String(v ?? "")
+}
+
+/**
+ * @description 把 config 摊平成表单值。初始化与轮询逐字段回填都用它
+ * 注意：读的是 `x.read ?? x.k` —— 凭据栏写的是 `file_server.imagebed_token`，而整包只回
+ * `has_imagebed_token`（布尔）。那一栏的表单值恒为空串（占位符说「留空则不修改」），
+ * 布尔只用来决定说明列要不要加一句「已配置」
+ */
 function readFields(config: PayloadConfig): Record<string, unknown> {
   const f: Record<string, unknown> = {}
-  for (const x of FIELDS) f[x.k] = dig(config, x.k)
+  for (const x of ALL_FIELDS) f[x.k] = x.read ? "" : dig(config, x.k)
   return f
 }
 
-/** 表单值的指纹。按 FIELDS 顺序取值，所以与对象的键顺序无关 */
-function fieldsKey(f: Record<string, unknown>): string {
-  return JSON.stringify(FIELDS.map(x => f[x.k] ?? null))
+/** 逐字段比较：服务端的这一栏与表单里的这一栏是不是同一个值（数组按内容比） */
+function same(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b))
+    return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+  // 数字栏在表单里是字符串（见 coerce），"30" 与 30 不该算改过
+  if (typeof a === "number" && typeof b === "string") return String(a) === b
+  if (typeof b === "number" && typeof a === "string") return String(b) === a
+  return a === b
 }
 
 function Settings({
   config,
+  tab,
   onSave,
 }: {
   config: PayloadConfig
-  onSave: (body: SettingsBody) => void
+  /** 当前 tab，只渲染它名下的节 */
+  tab: TabId
+  /** 提交一批字段。开关即时写时只带一个键；返回是否保存成功 */
+  onSave: (body: SettingsBody) => Promise<boolean>
 }) {
   const [form, setForm] = useState<Record<string, unknown>>(() => readFields(config))
-  /** 上次同步进表单的那份服务端值的指纹，用来区分「外部真的改了」与「轮询又回了同一份包」 */
-  const synced = useRef(fieldsKey(readFields(config)))
-  /*
-   * 注意：只在服务端值真的**变了**时才覆盖表单 —— 轮询每 10 秒 setState 一个新对象，
-   * 按引用判断会让没点保存的开关自己弹回去、输一半的数字被抹掉；这批开关不即时写，
-   * App 那个 inflight 挡不住它
+  /**
+   * @description 用户动过、还没保存的字段（逐字段脏集合）
+   *
+   * 注意：不是整表指纹 —— 全量字段之后指纹那招不够：任何一项外部变化都会整表覆盖，把用户
+   * 正在填的另一项抹掉。轮询回包只覆盖**不在**这个集合里的字段，保存成功后清空。
+   * 存在 state 里而不是 ref：保存条要按它的大小显示「有 N 项未保存」
+   */
+  const [touched, setTouched] = useState<Set<string>>(() => new Set())
+  /** 提交在途：保存条的两个按钮一起禁用，免得连点把同一批交两遍 */
+  const [saving, setSaving] = useState(false)
+  /** 群/好友选择器：null 为关着，否则是正在挑的那个字段 */
+  const [picking, setPicking] = useState<Field | null>(null)
+
+  /**
+   * @description 脏集合的镜像，只给下面那个回填 effect 读
+   * 注意：effect 不能把 `touched` 写进依赖 —— `edit()` 每次首触都新建一个 Set（身份变了），
+   * 于是往任何一栏敲第一个字都要把 30 个字段整轮比一遍，纯属白跑。
+   * 而它又必须读到**最新**的脏集合（跳过用户正在填的那几栏），所以走 ref。
+   * 保存成功后脏集合被清空，那一刻 `config` 也换了新包（回包整包换 state），effect 照样会跑
+   */
+  const touchedRef = useRef(touched)
+  touchedRef.current = touched
+
+  /**
+   * 注意：逐字段回填而不是整表 setState —— 轮询每 10 秒回一份新包，整表覆盖会把用户正在填的
+   * 另一项一起抹掉（这批延迟字段不即时写，App 那个 inflight 挡不住它）。
+   * 脏字段一律跳过：那一栏的真值是用户手里的，服务端的旧值不该盖回去
    */
   useEffect(() => {
-    const f = readFields(config)
-    const key = fieldsKey(f)
-    if (key === synced.current) return
-    synced.current = key
-    setForm(f)
+    const next = readFields(config)
+    const dirty = touchedRef.current
+    setForm(prev => {
+      let changed = false
+      const out = { ...prev }
+      for (const x of ALL_FIELDS) {
+        if (dirty.has(x.k)) continue
+        if (same(next[x.k], prev[x.k])) continue
+        out[x.k] = next[x.k]
+        changed = true
+      }
+      // 一个字段都没变时返回原对象，省掉一次无意义的重渲染
+      return changed ? out : prev
+    })
   }, [config])
 
-  const submit = () => {
-    const body: SettingsBody = { filter: {} }
-    for (const x of FIELDS) {
-      const v = x.type === "switch" ? !!form[x.k] : Number(form[x.k])
-      if (x.k.startsWith("filter.")) body.filter[x.k.slice(7)] = v
-      else body[x.k] = v
-    }
-    onSave(body)
+  /** 记一笔本地改动。延迟字段进脏集合，攒到保存条一起提交 */
+  const edit = (k: string, v: unknown) => {
+    setForm(f => ({ ...f, [k]: v }))
+    setTouched(t => {
+      const next = new Set(t)
+      next.add(k)
+      /*
+       * 往凭据栏里打字 = 取消这一栏待提交的「清除」。
+       * 两个信号同时交上去时服务端以新值为准（见 saveGlobal 里那段互斥判断），
+       * 但脏集合里留着 `_clear` 会让底栏多算一项，也让「我到底清没清」在界面上说不清
+       */
+      next.delete(`${k}_clear`)
+      return next
+    })
   }
+
+  /** 清除凭据：值与标记一起置，行上才看得出「未保存」 */
+  const clearSecret = (k: string) => {
+    setForm(f => ({ ...f, [k]: "" }))
+    setTouched(t => new Set(t).add(`${k}_clear`))
+  }
+
+  /**
+   * @description 开关即时写：单字段 POST，回包整包换 state
+   * 注意：file_server 那一节的开关**不走这里** —— port/host/public_host 是一个意图，enable
+   * 先即时写会按旧端口重启一次、用户填完端口再重启一次，而重启会作废在途外链
+   */
+  const flip = (x: Field, next: boolean) => {
+    setForm(f => ({ ...f, [x.k]: next }))
+    if (DEFERRED.has(x.k)) {
+      setTouched(t => (t.has(x.k) ? t : new Set(t).add(x.k)))
+      return
+    }
+    // 失败就立刻拨回去：服务端一个字没写，让开关停在用户选的位置等 10 秒后被轮询纠正，
+    // 中间这段时间界面在撒谎（而这一栏不在脏集合里，没有任何「未保存」标记提示他）
+    void onSave(nest(new Map([[x.k, next]]))).then(ok => {
+      if (!ok) setForm(f => ({ ...f, [x.k]: !next }))
+    })
+  }
+
+  /** 提交脏集合里的全部字段 */
+  const submit = async () => {
+    // 未提交的 chip 草稿先收进来：用户打完字直接点保存，不该静默丢掉（见 Chips 的 onBlur）
+    const values = new Map<string, unknown>()
+    for (const k of touched) {
+      const x = FIELD_BY_KEY[k]
+      if (x) {
+        values.set(k, coerce(x, form[k]))
+        continue
+      }
+      /*
+       * 凭据的 `*_clear` 伪键：字段表里没有它（它不是一栏配置，只是一个动作），
+       * 但它必须能提交上去 —— 否则「清除」按钮点了没反应
+       */
+      if (k.endsWith("_clear")) values.set(k, true)
+    }
+    if (!values.size) return
+    /*
+     * 这里刻意**不**预警「文件服务会重启」：那条判据只有服务端拿得准（它比得出 port/host/enable
+     * 前后有没有真的变、也只有它知道 port:0 随机到的实际端口），而回包的 notes 已经按三种真实
+     * 结果分开写好了话术。前端抄一份的下场是两头不一致（只关掉 enable 时不预警、把端口改回原值
+     * 又照样预警），而且这条 toast 必然被回包那条顶掉 —— say 是单槽的
+     */
+    /*
+     * 注意：**只有保存成功才清脏集合**。清早了（乐观清空）会立刻触发上面那个回填 effect
+     * —— 它以 touched 为依赖，而此刻 config 还是保存前的旧包，于是每一栏刚填的值都被旧值
+     * 盖回去；而保存失败时服务端一个字没写（saveGlobal 在 saveConfig 回调里 throw = 整份不写），
+     * 用户跨三个 tab 的编辑就这么没了，界面上连「未保存」标记都不剩。
+     * 保存期间保存条上的按钮由 saving 禁用，不会连点交两遍
+     */
+    setSaving(true)
+    try {
+      if (await onSave(nest(values))) setTouched(new Set())
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  /** 放弃：把脏字段恢复成服务端的值 */
+  const reset = () => {
+    const server = readFields(config)
+    setForm(f => {
+      const out = { ...f }
+      for (const k of touched) out[k] = server[k]
+      return out
+    })
+    setTouched(new Set())
+  }
+
+  // 只渲染当前 tab 名下的节。整棵表一直挂着但只显示一部分的话，隐藏页里的输入框仍在
+  // Tab 序里，键盘用户会 Tab 进看不见的控件
+  const sections = TABS.find(t => t.id === tab)?.sections || []
 
   return (
     <>
-      {/* 一列到底的设置行，不用 auto-fit 多列网格：多列在窄屏上会把「标题 / 说明 / 控件」
-          三段各自换行，读起来是一团 */}
-      <div className="overflow-hidden rounded-[10px] border border-border">
-        {FIELDS.map(x => {
-          // filter.report_private → set-filter-report_private，点号在 CSS/HTML 里都不该出现在 id 上
-          const id = `set-${x.k.replace(/\./g, "-")}`
-          // 字节数直接看数字读不出量级，把人类可读的那串并进说明列
-          const hint = [x.type === "bytes" ? bytes(Number(form[x.k])) : "", x.hint || ""]
-            .filter(Boolean)
-            .join(" · ")
-          return (
-            <div className={ROW} key={x.k}>
-              {/* htmlFor 让点标题也能切换开关，顺带把标题当成读屏的可见名字 */}
-              <label className={ROW_TITLE} htmlFor={id}>
-                {x.label}
-              </label>
-              <span className={ROW_HINT}>{hint}</span>
-              <div className={ROW_CTRL}>
-                {x.type === "switch" ? (
-                  <Switch
-                    id={id}
-                    checked={!!form[x.k]}
-                    onChange={next => setForm(f => ({ ...f, [x.k]: next }))}
-                  />
-                ) : (
-                  <input
-                    className={`${INPUT} w-[110px] text-right tabular-nums`}
-                    id={id}
-                    type="number"
-                    value={String(form[x.k] ?? 0)}
-                    onChange={e => setForm(f => ({ ...f, [x.k]: e.target.value }))}
-                  />
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      <div className={PHEAD_END}>
-        <button className={BTN_PRIMARY} onClick={submit}>
-          保存设置
-        </button>
-      </div>
+      {sections.map(sec => (
+        <section className={PANEL} key={sec.id}>
+          <h2 className="text-[15px] font-semibold">{sec.title}</h2>
+          {sec.hint && <p className={HINT}>{sec.hint}</p>}
+          {/* 一列到底的设置行，不用 auto-fit 多列网格：多列在窄屏上会把「标题 / 说明 / 控件」
+              三段各自换行，读起来是一团 */}
+          <div className="mt-[12px] overflow-hidden rounded-[10px] border border-border">
+            {sec.fields.map(x => {
+              // filter.report_private → set-filter-report_private，点号在 CSS/HTML 里都不该出现在 id 上
+              const id = `set-${x.k.replace(/\./g, "-")}`
+              // `_clear` 也算这一行脏：清除是个动作、键名带后缀，不算上的话点了没有任何行内反馈
+              const dirty = touched.has(x.k) || touched.has(`${x.k}_clear`)
+              /*
+               * 说明列：hint + 两条动态补充。
+               *
+               * 大小栏报**保存后会落盘的字节数**，拿来和 config.yaml 里那一行对照，所以不加
+               * 千分位、不换单位。
+               * 注意：判据是「显示值与服务端那份**真的不同**」，不是「这一栏进过脏集合」。
+               * 脏集合只增不减（`edit()` 一敲键就进，改回原样也不移出），拿它当判据会在
+               * 「敲一下又删掉」之后报出一个 yaml 里根本不存在的数：yaml 里 5000000 显示成
+               * 4.77 MB，而 4.77×1048576 = 5001708 —— 提交上去时服务端的 toStored 认出显示值
+               * 没变、原样留住 5000000，于是这句提示指着一个文件里没有的字节数，而它唯一的
+               * 用途就是给人对照文件
+               */
+              const willWrite = x.scale === "MB" && !same(dig(config, x.k), form[x.k])
+              const extra: string[] = []
+              if (willWrite && Number(form[x.k]) > 0)
+                extra.push(`保存后落盘 ${Math.round(Number(form[x.k]) * 1048576)} 字节`)
+              // 凭据栏的输入框恒为空（值不回前端），配没配只能靠这句说
+              if (x.read && dig(config, x.read)) extra.push("已配置")
+              if (dirty) extra.push("未保存")
+              const hint = [x.hint, ...extra].filter(Boolean).join(" · ")
+              // chip 与名单占整行宽度，挤在 auto 那列里只有一个输入框的宽
+              const wide = x.type === "chips"
+              return (
+                <div className={wide ? ROW_WIDE : ROW} key={x.k}>
+                  {/* htmlFor 让点标题也能切换开关，顺带把标题当成读屏的可见名字 */}
+                  <label className={ROW_TITLE} htmlFor={id}>
+                    {x.label}
+                  </label>
+                  <span className={ROW_HINT} id={`${id}-hint`}>
+                    {hint}
+                  </span>
+                  <div className={wide ? ROW_CTRL_WIDE : ROW_CTRL}>
+                    {x.type === "switch" ? (
+                      <Switch
+                        id={id}
+                        checked={!!form[x.k]}
+                        describedBy={`${id}-hint`}
+                        onChange={next => flip(x, next)}
+                      />
+                    ) : x.type === "chips" ? (
+                      <div className="flex min-w-0 flex-col gap-[6px]">
+                        <Chips
+                          id={id}
+                          value={(form[x.k] as (string | number)[]) || []}
+                          placeholder={x.ph}
+                          describedBy={`${id}-hint`}
+                          /* 号码类名单等宽显示才对得上号（picker 恰好只标在群号/账号那三栏）；
+                             前缀与关键词是自然语言，按正文字体读着顺 */
+                          mono={!!x.picker}
+                          onChange={v => edit(x.k, v)}
+                        />
+                        {/* 群 / 好友的名单多一个「从列表里挑」的入口，与 chip 读写同一份数组 */}
+                        {x.picker && (
+                          <button
+                            className={`${BTN} self-start`}
+                            onClick={() => setPicking(x)}
+                            type="button"
+                          >
+                            {x.picker === "group" ? "从群列表里挑" : "从好友列表里挑"}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-[8px]">
+                        <input
+                          /* path 走等宽：模块路径要与 yaml 里那一行逐字对得上，比例字体下
+                             `l`/`1`、`0`/`O` 分不开。这也是 FieldType 里 path 与 text 唯一的差别，
+                             少了这一条那个类型成员就只是 text 的同义词 */
+                          className={`${INPUT} ${
+                            x.type === "number"
+                              ? "w-[110px] text-right tabular-nums"
+                              : `w-[min(260px,100%)] ${x.type === "path" ? MONO : ""}`
+                          }`}
+                          id={id}
+                          // path/text 的 input type 都是 text；password 只有 imagebed_token 一个
+                          type={
+                            x.type === "number"
+                              ? "number"
+                              : x.type === "password"
+                                ? "password"
+                                : "text"
+                          }
+                          min={x.min}
+                          max={x.max}
+                          placeholder={x.ph}
+                          aria-describedby={`${id}-hint`}
+                          value={String(form[x.k] ?? "")}
+                          onChange={e => edit(x.k, e.target.value)}
+                        />
+                        {/*
+                         * 凭据栏的「清除」：输入框留空是「不修改」（值不回前端，没法用空串表达清除），
+                         * 所以清空必须有独立入口，否则配过一次就再也删不掉（只能去改 yaml）。
+                         * 发的是服务端认的那个 *_clear 伪键，与连接 token 同一套
+                         */}
+                        {x.read && dig(config, x.read) && (
+                          <button className={BTN} type="button" onClick={() => clearSecret(x.k)}>
+                            清除
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      ))}
+      {picking && (
+        <PickerModal
+          api={API}
+          kind={picking.picker!}
+          title={picking.label}
+          value={(form[picking.k] as (string | number)[]) || []}
+          onChange={v => edit(picking.k, v)}
+          onClose={() => setPicking(null)}
+        />
+      )}
+      <SaveBar count={touched.size} onSave={submit} onReset={reset} saving={saving} />
     </>
   )
 }
@@ -630,6 +868,8 @@ function App() {
    */
   const [modal, setModal] = useState<ConnView | null | undefined>(undefined)
   const [logoOk, setLogoOk] = useState(false)
+  /** 当前 tab，初值与写回都在 useTab 里（localStorage 读写都包了 try/catch，理由见 Tabs.tsx） */
+  const { tab, select } = useTab(TAB_IDS)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /**
    * @description 在途的写请求数，写在途时不轮询，免得后到的读回包把开关刷回旧位
@@ -662,17 +902,32 @@ function App() {
     const at = gen.current
     try {
       const r = await api("/config")
-      // 这期间有写请求落地过，回包已经过期，丢掉等下一轮（失败仍要报：那是真的读不到）
-      if (gen.current !== at) return
+      /*
+       * 两个判据都要，缺一个就有窗口：
+       *   gen 变了      —— 这期间有写请求**落地过**，回包是写之前的旧状态
+       *   inflight 非 0 —— 有写请求**正在途中**。gen 是在 send 的 finally 里才 +1 的，
+       *                    所以「写开始前发出、写完成前回来」的这次读，gen 还没变、照样等于 at
+       *
+       * 漏掉后一条的后果：即时写的开关刻意不进脏集合（那一栏的真值由服务端回包给），
+       * 于是这份旧回包会把用户刚拨的开关刷回原位，直到 POST 回包才纠正 —— 而 file_server
+       * 那类保存要等 saveConfig + reloadClients + restartFileServer（close 会等现有连接结束），
+       * 窗口能到秒级。用户看着开关自己弹回去，多半会再拨一次，第二次 POST 正好把它设回原值。
+       * 失败仍要报：那是真的读不到
+       */
+      if (gen.current !== at || inflight.current) return
       setState(r)
     } catch (err) {
       say(errMsg(err), true)
     }
   }, [say])
 
-  /** 写请求。刻意不往外抛：调用方（开关）只关心「结束了」，错误已经弹了 toast */
+  /**
+   * @description 写请求。刻意不往外抛（错误已经弹了 toast），但**回报成败**
+   * 注意：返回值不能省 —— 设置区要靠它决定「脏集合能不能清」。清早了就会在保存失败时
+   * 用旧的 config 把用户填的值刷回去（那个回填 effect 以 touched 为依赖），编辑就丢了
+   */
   const send = useCallback(
-    async (path: string, body: unknown) => {
+    async (path: string, body: unknown): Promise<boolean> => {
       inflight.current++
       try {
         const r = await api(path, body)
@@ -682,9 +937,11 @@ function App() {
         // 有话才弹：Payload.message 是可选的（多数写动作不带），空着弹出来是个没字的框。
         // tsc 抓不到 —— 仓库关了 strictNullChecks，`string | undefined` 传进 `text: string` 不报错
         if (r.message) say(r.message)
+        return true
       } catch (err) {
         // 失败不动 state，界面停在原样，用户重来一次就是
         say(errMsg(err), true)
+        return false
       } finally {
         // 失败也要加：那时虽然没换 state，但服务端可能已经改了，旧回包一样不可信
         gen.current++
@@ -781,60 +1038,71 @@ function App() {
         />
       </section>
 
-      <section className={PANEL}>
-        <div className="mb-[12px] flex items-center justify-between gap-[12px]">
-          <h2 className="text-[15px] font-semibold">连接</h2>
-          <button className={BTN_PRIMARY} onClick={() => setModal(null)}>
-            添加连接
-          </button>
-        </div>
-        <div className="flex flex-col gap-[8px]">
-          {errors.length > 0 && (
-            <div className="rounded-[10px] border border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
-              <div className="mb-[4px] font-semibold">有连接没能启动</div>
-              {/* 注意：key 用下标而不是话术本身 —— 两条连接同名且坏在同一处时话术逐字相同，
-                  撞 key 会让 React 只渲一条；这个列表整包重取、不排序也不局部增删 */}
-              {errors.map((e, i) => (
-                <p className="whitespace-pre-line text-[12px]" key={i}>
-                  {e}
-                </p>
-              ))}
-            </div>
-          )}
-          {/* 注意：警告与上面那个红框分开渲（标题与配色都不一样）—— 混进去会让一条正在正常
-              收发的兼容连接绿着点显示「已连接」，头顶一个红框说它没能启动 */}
-          {warnings.length > 0 && (
-            <div className="rounded-[10px] border border-warning bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
-              <div className="mb-[4px] font-semibold">连接已启动，但有需要注意的地方</div>
-              {warnings.map((e, i) => (
-                <p className="whitespace-pre-line text-[12px]" key={i}>
-                  {e}
-                </p>
-              ))}
-            </div>
-          )}
-          {state.connections.length === 0 ? (
-            <p className="rounded-[10px] border border-dashed border-border p-[28px] text-center text-muted">
-              还没有连接。点「添加连接」，或直接发 #早柚添加连接 127.0.0.1:8765
-            </p>
-          ) : (
-            state.connections.map(c => (
-              <Conn
-                key={c.index}
-                c={c}
-                onAct={b => send("/connection", b)}
-                onEdit={x => setModal(x)}
-              />
-            ))
-          )}
-        </div>
-      </section>
+      {/* tab 条在统计卡**下方**：那四张卡是状态而不是某一页的内容，三个 tab 都要看得见 */}
+      <Tabs items={TABS} tab={tab} onSelect={select} />
 
-      <section className={PANEL}>
-        <h2 className="mb-[12px] text-[15px] font-semibold">全局设置</h2>
-        <Settings config={state.config} onSave={b => send("/config", b)} />
-        <p className={HINT}>配置文件：{state.plugin.configFile}</p>
-      </section>
+      {/* 三个 tab 的面板各挂 aria-labelledby 指回自己那个按钮（Tabs 里写的 aria-controls
+          就是这几个 id）。不给 tabIndex：里头本来就有可聚焦控件，容器再进 Tab 序等于多按一次 */}
+      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "conn" && (
+          <section className={PANEL}>
+            <div className="mb-[12px] flex items-center justify-between gap-[12px]">
+              <h2 className="text-[15px] font-semibold">连接</h2>
+              <button className={BTN_PRIMARY} onClick={() => setModal(null)}>
+                添加连接
+              </button>
+            </div>
+            <div className="flex flex-col gap-[8px]">
+              {errors.length > 0 && (
+                <div className="rounded-[10px] border border-danger bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
+                  <div className="mb-[4px] font-semibold">有连接没能启动</div>
+                  {/* 注意：key 用下标而不是话术本身 —— 两条连接同名且坏在同一处时话术逐字相同，
+                      撞 key 会让 React 只渲一条；这个列表整包重取、不排序也不局部增删 */}
+                  {errors.map((e, i) => (
+                    <p className="whitespace-pre-line text-[12px]" key={i}>
+                      {e}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {/* 注意：警告与上面那个红框分开渲（标题与配色都不一样）—— 混进去会让一条正在正常
+                  收发的兼容连接绿着点显示「已连接」，头顶一个红框说它没能启动 */}
+              {warnings.length > 0 && (
+                <div className="rounded-[10px] border border-warning bg-[color-mix(in_srgb,var(--warning)_12%,transparent)] px-[14px] py-[10px] text-[13px]">
+                  <div className="mb-[4px] font-semibold">连接已启动，但有需要注意的地方</div>
+                  {warnings.map((e, i) => (
+                    <p className="whitespace-pre-line text-[12px]" key={i}>
+                      {e}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {state.connections.length === 0 ? (
+                <p className="rounded-[10px] border border-dashed border-border p-[28px] text-center text-muted">
+                  还没有连接。点「添加连接」，或直接发 #早柚添加连接 127.0.0.1:8765
+                </p>
+              ) : (
+                state.connections.map(c => (
+                  <Conn
+                    key={c.index}
+                    c={c}
+                    onAct={b => send("/connection", b)}
+                    onEdit={x => setModal(x)}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        )}
+        {/*
+         * 三个 tab 的配置项都由 Settings 渲（它自己按 tab 挑名下的节）。
+         * 注意：**不能**包在 `tab === "settings" &&` 里 —— 那样切一次 tab 就把它卸掉，
+         * 攒着的脏集合与用户填了一半的值跟着没了，回来还看不出发生过什么
+         */}
+        <Settings config={state.config} tab={tab} onSave={b => send("/config", b)} />
+        {/* 配置文件路径只在设置页说一次：三页都挂等于同一句话重复三遍 */}
+        {tab === "settings" && <p className={HINT}>配置文件：{state.plugin.configFile}</p>}
+      </div>
 
       {modal !== undefined && (
         <Modal
