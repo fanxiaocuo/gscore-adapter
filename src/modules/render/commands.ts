@@ -22,12 +22,10 @@ export interface Command {
   fnc: string
   /** 指令主干 */
   stem: string
-  /** 与 stem 同级的别名，产出 (stem|别名) */
+  /** 与 stem 同级的别名，产出 (stem|别名)；只有 docs 里写明「同义」的才留别名，其余一律不设 */
   aliases?: string[]
   /** stem 前的可选修饰，逐个产出 (mod)?；强制 是行为变体而非别名，由 handler 二次判定 */
   mods?: string[]
-  /** stem 后的可选后缀，产出 (suffix)? */
-  suffix?: string
   /** stem 后的固定literal，如 连接 */
   tail?: string
   /** 带参数：产出 \s*(.+)$，否则 $ */
@@ -41,10 +39,7 @@ export interface Command {
 /** @description 帮助分组的展示顺序 */
 const GROUP_ORDER = ["状态与连接", "连接管理", "全局设置", "更新"] as const
 
-/**
- * @description 全部指令，按帮助展示顺序排列
- * 没有 group 的三条是当前帮助图里缺失的指令，照原样先不露出（等价替换步骤不改帮助输出）
- */
+/** @description 全部指令，按帮助展示顺序排列 */
 export const COMMANDS: Command[] = [
   // ---- 状态与连接 ----
   {
@@ -57,6 +52,21 @@ export const COMMANDS: Command[] = [
         cmd: "#早柚状态",
         dsc: "查看适配器运行模式与各连接的实时状态",
         icon: "status",
+        master: true,
+      },
+    ],
+  },
+  {
+    // 计数落盘后不再随重启归零，得有条路能清
+    app: "status",
+    fnc: "resetStats",
+    stem: "清空统计",
+    group: "状态与连接",
+    items: [
+      {
+        cmd: "#早柚清空统计",
+        dsc: "清掉中转计数，今日与累计一起清。平时那份计数跨重启保留",
+        icon: "cross",
         master: true,
       },
     ],
@@ -90,12 +100,9 @@ export const COMMANDS: Command[] = [
     ],
   },
   {
-    // 版本信息 由 suffix 接住；不用 aliases 写成 (版本|版本信息) 只是形状选择，两种正则等价（JS 回溯会兜住）
     app: "status",
     fnc: "about",
     stem: "版本",
-    mods: ["适配器"],
-    suffix: "信息",
     group: "状态与连接",
     items: [
       {
@@ -106,13 +113,26 @@ export const COMMANDS: Command[] = [
       },
     ],
   },
+  {
+    app: "admin",
+    fnc: "help",
+    stem: "帮助",
+    group: "状态与连接",
+    items: [
+      {
+        cmd: "#早柚帮助",
+        dsc: "指令一览，也就是本图",
+        icon: "list",
+        master: true,
+      },
+    ],
+  },
 
   // ---- 连接管理 ----
   {
     app: "admin",
     fnc: "add",
     stem: "添加",
-    aliases: ["新增"],
     tail: "连接",
     arg: true,
     group: "连接管理",
@@ -130,7 +150,6 @@ export const COMMANDS: Command[] = [
     app: "admin",
     fnc: "edit",
     stem: "修改",
-    aliases: ["编辑"],
     tail: "连接",
     arg: true,
     group: "连接管理",
@@ -148,7 +167,6 @@ export const COMMANDS: Command[] = [
     app: "admin",
     fnc: "del",
     stem: "删除",
-    aliases: ["移除"],
     tail: "连接",
     arg: true,
     group: "连接管理",
@@ -210,7 +228,6 @@ export const COMMANDS: Command[] = [
       {
         cmd: "#早柚设置",
         dsc: "不带参数时出图，列出当前所有配置与改法",
-        eg: "#早柚设置    或    #早柚配置",
         icon: "settings",
         master: true,
       },
@@ -269,7 +286,7 @@ export const COMMANDS: Command[] = [
     app: "update",
     fnc: "update",
     stem: "更新",
-    mods: ["适配器", "强制"],
+    mods: ["强制"],
     group: "更新",
     items: [
       {
@@ -291,7 +308,6 @@ export const COMMANDS: Command[] = [
     app: "update",
     fnc: "updateLog",
     stem: "更新日志",
-    mods: ["适配器"],
     group: "更新",
     items: [
       {
@@ -306,7 +322,6 @@ export const COMMANDS: Command[] = [
     app: "update",
     fnc: "checkUpdate",
     stem: "检查更新",
-    mods: ["适配器"],
     group: "更新",
     items: [
       {
@@ -317,12 +332,6 @@ export const COMMANDS: Command[] = [
       },
     ],
   },
-
-  // ---- 帮助图里当前没有条目的指令 ----
-  { app: "admin", fnc: "show", stem: "配置", aliases: ["当前配置"] },
-  { app: "admin", fnc: "help", stem: "帮助" },
-  // 计数落盘后不再随重启归零，得有条路能清
-  { app: "status", fnc: "resetStats", stem: "清空统计" },
 ]
 
 /** @description 各分组下的附注，纯文案，不对应任何 rule */
@@ -380,8 +389,7 @@ const SUB_GROUPS: Record<string, NonNullable<HelpGroup["subGroups"]>> = {
 export function toReg(c: Command): string {
   const mods = (c.mods || []).map(m => `(${m})?`).join("")
   const stem = c.aliases?.length ? `(${[c.stem, ...c.aliases].join("|")})` : c.stem
-  const suffix = c.suffix ? `(${c.suffix})?` : ""
-  return `${PREFIX}${mods}${stem}${c.tail || ""}${suffix}${c.arg ? "\\s*(.+)$" : "$"}`
+  return `${PREFIX}${mods}${stem}${c.tail || ""}${c.arg ? "\\s*(.+)$" : "$"}`
 }
 
 /**
