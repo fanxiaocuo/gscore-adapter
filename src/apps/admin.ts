@@ -254,7 +254,8 @@ export default class GsCoreAdmin extends plugin<"message"> {
     const existing = findSameCore(list, url)
     if (existing) {
       const idx = list.indexOf(existing)
-      const prevBind = Array.isArray(existing.bind) ? existing.bind.map(String) : []
+      // 注意：走 readIds 而不是裸 map(String) —— 手写配置里的 `bind: [" 111"]` 带着空白留下来，判重认不出它与 "111" 是同一个号
+      const prevBind = readIds(existing.bind)
       const nextBind = [...new Set([...prevBind, ...bind])]
       const nextUrl = normalizeEndpoint(existing.url || url)
 
@@ -422,7 +423,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
 
     const hit = this.find(target)
     if (!hit) return e.reply(`找不到连接「${target}」，用 #早柚连接列表 查看`)
-    let nextBind = Array.isArray(hit.conf.bind) ? hit.conf.bind.map(String) : []
+    let nextBind = readIds(hit.conf.bind)
     let requestedBind: string[] = []
     if (kv.bind !== undefined) {
       const ids = parseBind(kv.bind)
@@ -432,7 +433,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
       requestedBind = ids
       nextBind = applyListOp(nextBind, ids, kv.bind_op)
     }
-    let nextExclude = Array.isArray(hit.conf.exclude) ? hit.conf.exclude.map(String) : []
+    let nextExclude = readIds(hit.conf.exclude)
     if (kv.exclude !== undefined) {
       const ids = splitIds(kv.exclude)
       if ((kv.exclude_op === "add" || kv.exclude_op === "remove") && !ids.length)
