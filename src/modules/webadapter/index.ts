@@ -325,7 +325,12 @@ function payload(): Payload {
   }
 }
 
-/** 按名字或 index 定位，语义与 apps/admin.ts 的 find() 一致 */
+/**
+ * @description 按名字或 index 定位连接
+ * 注意：与 apps/admin.ts 的 find() **不一致**，别照它推断本函数的行为 —— 这里 index 是 0 起且只认 number
+ * （字符串 "3" 会去比名字），find() 是 1 起且接受数字字符串；名字这边回退比 c.url，find() 只比 c.name。
+ * 面板实际只送 key: conn.index 这个真 number，所以分歧当前不触发；共用任何定位代码之前得先统一基准
+ */
 function locate(key: unknown) {
   const list = getWsConnections()
   if (typeof key === "number" && Number.isInteger(key) && key >= 0 && key < list.length)
@@ -679,13 +684,23 @@ function addConnection(body: PanelBody) {
     const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
     const freed = readIds(existing.exclude).length !== nextExclude.length
 
-    const err =
-      existing.enable === false
-        ? undefined
-        : requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
+    /*
+     * 停用状态下要顺手打开 —— 「添加连接」的语义就是添加并立即启动，与指令层一致。
+     * 注意：不打开的话首装最常见那条路必然失败。出厂示例连接是 `enable: false`（没绑账号前不该去连），
+     * 地址又恰好是 ws://127.0.0.1:8765，于是面板里填这个地址会被 findSameCore 命中、走到本分支；
+     * 原先这里只写 bind，保存后它仍是停用的，validate 那条「这个账号保存后要有运行时连接」不成立
+     * → 整次保存被取消，而回给用户的是一句在讲路由与 exclude 的话，完全指不到「那条连接是停用的」。
+     * 显式传了 enable=false 的照他说的办
+     */
+    const nextEnable = body.enable !== undefined ? bool(body.enable, true) : true
+
+    const err = nextEnable
+      ? requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
+      : undefined
     if (err) throw new Error(err)
 
     const patch: ConnectionPatch = { bind: nextBind }
+    if (nextEnable !== (existing.enable !== false)) patch.enable = nextEnable
     if (freed) patch.exclude = nextExclude.length ? nextExclude : null
     if (nextUrl !== existing.url) patch.url = nextUrl
     if (existing.bot_id) patch.bot_id = null
@@ -704,11 +719,9 @@ function addConnection(body: PanelBody) {
           else writeAccountBotId(doc, id, undefined, config.bot_id_map)
         }
       },
-      existing.enable === false
-        ? []
-        : bind.length
-          ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
-          : undefined,
+      nextEnable && bind.length
+        ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
+        : undefined,
     )
     applyConnections({ sourceIndex: idx })
     // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
