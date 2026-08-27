@@ -14,9 +14,9 @@
  * 路径相对 cwd，从云崽根目录跑会给真实 bot 的配置挂上监听
  */
 import { config, type ConnectionPatch } from "@/config"
-import { writeAccountBotId } from "@/config/botmap"
+import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { requireAccounts } from "@/modules/client/expand"
-import { findSameCore, normalizeEndpoint, requireWsUrl } from "@/utils/url"
+import { findSameCore, inlineToken, normalizeEndpoint, requireWsUrl } from "@/utils/url"
 import { readIds } from "@/utils/ids"
 import { DEFAULT_MAX_RECONNECT } from "@/constants"
 import type { WsConnection } from "@/types"
@@ -94,6 +94,7 @@ export interface PlanResult {
     /** 本次从排除名单里放出来的账号。指令层回执要念具体账号，不能只给布尔值 */
     freed: string[]
     nextBind: string[]
+    nextExclude: string[]
     nextUrl: string
     /** 这次落盘后该连接是否启用，写盘的 expectations 门禁要用 */
     nextEnable: boolean
@@ -245,7 +246,7 @@ export function planAdd(
       errors: [],
       requested: bind,
       explicit,
-      merge: { index, existing, patch, freed, nextBind, nextUrl, nextEnable },
+      merge: { index, existing, patch, freed, nextBind, nextExclude, nextUrl, nextEnable },
     }
   }
 
@@ -282,6 +283,84 @@ export function planAdd(
 }
 
 /**
+ * @description 修改一条已有连接：算 patch 与合并后状态
+ * @param hit 已定位好的连接。定位不在本模块 —— find() 是 1 起、locate() 是 0 起，两个基准各自保留
+ * @param urlOverride 调用方已解析好的新地址。面板要先判「这一栏动过没有」（它回填的是脱敏串），
+ *   指令层要搬旧地址的查询参数，两边的判定各自不同，所以地址由调用方给成品，本模块只管写不写进 patch
+ *
+ * 注意：patch 的键序即指令层回执里「xx 已更新」的顺序，改动顺序会改回执文案
+ */
+export function planEdit(
+  input: ConnInput,
+  hit: { index: number; conf: WsConnection },
+  urlOverride?: string,
+): PlanResult {
+  const { errors, enable: enableInput, interval, retry } = normalize(input)
+  const { conf } = hit
+
+  const prevBind = readIds(conf.bind)
+  const nextBind = input.bind ? applyListOp(prevBind, input.bind.ids, input.bind.op) : prevBind
+  const prevExclude = readIds(conf.exclude)
+  const nextExclude = input.exclude
+    ? applyListOp(prevExclude, input.exclude.ids, input.exclude.op)
+    : prevExclude
+
+  const nextUrl = urlOverride ?? normalizeEndpoint(String(conf.url || ""))
+  const nextEnable = enableInput === undefined ? isEnabled(conf) : enableInput
+  const explicit = (input.bot_id || "").trim()
+
+  // 改成「自动端点 + 没有有效账号」等于把连接改死，写盘前就拦掉
+  const accountsErr = nextEnable
+    ? requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
+    : undefined
+  if (accountsErr) errors.push({ code: "accounts_required", message: accountsErr })
+  if (explicit && !nextBind.length) errors.push({ code: "bot_id_without_bind" })
+  if (errors.length) return { ok: false, errors }
+
+  const patch: ConnectionPatch = {}
+  if (nextUrl !== conf.url) patch.url = nextUrl
+  if (input.name !== undefined) patch.name = input.name
+  if (input.token !== undefined) patch.token = input.token
+  /*
+   * 覆写 url 时把内联凭据搬进 token 字段。
+   * 注意：`url=10.0.0.5:8765` 写的是裸地址，而旧地址的凭据只存在于 `?token=` 里、跟着地址一起没了 ——
+   * 改完不报错、下次握手直接无凭据，症状和地址毫无关系。面板那边更隐蔽：它回填的是脱敏地址，
+   * 提交回来的新地址不带查询串，而面板没有任何字段能把凭据填回来（token 留空表示「不改」）。
+   * 显式给了 token、或新地址已内联凭据时不搬 —— 那是用户的意图
+   */
+  if (patch.url !== undefined && patch.token === undefined) {
+    const carried = inlineToken(conf.url)
+    if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
+  }
+  // 显式平台标识按 bind 账号写入 bot_id_map；任何改动都顺手清掉连接上的旧字段
+  if (input.bot_id !== undefined || conf.bot_id) patch.bot_id = null
+  if (enableInput !== undefined) patch.enable = enableInput
+  if (interval !== undefined) patch.reconnect_interval = interval
+  if (retry !== undefined) patch.max_reconnect_attempts = retry
+  if (input.bind) patch.bind = nextBind
+  if (input.exclude) patch.exclude = nextExclude
+
+  return {
+    ok: true,
+    errors: [],
+    // -= 移除时不能拿结果当「本次要绑的」：那会要求「这些留下来的账号保存后必须连上」，
+    // 而这次操作的意图恰恰是减账号
+    requested: input.bind && input.bind.op !== "remove" ? input.bind.ids : [],
+    explicit,
+    merge: {
+      index: hit.index,
+      existing: conf,
+      patch,
+      freed: [],
+      nextBind,
+      nextExclude,
+      nextUrl,
+      nextEnable,
+    },
+  }
+}
+
+/**
  * @description 合并/新建时往 bot_id_map 写平台标识的闭包，两边写盘调用共用
  * @param targets 本次点明要绑的账号 —— 判据是它而不是最终 bind：后者含这条连接上的老账号，替他们改平台标识是越权
  * @param all 最终要遍历的账号
@@ -295,5 +374,25 @@ export function botmapWriter(all: (string | number)[], targets: string[], explic
         writeAccountBotId(doc, id, explicit, undefined, true)
       else writeAccountBotId(doc, id, undefined, config.bot_id_map)
     }
+  }
+}
+
+/**
+ * @description edit 的 bot_id_map 写入：没给显式标识时沿用连接上的旧字段，再按形状补
+ * 注意：与 {@link botmapWriter} 分开而不是加参数 —— add 那边没有「连接上原有 bot_id」这个概念
+ */
+export function editBotmapWriter(
+  nextBind: string[],
+  explicit: string,
+  legacy: string | undefined,
+  bindChanged: boolean,
+) {
+  return (doc: Parameters<typeof writeAccountBotId>[0]) => {
+    if (explicit) {
+      for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
+      return
+    }
+    if (legacy) for (const id of nextBind) writeAccountBotId(doc, id, legacy)
+    if (bindChanged) writeAccountBotIds(doc, nextBind, config.bot_id_map)
   }
 }

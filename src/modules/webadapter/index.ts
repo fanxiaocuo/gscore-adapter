@@ -44,8 +44,15 @@ import {
   requireWsUrl,
 } from "@/utils/url"
 import { readIds } from "@/utils/ids"
-import { botmapWriter, planAdd, type ConnInput, type PlanError } from "@/modules/connections/plan"
-import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
+import {
+  botmapWriter,
+  editBotmapWriter,
+  planAdd,
+  planEdit,
+  type ConnInput,
+  type PlanError,
+} from "@/modules/connections/plan"
+import { writeAccountBotId } from "@/config/botmap"
 import { getBot, onlineBots, qqAvatar } from "@/utils/bots.js"
 import { restartFileServer } from "@/utils/fileServer.js"
 // 三个「效力值」直接问下游要：面板要显示实际生效的那个数，各自再写一遍 `|| 默认` 就会漂
@@ -344,17 +351,6 @@ function bool(v: unknown, dflt: boolean): boolean {
   if (v === undefined || v === null || v === "") return dflt
   if (typeof v === "boolean") return v
   return v === "true" || v === 1 || v === "1"
-}
-
-/**
- * @description 数字字段：留空回默认值，显式的 0 保留
- * 注意：Number("") 是 0，只判 Number.isFinite 会把「清空输入框」当成「填了 0」，
- * 而 max_reconnect_attempts 的 0 恰好是无限重连
- */
-function num(v: unknown, dflt: number): number {
-  if (v === undefined || v === null || v === "") return dflt
-  const n = Number(v)
-  return Number.isFinite(n) ? n : dflt
 }
 
 /**
@@ -747,101 +743,42 @@ function editConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  // 先把请求体校验成 patch 再写盘，校验错误由外层 guard 转成 400 回给面板
-  const patch: ConnectionPatch = {}
+  /*
+   * 地址：先判「这一栏动过没有」，再搬查询参数，两步都由面板自己做，plan 只收成品。
+   * 面板显示的是脱敏地址、弹层又原样回填并提交，所以判据得把我们显示给他的那个串按同一套规则
+   * 规范化（requireWsUrl 内部就是 normalizeEndpoint）再比 —— 只比 redactUrl(conf.url) 会因为补协议、
+   * 主机小写、去默认端口而把没动过的地址判成动过，白写一次 patch.url，而写 url 就会丢查询串里的凭据。
+   * 注意：搬参数排在协议门之后、且排在「动过没有」判完之后 —— 垫在 requireWsUrl 前面等于让协议门去
+   * 校验一个派生串；拿合并后的串去比，带 `?tenant=` 的连接每次都「看起来变了」，收敛全废
+   */
+  let urlOverride: string | undefined
   if (body.url !== undefined) {
     const next = requireWsUrl(String(body.url))
-    // 面板显示的是脱敏地址、弹层又原样回填并提交，所以判「这一栏动过没有」得把我们显示给
-    // 他的那个串按同一套规则规范化（requireWsUrl 内部就是 normalizeEndpoint）再比 ——
-    // 只比 redactUrl(conf.url) 会因为补协议、主机小写、去默认端口而把没动过的地址判成动过，
-    // 白写一次 patch.url，而写 url 就会丢查询串里的凭据
     if (next !== normalizeEndpoint(redactUrl(hit.conf.url)))
-      // 注意：搬参数必须排在协议门之后、且排在「这一栏动过没有」判完之后 —— 垫在
-      // requireWsUrl 前面等于让协议门去校验一个派生串；拿合并后的串去比，带 `?tenant=`
-      // 的连接每次都「看起来变了」，上面那段收敛全废，用户只改了名字地址却被重写
-      patch.url = mergeEndpointQuery(hit.conf.url, next)
-  } else {
-    // normalizeEndpoint 补 ws://、砍 fragment、经 new URL() 重新序列化（主机小写、默认端口
-    // 消失），但**不改写用户写的路径**。所以这一支同样可能产出 patch.url
-    const normalized = normalizeEndpoint(String(hit.conf.url || ""))
-    if (normalized !== hit.conf.url) patch.url = normalized
+      urlOverride = mergeEndpointQuery(hit.conf.url, next)
   }
+
+  const input = toConnInput(body)
   /**
    * @description 未命名连接：别把它的地址落成名字
    * 注意：卡片标题走 label()，未命名时就是脱敏地址，而弹层把标题当 name 回填并提交回来 ——
-   * 照收等于替用户取了个名字，而这个名字是旧地址。判据同上：与显示给他的那个串相同就当没动过
+   * 照收等于替用户取了个名字，而这个名字是旧地址。判据同地址那段：与显示给他的串相同就当没动过
    */
-  if (body.name !== undefined) {
-    const submitted = String(body.name).trim()
-    if (hit.conf.name || submitted !== label(hit.conf)) patch.name = submitted
-  }
-  if (body.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
-  // 注意：token 留空表示「不改」而不是「清空」—— 面板拿不到原值（GET 只回 has_token），
-  // 当清空会让每次保存都把 token 抹掉。要清空走 clear_token
-  if (body.token) patch.token = String(body.token)
-  if (body.clear_token) patch.token = ""
-  /**
-   * @description 覆写 url 时把内联凭据搬进 token 字段
-   * 注意：面板回填的是脱敏地址、提交回来的新地址不带查询串 —— 不搬的话只存在于 `?token=` 里的
-   * 凭据会静默消失，而面板没有任何字段能把它填回来（token 留空表示「不改」），改完连不上且不报错。
-   * body 自带 token、显式 clear_token、或新地址已内联凭据时不搬 —— 那是用户的意图
-   */
-  if (patch.url !== undefined && patch.token === undefined) {
-    const carried = inlineToken(hit.conf.url)
-    if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
-  }
-  if (body.enable !== undefined) patch.enable = bool(body.enable, true)
-  for (const k of ["reconnect_interval", "max_reconnect_attempts"] as const) {
-    if (body[k] === undefined) continue
-    // 注意：空串走 num() 回默认值，别用裸 Number —— Number("") 是 0，而
-    // max_reconnect_attempts 的 0 恰好是无限重连
-    const blank = body[k] === null || body[k] === ""
-    const n = num(body[k], k === "reconnect_interval" ? 5 : DEFAULT_MAX_RECONNECT)
-    // 填了东西却不是数字仍要报错，不能静默当成没填
-    if (!blank && !Number.isFinite(Number(body[k]))) throw new Error(`${k} 应为数字`)
-    // 注意：间隔为负会让退避算出负延时、setTimeout 立即回调，成热重连循环。次数不设下界，
-    // <= 0 就是无限重连
-    if (k === "reconnect_interval" && n < 1) throw new Error(`${k} 应为不小于 1 的数字`)
-    patch[k] = n
-  }
-  for (const k of ["bind", "exclude"] as const) {
-    if (body[k] === undefined) continue
-    if (!Array.isArray(body[k])) throw new Error(`${k} 应为数组`)
-    patch[k] = body[k] as (string | number)[]
+  if (input.name !== undefined) {
+    const submitted = input.name.trim()
+    input.name = hit.conf.name || submitted !== label(hit.conf) ? submitted : undefined
   }
 
-  const nextBind = (
-    body.bind !== undefined ? (patch.bind as (string | number)[]) : hit.conf.bind || []
-  ).map(String)
-  const nextExclude = (
-    body.exclude !== undefined ? (patch.exclude as (string | number)[]) : hit.conf.exclude || []
-  ).map(String)
-  const explicit = body.bot_id !== undefined ? String(body.bot_id || "").trim() : ""
-  if (explicit && !nextBind.length)
-    throw new Error("当前连接未绑定账号，无法按账号写入平台标识。请先填写绑定账号")
-
-  // 改成「自动端点 + 没有有效账号」等于把连接改死，写盘前就拦掉
-  const nextEnable = patch.enable ?? hit.conf.enable ?? true
-  const err = nextEnable
-    ? requireAccounts({
-        ...hit.conf,
-        url: patch.url ?? hit.conf.url,
-        bind: nextBind,
-        exclude: nextExclude,
-      })
-    : undefined
-  if (err) throw new Error(err)
+  // 校验与算 patch 都在 modules/connections/plan，与指令层共用同一套规则
+  const plan = planEdit(input, hit, urlOverride)
+  if (!plan.ok) throw new Error(sayPanelError(plan.errors[0]))
+  const { patch, nextBind, nextEnable } = plan.merge!
+  const explicit = plan.explicit || ""
 
   updateConnection(
     hit.index,
     patch,
-    doc => {
-      if (explicit) for (const id of nextBind) writeAccountBotId(doc, id, explicit, undefined, true)
-      else {
-        if (hit.conf.bot_id) for (const id of nextBind) writeAccountBotId(doc, id, hit.conf.bot_id)
-        if (body.bind !== undefined) writeAccountBotIds(doc, nextBind, config.bot_id_map)
-      }
-    },
+    editBotmapWriter(nextBind, explicit, hit.conf.bot_id, body.bind !== undefined),
     !nextEnable
       ? []
       : body.bind !== undefined && nextBind.length

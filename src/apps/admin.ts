@@ -8,27 +8,29 @@ import {
   removeConnection,
   enabled,
   wsEnabled,
-  type ConnectionPatch,
 } from "@/config"
-import { applyConnections, clients, countSource } from "@/modules/client"
-import { expandConnections, requireAccounts, sourceLabel } from "@/modules/client/expand"
-import { readIds } from "@/utils/ids"
+// 注意：只 import 子文件，不碰 @/modules/client barrel —— 那个 barrel 里 framework.ts 有顶层 await 且路径相对 cwd，
+// 从云崽根目录跑会给真实 bot 的配置挂上监听
+import { applyConnections, countSource } from "@/modules/client/lifecycle"
+import { clients } from "@/modules/client/state"
+import { expandConnections, sourceLabel } from "@/modules/client/expand"
 import { MEDIA_SIZE_MAX, STATUS_TEXT, pickByStatus } from "@/constants"
 import { makeLog } from "@/utils/compat"
-import {
-  inlineToken,
-  mergeEndpointQuery,
-  normalizeEndpoint,
-  redactUrl,
-  requireWsUrl,
-} from "@/utils/url"
+import { mergeEndpointQuery, redactUrl, requireWsUrl } from "@/utils/url"
 import { resolveSelfId } from "@/utils/message"
-import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
 import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
 import { helpText, rulesFor, stripArg } from "@/modules/render/commands"
-import { botmapWriter, planAdd, type ConnInput, type PlanError } from "@/modules/connections/plan"
+import {
+  botmapWriter,
+  editBotmapWriter,
+  isEnabled,
+  planAdd,
+  planEdit,
+  type ConnInput,
+  type PlanError,
+} from "@/modules/connections/plan"
 import type { YunzaiEvent } from "@/types"
 /** @description 关闭状态下不热启动连接 */
 function clientMode() {
@@ -146,12 +148,14 @@ function parseBind(value: string): string[] | null {
  * @description 把解析好的 key=value 映射成共用核心的输入
  * 注意：token 的空值即清空（映射成 null，落盘删键）—— 与面板的 clear_token 是同一个落盘结果，
  * 只是两边输入习惯不同；enable 与两个数字字段原样透传，解析与校验都在 plan 里
+ * 注意：name 的空值当没填 —— 空写的 `name=` 从来不改名（原先是 `if (kv.name)`），不借这次重构悄悄
+ * 给它加上「清空连接名」的语义
  * @param url add() 要把「第一个不含 = 的片段」当地址，所以由调用方给
  */
 function toInput(kv: ParsedKV, url?: string): ConnInput {
   return {
     url,
-    name: kv.name,
+    name: kv.name || undefined,
     token: kv.token !== undefined ? kv.token || null : undefined,
     enable: kv.enable,
     reconnect_interval: kv.reconnect_interval,
@@ -197,16 +201,6 @@ function mappedLine(ids: string[], suffix = ""): string {
     .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
     .filter(Boolean)
   return mapped.length ? `平台标识：${mapped.join("、")}${suffix}\n` : ""
-}
-
-/**
- * @description 对账号列表应用 += / -= / 整体替换
- * @returns 新数组（已去重）；-= 移空是合法结果，由调用方决定要不要提示
- */
-function applyListOp(current: string[], ids: string[], op: ListOp | undefined): string[] {
-  if (op === "add") return [...new Set([...current, ...ids])]
-  if (op === "remove") return current.filter(id => !ids.includes(id))
-  return [...new Set(ids)]
 }
 
 /** @description 是否为 key=value 片段（用于把剩下的那个片段认作地址） */
@@ -383,96 +377,42 @@ export default class GsCoreAdmin extends plugin<"message"> {
 
     const hit = this.find(target)
     if (!hit) return e.reply(`找不到连接「${target}」，用 #早柚连接列表 查看`)
-    let nextBind = readIds(hit.conf.bind)
-    let requestedBind: string[] = []
-    if (kv.bind !== undefined) {
-      const ids = parseBind(kv.bind)
-      if (ids === null) return e.reply("bind=all 已不再支持：请写明要接入的账号")
-      if (kv.bind_op === "add" && !ids.length) return e.reply("bind+= 需要填写至少一个账号")
-      if (kv.bind_op === "remove" && !ids.length) return e.reply("bind-= 需要填写要移除的账号")
-      requestedBind = ids
-      nextBind = applyListOp(nextBind, ids, kv.bind_op)
-    }
-    let nextExclude = readIds(hit.conf.exclude)
-    if (kv.exclude !== undefined) {
-      const ids = splitIds(kv.exclude)
-      if ((kv.exclude_op === "add" || kv.exclude_op === "remove") && !ids.length)
-        return e.reply(`exclude${kv.exclude_op === "add" ? "+=" : "-="} 需要填写至少一个账号`)
-      nextExclude = applyListOp(nextExclude, ids, kv.exclude_op)
-    }
+    // bind=all 的拒绝留在指令层：它是 key=value 语法的遗留写法，面板没有对应的输入
+    if (kv.bind !== undefined && parseBind(kv.bind) === null)
+      return e.reply("bind=all 已不再支持：请写明要接入的账号")
 
+    // 地址由调用方给成品：本层要把旧地址的查询参数搬过去，面板那边要先判「这一栏动过没有」，两种判定不同。
     // requireWsUrl 会抛（协议错、解析不了），而这一步在写盘之外，抛出去就是一条框架级异常日志而不是回给用户的话。
-    // `url=10.0.0.5:8765` 只重写 host 和端口，旧地址上的 `?tenant=`、`?access_token=` 会跟着消失，所以要搬。
     // 注意：协议门吃的是用户新填的原串，搬参数必须发生在门之后 —— mergeEndpointQuery 是容错的（旧地址解析不了
     // 就静默回退成新地址），垫在 requireWsUrl 前面就等于让协议门去校验一个派生串，门放行的范围会跟着 merge
     // 悄悄变。放在门之后不削弱校验：merge 只往 searchParams 里补名字，协议、主机、路径一概不碰。
-    let nextUrl: string
-    try {
-      nextUrl = kv.url
-        ? mergeEndpointQuery(hit.conf.url, requireWsUrl(kv.url))
-        : normalizeEndpoint(String(hit.conf.url || ""))
-    } catch (err) {
-      return e.reply(errorMessage(err))
+    let urlOverride: string | undefined
+    if (kv.url) {
+      try {
+        urlOverride = mergeEndpointQuery(hit.conf.url, requireWsUrl(kv.url))
+      } catch (err) {
+        return e.reply(errorMessage(err))
+      }
     }
-    const nextEnable =
-      kv.enable === undefined ? hit.conf.enable !== false : kv.enable.toLowerCase() === "true"
-    const bindErr = nextEnable
-      ? requireAccounts({ url: nextUrl, bind: nextBind, exclude: nextExclude })
-      : undefined
-    if (bindErr) return e.reply(bindErr)
 
-    // 字段校验都在写盘之前做完：报错要作为一句话回给用户，不能等 updateConnection 写到一半才抛。
-    // patch 的键序即回复里「xx 已更新」的顺序
-    const patch: ConnectionPatch = {}
-    if (kv.url || nextUrl !== hit.conf.url) patch.url = nextUrl
-    if (kv.name) patch.name = kv.name
-    if (kv.token !== undefined) patch.token = kv.token || null
-    // 注意：只改地址时要把内联凭据搬进 token 字段 —— `url=10.0.0.5:8765` 写的是裸地址，而旧地址的凭据只存在于
-    // `?token=` 里、跟着地址一起没了：改完不报错、下次握手直接无凭据，症状和地址毫无关系。
-    // 新地址里内联了凭据时不搬（那是改密）；空写的 `?token=` 两边都不算凭据。
-    if (patch.url !== undefined && patch.token === undefined) {
-      const carried = inlineToken(hit.conf.url)
-      if (carried !== null && inlineToken(patch.url) === null) patch.token = carried
-    }
-    // 显式 id= 按 bind 账号写入 bot_id_map；任何改动都顺手清掉连接上的旧字段
-    if (kv.bot_id !== undefined || hit.conf.bot_id) patch.bot_id = null
-    if (kv.enable !== undefined) {
-      if (!["true", "false"].includes(kv.enable.toLowerCase()))
-        return e.reply("enable 只能是 true 或 false")
-      patch.enable = kv.enable.toLowerCase() === "true"
-    }
-    if (kv.reconnect_interval !== undefined) {
-      const n = Number(kv.reconnect_interval)
-      if (!Number.isFinite(n) || n < 0) return e.reply("reconnect_interval 应为 0 或正数")
-      patch.reconnect_interval = n
-    }
-    if (kv.max_reconnect_attempts !== undefined) {
-      const n = Number(kv.max_reconnect_attempts)
-      if (!Number.isFinite(n)) return e.reply("max_reconnect_attempts 应为数字")
-      patch.max_reconnect_attempts = n
-    }
-    if (kv.bind !== undefined) patch.bind = nextBind
-    if (kv.exclude !== undefined) patch.exclude = nextExclude
-
-    const ids = (kv.bind !== undefined ? nextBind : hit.conf.bind || []).map(String)
-    if (kv.bot_id && !ids.length) return e.reply("请先 bind=<账号> 再设平台")
+    // 校验与算 patch 都在 modules/connections/plan，与面板共用同一套规则
+    const plan = planEdit(toInput(kv), hit, urlOverride)
+    if (!plan.ok) return e.reply(sayError(plan.errors[0], "edit"))
+    const { patch, nextBind, nextExclude, nextEnable } = plan.merge!
+    const requested = plan.requested || []
+    const explicit = plan.explicit || ""
 
     try {
       updateConnection(
         hit.index,
         patch,
-        doc => {
-          if (kv.bot_id) {
-            for (const id of ids) writeAccountBotId(doc, id, kv.bot_id, undefined, true)
-          } else {
-            if (hit.conf.bot_id) for (const id of ids) writeAccountBotId(doc, id, hit.conf.bot_id)
-            if (kv.bind !== undefined) writeAccountBotIds(doc, ids, config.bot_id_map)
-          }
-        },
+        editBotmapWriter(nextBind, explicit, hit.conf.bot_id, kv.bind !== undefined),
+        // 停用的连接派生不出运行时连接，那时不能要求「这个账号保存后要连上」；
+        // bind-= 的意图是减账号，拿剩下的去要求「保存后必须连上」是反的（requested 已排除这种情况）
         !nextEnable
           ? []
-          : kv.bind !== undefined && kv.bind_op !== "remove" && requestedBind.length
-            ? requestedBind.map(account => ({ sourceIndex: hit.index, account, action: "绑定" }))
+          : requested.length
+            ? requested.map(account => ({ sourceIndex: hit.index, account, action: "绑定" }))
             : [{ sourceIndex: hit.index, action: "修改" }],
       )
     } catch (err) {
@@ -483,10 +423,10 @@ export default class GsCoreAdmin extends plugin<"message"> {
     applyConnections({ sourceIndex: hit.index })
     const next = getWsConnections()[hit.index]
     // 真起得来才报「运行时连接」；停用或适配器关着时只能说会展开成几条
-    const willRun = next?.enable !== false && clientMode()
+    const willRun = isEnabled(next) && clientMode()
     const runningNow = willRun
       ? // 注意：数现在跑着几条而不是这次新起了几条 —— 改名字之类不影响握手的改动，收敛会把客户端原地留着
-        // （started 为 0），照新起数说话就会回一句「运行时连接：0 条」
+        //（started 为 0），照新起数说话就会回一句「运行时连接：0 条」
         countSource(hit.index)
       : next
         ? // 用 enable:true 展开：expandConnections 对 enable === false 直接短路，照原样传进去「停用了几个账号
@@ -499,19 +439,16 @@ export default class GsCoreAdmin extends plugin<"message"> {
       changed.map(k => `${k} 已更新`).join("，"),
       willRun ? `运行时连接：${runningNow} 条` : `将展开 ${runningNow} 条运行时连接（当前未启动）`,
     ]
-    if (kv.bind !== undefined) {
-      // 改完把最终绑定念出来：bind+=/-= 是增量操作，用户看不到合并后的全貌
+    // 改完把最终绑定念出来：bind+=/-= 是增量操作，用户看不到合并后的全貌
+    if (kv.bind !== undefined)
       lines.push(`当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}`)
-    }
     if (kv.bot_id) {
-      // 注意：同样只念写盘后的实际表（理由见 add() 里那段）—— 这里虽然走的是 force，值也不保证等于输入：
+      // 注意：同样只念写盘后的实际表（理由见 mappedLine）—— 这里虽然走的是 force，值也不保证等于输入：
       // mapKey 挑的键可能与用户手改 yaml 留下的另一行并排，解析回 JS 时靠后的那行赢
-      const mapped = ids
-        .map(id => (config.bot_id_map?.[id] ? `${id}=${config.bot_id_map[id]}` : ""))
-        .filter(Boolean)
+      const mapped = mappedLine(nextBind)
       lines.push(
-        mapped.length
-          ? `平台标识已按账号记入 bot_id_map：${mapped.join("、")}`
+        mapped
+          ? `平台标识已按账号记入 bot_id_map：${mapped.replace(/^平台标识：|\n$/g, "")}`
           : `平台标识 ${kv.bot_id} 未能写入 bot_id_map，请检查配置里的 bot_id_map`,
       )
     }
