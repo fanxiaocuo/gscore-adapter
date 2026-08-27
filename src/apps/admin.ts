@@ -28,7 +28,7 @@ import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
 import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
-import { helpText, rulesFor } from "@/modules/render/commands"
+import { helpText, rulesFor, stripArg } from "@/modules/render/commands"
 import type { WsConnection, YunzaiEvent } from "@/types"
 /** @description 关闭状态下不热启动连接 */
 function clientMode() {
@@ -206,7 +206,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
   }
 
   async add(e: YunzaiEvent) {
-    const raw = e.msg.replace(/^#?早柚(核心)?(添加|新增)连接\s*/, "").trim()
+    const raw = stripArg("admin", "add", e.msg)
     if (!raw)
       return e.reply(
         "用法：#早柚添加连接 127.0.0.1:8765\n" +
@@ -409,7 +409,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
   }
 
   async edit(e: YunzaiEvent) {
-    const raw = e.msg.replace(/^#?早柚(核心)?(修改|编辑)连接\s*/, "").trim()
+    const raw = stripArg("admin", "edit", e.msg)
     const kv = parseKV(raw)
     const target = raw.split(/[\s,，]+/).find(s => s && !isKV(s))
     if (!target || !Object.keys(kv).some(k => CONNECTION_KEYS.includes(k)))
@@ -560,7 +560,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
   }
 
   async del(e: YunzaiEvent) {
-    const key = e.msg.replace(/^#?早柚(核心)?(删除|移除)连接\s*/, "").trim()
+    const key = stripArg("admin", "del", e.msg)
     const hit = this.find(key)
     if (!hit) return e.reply(`找不到连接「${key}」，用 #早柚连接列表 查看`)
 
@@ -644,7 +644,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
   }
 
   async toggle(e: YunzaiEvent, on: boolean) {
-    const key = e.msg.replace(/^#?早柚(核心)?(开启|启用|关闭|停用)连接\s*/, "").trim()
+    const key = stripArg("admin", on ? "enable" : "disable", e.msg)
     const hit = this.find(key)
     if (!hit) return e.reply(`找不到连接「${key}」，用 #早柚连接列表 查看`)
 
@@ -688,7 +688,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
   }
 
   async set(e: YunzaiEvent) {
-    const raw = e.msg.replace(/^#?早柚(核心)?设置\s*/, "").trim()
+    const raw = stripArg("admin", "set", e.msg)
     // 注意：英文 key=value 优先，一个都没中再试中文写法 —— 反过来会让 `#早柚设置 media_max_size=2097152`
     // 白跑一遍中文解析，而且两种写法的优先级要稳定（老写法必须继续按字节收）
     const kv = parseKV(raw)

@@ -387,9 +387,24 @@ const SUB_GROUPS: Record<string, NonNullable<HelpGroup["subGroups"]>> = {
 
 /** @description 把一条指令的结构拼成正则字符串 */
 export function toReg(c: Command): string {
+  return `${head(c)}${c.arg ? "\\s*(.+)$" : "$"}`
+}
+
+/** @description 前缀部分（不含参数尾巴），剥参数与拼正则共用 */
+function head(c: Command): string {
   const mods = (c.mods || []).map(m => `(${m})?`).join("")
   const stem = c.aliases?.length ? `(${[c.stem, ...c.aliases].join("|")})` : c.stem
-  return `${PREFIX}${mods}${stem}${c.tail || ""}${c.arg ? "\\s*(.+)$" : "$"}`
+  return `${PREFIX}${mods}${stem}${c.tail || ""}`
+}
+
+/**
+ * @description 剥掉指令前缀，返回参数串
+ * 注意：正则由声明表派生 —— 从前五处 e.msg.replace 各自手抄一遍 rule 的正则，是与 rule 并列的第二个漂移面（砍别名时这三处就留下了死掉的 (修改|编辑)）
+ */
+export function stripArg(app: CommandApp, fnc: string, msg: string): string {
+  const c = COMMANDS.find(x => x.app === app && x.fnc === fnc)
+  if (!c) throw new Error(`未登记的指令：${app}#${fnc}`)
+  return msg.replace(new RegExp(`${head(c)}\\s*`), "").trim()
 }
 
 /**
