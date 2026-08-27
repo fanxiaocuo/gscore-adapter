@@ -3,6 +3,7 @@ import { makeLog } from "@/utils/compat"
 import { clients } from "@/modules/client"
 import { forName, snapshot, resetStats } from "@/modules/stats"
 import { renderStatus, renderAbout } from "@/modules/render/pages"
+import { rulesFor } from "@/modules/render/commands"
 import { versionLabel, branch } from "@/modules/render/version"
 import { frameLabel, nodeVersion, releaseLabel, sysInfo } from "@/modules/render/env"
 import type { YunzaiEvent } from "@/types"
@@ -14,14 +15,7 @@ export default class GsCoreStatus extends plugin<"message"> {
       dsc: "gscore-adapter 状态与重连",
       event: "message",
       priority: 500,
-      rule: [
-        { reg: "^#?早柚(核心)?状态$", fnc: "status", permission: "master" },
-        { reg: "^#?早柚(核心)?重连$", fnc: "reconnect", permission: "master" },
-        // 计数落盘后不再随重启归零，得有条路能清
-        { reg: "^#?早柚(核心)?清空统计$", fnc: "resetStats", permission: "master" },
-        // 注意：不写成 (版本|版本信息) —— 早柚版本信息 会被 ^...版本$ 拒掉，再由本条的 (信息)? 接住
-        { reg: "^#?早柚(核心)?(适配器)?版本(信息)?$", fnc: "about", permission: "master" },
-      ],
+      rule: rulesFor("status"),
     })
   }
 

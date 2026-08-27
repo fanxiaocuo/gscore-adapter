@@ -1,13 +1,57 @@
 /**
- * @description 指令清单，帮助图与文本回退的唯一事实源（对应 kkk 的 HELP_MENU_CONFIG）
- * 单独成文件是因为 apps/admin.ts 里那份纯文本帮助原先硬编码在 reply 里，加一条指令要同时改两处。
+ * @description 指令清单：rule 正则与帮助条目的唯一事实源（对应 kkk 的 HELP_MENU_CONFIG）
+ * 原先正则写在三个 apps 的 rule 数组里、文案写在本文件里，两份平行列表 —— 加一条指令要改两处，
+ * 漏一处只表现为「帮助图和真实指令不一致」，不报错也不测试。现在一条条目同时产出两边。
  * 不按角色分支（kkk 按 master/member 过滤）：本插件所有指令都是 permission: "master"，只在条目上标 MASTER。
+ * 注意：本文件保持零运行时依赖（只有 type import）—— apps 与 render 两边都要 import 它，带副作用会把 @/config 拖进渲染链
+ * 注意：条目按「帮助展示顺序」排，rule 数组由 app 过滤派生 —— 17 条正则两两不相交（见 test/probe-rules-snapshot.mjs），顺序对派发无影响
+ * 注意：设置 的空参数条目必须排在带参数那条前面 —— 现在 (.+) 要求至少一字符所以两者不重叠，但哪天有人放宽成 (.*)，这个顺序是唯一的兜底
  */
-import type { HelpGroup } from "./components/Help.js"
+import type { HelpGroup, HelpItem } from "./components/Help.js"
 
-export const HELP_GROUPS: HelpGroup[] = [
+/** 所有指令共用的前缀：# 可省，核心 可省 */
+const PREFIX = "^#?早柚(核心)?"
+
+/** @description 指令归属的 app，决定它进哪个类的 rule 数组 */
+export type CommandApp = "admin" | "status" | "update"
+
+/** @description 一条指令：正则结构 + 它在帮助里对应的条目 */
+export interface Command {
+  app: CommandApp
+  /** 处理函数名，与类上的方法同名 */
+  fnc: string
+  /** 指令主干 */
+  stem: string
+  /** 与 stem 同级的别名，产出 (stem|别名) */
+  aliases?: string[]
+  /** stem 前的可选修饰，逐个产出 (mod)?；强制 是行为变体而非别名，由 handler 二次判定 */
+  mods?: string[]
+  /** stem 后的可选后缀，产出 (suffix)? */
+  suffix?: string
+  /** stem 后的固定literal，如 连接 */
+  tail?: string
+  /** 带参数：产出 \s*(.+)$，否则 $ */
+  arg?: boolean
+  /** 帮助分组标题；省略则本条不进帮助图 */
+  group?: string
+  /** 本条在帮助里的条目，可以有多条（用法示例）或没有 */
+  items?: HelpItem[]
+}
+
+/** @description 帮助分组的展示顺序 */
+const GROUP_ORDER = ["状态与连接", "连接管理", "全局设置", "更新"] as const
+
+/**
+ * @description 全部指令，按帮助展示顺序排列
+ * 没有 group 的三条是当前帮助图里缺失的指令，照原样先不露出（等价替换步骤不改帮助输出）
+ */
+export const COMMANDS: Command[] = [
+  // ---- 状态与连接 ----
   {
-    title: "状态与连接",
+    app: "status",
+    fnc: "status",
+    stem: "状态",
+    group: "状态与连接",
     items: [
       {
         cmd: "#早柚状态",
@@ -15,18 +59,45 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "status",
         master: true,
       },
+    ],
+  },
+  {
+    app: "admin",
+    fnc: "list",
+    stem: "连接列表",
+    group: "状态与连接",
+    items: [
       {
         cmd: "#早柚连接列表",
         dsc: "列出全部已配置的连接，含地址、鉴权与重连次数",
         icon: "list",
         master: true,
       },
+    ],
+  },
+  {
+    app: "status",
+    fnc: "reconnect",
+    stem: "重连",
+    group: "状态与连接",
+    items: [
       {
         cmd: "#早柚重连",
         dsc: "立即重连全部连接，不改动任何配置",
         icon: "refresh",
         master: true,
       },
+    ],
+  },
+  {
+    // 版本信息 由 suffix 接住；不用 aliases 写成 (版本|版本信息) 只是形状选择，两种正则等价（JS 回溯会兜住）
+    app: "status",
+    fnc: "about",
+    stem: "版本",
+    mods: ["适配器"],
+    suffix: "信息",
+    group: "状态与连接",
+    items: [
       {
         cmd: "#早柚版本",
         dsc: "插件版本与运行环境：框架、Node、运行模式、框架能力探测结果",
@@ -35,8 +106,16 @@ export const HELP_GROUPS: HelpGroup[] = [
       },
     ],
   },
+
+  // ---- 连接管理 ----
   {
-    title: "连接管理",
+    app: "admin",
+    fnc: "add",
+    stem: "添加",
+    aliases: ["新增"],
+    tail: "连接",
+    arg: true,
+    group: "连接管理",
     items: [
       {
         cmd: "#早柚添加连接 <地址>",
@@ -45,6 +124,17 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "plus",
         master: true,
       },
+    ],
+  },
+  {
+    app: "admin",
+    fnc: "edit",
+    stem: "修改",
+    aliases: ["编辑"],
+    tail: "连接",
+    arg: true,
+    group: "连接管理",
+    items: [
       {
         cmd: "#早柚修改连接 <名字|序号> <key=value>",
         dsc: "改已有连接，最常用的是给同一个核心再绑一个机器人：\nbind+=<账号> 追加，bind-=<账号> 移除\nbind=账号1+账号2 整体替换（至少留一个账号）\nurl / token / enable / interval / retry 也可改；id= 按账号写入平台映射",
@@ -52,6 +142,17 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "settings",
         master: true,
       },
+    ],
+  },
+  {
+    app: "admin",
+    fnc: "del",
+    stem: "删除",
+    aliases: ["移除"],
+    tail: "连接",
+    arg: true,
+    group: "连接管理",
+    items: [
       {
         cmd: "#早柚删除连接 <名字|序号>",
         dsc: "按连接名或列表序号删除",
@@ -59,6 +160,17 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "minus",
         master: true,
       },
+    ],
+  },
+  {
+    app: "admin",
+    fnc: "enable",
+    stem: "开启",
+    aliases: ["启用"],
+    tail: "连接",
+    arg: true,
+    group: "连接管理",
+    items: [
       {
         cmd: "#早柚开启连接 <名字|序号>",
         dsc: "启用某个连接并立即发起连接",
@@ -66,6 +178,17 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "play",
         master: true,
       },
+    ],
+  },
+  {
+    app: "admin",
+    fnc: "disable",
+    stem: "关闭",
+    aliases: ["停用"],
+    tail: "连接",
+    arg: true,
+    group: "连接管理",
+    items: [
       {
         cmd: "#早柚关闭连接 <名字|序号>",
         dsc: "停用某个连接，配置保留",
@@ -74,39 +197,15 @@ export const HELP_GROUPS: HelpGroup[] = [
         master: true,
       },
     ],
-    subGroups: [
-      {
-        title: "可选参数，以 key=value 追加，中英文冒号等号均可（括号内为简写）",
-        items: [
-          { cmd: "name（n）", dsc: "连接名，用于日志与各处指令定位", icon: "dot" },
-          { cmd: "token（t）", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
-          {
-            cmd: "bot_id（id）",
-            dsc: "该账号的平台标识（onebot / qqgroup 等），写入 bot_id_map",
-            icon: "dot",
-          },
-          {
-            cmd: "bind",
-            dsc: "转发哪些机器人账号的消息，每个账号各起一条 ws。\n添加时默认为发指令的账号，必须至少绑一个；\n改已有连接用 #早柚修改连接 的 bind+= / bind-=",
-            icon: "dot",
-          },
-          {
-            cmd: "exclude",
-            dsc: "排除哪些机器人账号（不转发这些账号的消息）。\n优先级高于 bind，留空表示不排除",
-            icon: "dot",
-          },
-          { cmd: "reconnect_interval（interval）", dsc: "重连间隔（秒），默认 5", icon: "dot" },
-          {
-            cmd: "max_reconnect_attempts（retry）",
-            dsc: "最大重连次数，默认 5，填 0 为无限重连",
-            icon: "dot",
-          },
-        ],
-      },
-    ],
   },
+
+  // ---- 全局设置 ----
+  // 注意：show 必须排在 set 前面，理由见文件头
   {
-    title: "全局设置",
+    app: "admin",
+    fnc: "show",
+    stem: "设置",
+    group: "全局设置",
     items: [
       {
         cmd: "#早柚设置",
@@ -115,6 +214,16 @@ export const HELP_GROUPS: HelpGroup[] = [
         icon: "settings",
         master: true,
       },
+    ],
+  },
+  {
+    // 这条的正则是无约束的 (.+)，它一条覆盖全部可设置项；下面六个条目是它的用法示例而非独立指令
+    app: "admin",
+    fnc: "set",
+    stem: "设置",
+    arg: true,
+    group: "全局设置",
+    items: [
       {
         cmd: "#早柚设置适配器开启",
         dsc: "总开关，关掉则完全不连核心，改完即时生效\n等价 enable=true",
@@ -153,26 +262,15 @@ export const HELP_GROUPS: HelpGroup[] = [
         master: true,
       },
     ],
-    subGroups: [
-      {
-        title: "开关词与英文写法",
-        items: [
-          {
-            cmd: "开启 / 关闭",
-            dsc: "启用、打开、开 与 停用、禁用、关 都认，也可以写 true/false",
-            icon: "dot",
-          },
-          {
-            cmd: "key=value",
-            dsc: "英文写法仍然有效，只是不再逐条列出。\n注意它按字节收：media_max_size=2097152",
-            icon: "dot",
-          },
-        ],
-      },
-    ],
   },
+
+  // ---- 更新 ----
   {
-    title: "更新",
+    app: "update",
+    fnc: "update",
+    stem: "更新",
+    mods: ["适配器", "强制"],
+    group: "更新",
     items: [
       {
         cmd: "#早柚更新",
@@ -181,17 +279,36 @@ export const HELP_GROUPS: HelpGroup[] = [
         master: true,
       },
       {
+        // 强制 是 mods 里的行为变体，由 handler 读 e.msg 二次判定，不是独立 rule
         cmd: "#早柚强制更新",
         dsc: "丢弃本地改动后强制更新，改过插件源码时才需要",
         icon: "arrowUpDouble",
         master: true,
       },
+    ],
+  },
+  {
+    app: "update",
+    fnc: "updateLog",
+    stem: "更新日志",
+    mods: ["适配器"],
+    group: "更新",
+    items: [
       {
         cmd: "#早柚更新日志",
         dsc: "查看本地最近的提交记录",
         icon: "changelog",
         master: true,
       },
+    ],
+  },
+  {
+    app: "update",
+    fnc: "checkUpdate",
+    stem: "检查更新",
+    mods: ["适配器"],
+    group: "更新",
+    items: [
       {
         cmd: "#早柚检查更新",
         dsc: "拉取远端信息，看有没有新提交。\n只检查不更新，可在配置里开启定时检查",
@@ -200,7 +317,91 @@ export const HELP_GROUPS: HelpGroup[] = [
       },
     ],
   },
+
+  // ---- 帮助图里当前没有条目的指令 ----
+  { app: "admin", fnc: "show", stem: "配置", aliases: ["当前配置"] },
+  { app: "admin", fnc: "help", stem: "帮助" },
+  // 计数落盘后不再随重启归零，得有条路能清
+  { app: "status", fnc: "resetStats", stem: "清空统计" },
 ]
+
+/** @description 各分组下的附注，纯文案，不对应任何 rule */
+const SUB_GROUPS: Record<string, NonNullable<HelpGroup["subGroups"]>> = {
+  连接管理: [
+    {
+      title: "可选参数，以 key=value 追加，中英文冒号等号均可（括号内为简写）",
+      items: [
+        { cmd: "name（n）", dsc: "连接名，用于日志与各处指令定位", icon: "dot" },
+        { cmd: "token（t）", dsc: "鉴权 token，以 ?token= 附在地址上", icon: "dot" },
+        {
+          cmd: "bot_id（id）",
+          dsc: "该账号的平台标识（onebot / qqgroup 等），写入 bot_id_map",
+          icon: "dot",
+        },
+        {
+          cmd: "bind",
+          dsc: "转发哪些机器人账号的消息，每个账号各起一条 ws。\n添加时默认为发指令的账号，必须至少绑一个；\n改已有连接用 #早柚修改连接 的 bind+= / bind-=",
+          icon: "dot",
+        },
+        {
+          cmd: "exclude",
+          dsc: "排除哪些机器人账号（不转发这些账号的消息）。\n优先级高于 bind，留空表示不排除",
+          icon: "dot",
+        },
+        { cmd: "reconnect_interval（interval）", dsc: "重连间隔（秒），默认 5", icon: "dot" },
+        {
+          cmd: "max_reconnect_attempts（retry）",
+          dsc: "最大重连次数，默认 5，填 0 为无限重连",
+          icon: "dot",
+        },
+      ],
+    },
+  ],
+  全局设置: [
+    {
+      title: "开关词与英文写法",
+      items: [
+        {
+          cmd: "开启 / 关闭",
+          dsc: "启用、打开、开 与 停用、禁用、关 都认，也可以写 true/false",
+          icon: "dot",
+        },
+        {
+          cmd: "key=value",
+          dsc: "英文写法仍然有效，只是不再逐条列出。\n注意它按字节收：media_max_size=2097152",
+          icon: "dot",
+        },
+      ],
+    },
+  ],
+}
+
+/** @description 把一条指令的结构拼成正则字符串 */
+export function toReg(c: Command): string {
+  const mods = (c.mods || []).map(m => `(${m})?`).join("")
+  const stem = c.aliases?.length ? `(${[c.stem, ...c.aliases].join("|")})` : c.stem
+  const suffix = c.suffix ? `(${c.suffix})?` : ""
+  return `${PREFIX}${mods}${stem}${c.tail || ""}${suffix}${c.arg ? "\\s*(.+)$" : "$"}`
+}
+
+/**
+ * @description 派生某个 app 的 rule 数组
+ * 注意：permission 恒为 master —— 从前它在 rule 与帮助条目的 master 字段里各写一遍，现在只此一处
+ */
+export function rulesFor(app: CommandApp) {
+  return COMMANDS.filter(c => c.app === app).map(c => ({
+    reg: toReg(c),
+    fnc: c.fnc,
+    permission: "master" as const,
+  }))
+}
+
+/** @description 派生帮助图分组 */
+export const HELP_GROUPS: HelpGroup[] = GROUP_ORDER.map(title => ({
+  title,
+  items: COMMANDS.filter(c => c.group === title).flatMap(c => c.items || []),
+  ...(SUB_GROUPS[title] ? { subGroups: SUB_GROUPS[title] } : {}),
+}))
 
 /** @description 纯文本帮助：渲染失败时的回退，内容与图保持同源 */
 export function helpText(): string {

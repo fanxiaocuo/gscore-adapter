@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url"
 import { PluginName, PluginPath, YunzaiPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
 import { changelogMsg, tick } from "@/modules/update"
+import { rulesFor } from "@/modules/render/commands"
 import type { YunzaiEvent } from "@/types"
 
 export default class GsCoreUpdate extends plugin<"message"> {
@@ -22,11 +23,7 @@ export default class GsCoreUpdate extends plugin<"message"> {
       dsc: "更新 gscore-adapter",
       event: "message",
       priority: 500,
-      rule: [
-        { reg: "^#?早柚(核心)?(适配器)?(强制)?更新$", fnc: "update", permission: "master" },
-        { reg: "^#?早柚(核心)?(适配器)?更新日志$", fnc: "updateLog", permission: "master" },
-        { reg: "^#?早柚(核心)?(适配器)?检查更新$", fnc: "checkUpdate", permission: "master" },
-      ],
+      rule: rulesFor("update"),
       /**
        * @description 定时更新检查，交给本体的 task 机制（node-schedule）
        * cron 固定每 5 分钟触发，真正的间隔与开关在 tick() 内按配置判 —— 本体只在插件实例化时读一次 task，

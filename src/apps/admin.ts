@@ -28,7 +28,7 @@ import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 // 中文设置项的表与解析单独一个模块，理由见 utils/settings.ts 的文件头
 import { CN_LABEL, CN_NAMES, doneLine, parseCN } from "@/utils/settings"
 import { renderConfig, renderHelp, renderList, renderSettings } from "@/modules/render/pages"
-import { helpText } from "@/modules/render/commands"
+import { helpText, rulesFor } from "@/modules/render/commands"
 import type { WsConnection, YunzaiEvent } from "@/types"
 /** @description 关闭状态下不热启动连接 */
 function clientMode() {
@@ -164,20 +164,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
       dsc: "命令式增删改查早柚核心 ws 连接",
       event: "message",
       priority: 500,
-      rule: [
-        { reg: "^#?早柚(核心)?(添加|新增)连接\\s*(.+)$", fnc: "add", permission: "master" },
-        { reg: "^#?早柚(核心)?(修改|编辑)连接\\s*(.+)$", fnc: "edit", permission: "master" },
-        { reg: "^#?早柚(核心)?(删除|移除)连接\\s*(.+)$", fnc: "del", permission: "master" },
-        { reg: "^#?早柚(核心)?连接列表$", fnc: "list", permission: "master" },
-        { reg: "^#?早柚(核心)?(开启|启用)连接\\s*(.+)$", fnc: "enable", permission: "master" },
-        { reg: "^#?早柚(核心)?(关闭|停用)连接\\s*(.+)$", fnc: "disable", permission: "master" },
-        // 注意：空参数单独一条规则且排在带参数那条前面 —— 合成一条 `(.*)` 会让 e.msg.replace 之后的 raw 为
-        // 空串，两种语义混在一个函数里；分开写则 set() 拿到的一定是有内容的参数串
-        { reg: "^#?早柚(核心)?设置$", fnc: "show", permission: "master" },
-        { reg: "^#?早柚(核心)?设置\\s*(.+)$", fnc: "set", permission: "master" },
-        { reg: "^#?早柚(核心)?(配置|当前配置)$", fnc: "show", permission: "master" },
-        { reg: "^#?早柚(核心)?帮助$", fnc: "help", permission: "master" },
-      ],
+      rule: rulesFor("admin"),
     })
   }
 
