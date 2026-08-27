@@ -37,7 +37,6 @@ import {
 import { snapshot, forName } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
 import {
-  findSameCore,
   inlineToken,
   mergeEndpointQuery,
   normalizeEndpoint,
@@ -45,6 +44,7 @@ import {
   requireWsUrl,
 } from "@/utils/url"
 import { readIds } from "@/utils/ids"
+import { botmapWriter, planAdd, type ConnInput, type PlanError } from "@/modules/connections/plan"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { getBot, onlineBots, qqAvatar } from "@/utils/bots.js"
 import { restartFileServer } from "@/utils/fileServer.js"
@@ -658,116 +658,83 @@ async function saveGlobal(body: PanelBody) {
   return { changed, touchedClient, notes }
 }
 
+/**
+ * @description 面板请求体归一化成共用核心的输入
+ * 注意：token 的空串是「没动这一栏」而不是清空 —— 面板表单未动的字段也会提交空串，那是 clear_token
+ * 存在的理由；清空映射成核心的 null（落盘删键）
+ * 注意：enable 与两个数字字段原样透传 —— 解析与校验在 plan 里，两层同一套规则；从前这里的 bool()
+ * 把认不出的值静默当停用
+ */
+function toConnInput(body: PanelBody): ConnInput {
+  return {
+    url: body.url !== undefined ? String(body.url) : undefined,
+    name: body.name !== undefined ? String(body.name) : undefined,
+    token: body.clear_token ? null : body.token ? String(body.token) : undefined,
+    enable: body.enable,
+    reconnect_interval: body.reconnect_interval,
+    max_reconnect_attempts: body.max_reconnect_attempts,
+    bind: Array.isArray(body.bind) ? { ids: body.bind.map(String) } : undefined,
+    exclude: Array.isArray(body.exclude) ? { ids: body.exclude.map(String) } : undefined,
+    bot_id: body.bot_id !== undefined ? String(body.bot_id) : undefined,
+  }
+}
+
+/**
+ * @description 把校验错误渲染成面板话术
+ * 注意：只有这三个码因层而异（它们引用了指令语法），其余自带 message —— 别把相同文案在指令层和这里各抄一遍
+ */
+function sayPanelError(err: PlanError): string {
+  switch (err.code) {
+    case "bot_id_without_bind":
+      return "当前连接未绑定账号，无法按账号写入平台标识。请先填写绑定账号"
+    case "bind_all_unsupported":
+      return "bind 不能为 all：请写明要接入的账号"
+    case "list_op_empty":
+      return `${err.field} 需要填写至少一个账号`
+    default:
+      return err.message
+  }
+}
+
 /** 新增连接 */
 function addConnection(body: PanelBody) {
   const list = getWsConnections()
-  const bind = (Array.isArray(body.bind) ? body.bind : []).map(String)
-  // requireWsUrl 而不是裸 normalizeEndpoint：协议校验只有那一处，http:// 会带着换算好的
-  // ws 地址抛出来，guard 转成 400 后那句话本身就是可用的建议
-  const url = requireWsUrl(String(body.url ?? ""))
-  const explicit = String(body.bot_id || "").trim()
-  const exclude = (Array.isArray(body.exclude) ? body.exclude : []).map(String)
+  // 校验与算 patch 都在 modules/connections/plan，与指令层共用同一套规则
+  const plan = planAdd(toConnInput(body), list)
+  if (!plan.ok) throw new Error(sayPanelError(plan.errors[0]))
+  const requested = plan.requested || []
+  const explicit = plan.explicit || ""
 
   // 同一核心已有自动路径的连接 → 合并 bind，不再新开一条 ws
-  const existing = findSameCore(list, url)
-  if (existing) {
-    const idx = list.indexOf(existing)
-    // 走 readIds 而不是裸 map(String)：手写配置里的 `bind: [" 111"]` 带着空白留下来，之后
-    // 判重认不出它与 "111" 是同一个号
-    const prev = readIds(existing.bind)
-    const nextBind = [...new Set([...prev, ...bind])]
-    // 已有配置值走 normalizeEndpoint：它不做协议校验，只把地址收成核心 origin
-    const nextUrl = normalizeEndpoint(existing.url || url)
-
-    // 注意：明确要绑的账号必须从 existing.exclude 里放出来 —— exclude 优先级更高，
-    // 留着它这个号永远派生不出运行时连接，面板上却显示已绑定
-    const nextExclude = readIds(existing.exclude).filter(id => !bind.includes(id))
-    const freed = readIds(existing.exclude).length !== nextExclude.length
-
-    /*
-     * 停用状态下要顺手打开 —— 「添加连接」的语义就是添加并立即启动，与指令层一致。
-     * 注意：不打开的话首装最常见那条路必然失败。出厂示例连接是 `enable: false`（没绑账号前不该去连），
-     * 地址又恰好是 ws://127.0.0.1:8765，于是面板里填这个地址会被 findSameCore 命中、走到本分支；
-     * 原先这里只写 bind，保存后它仍是停用的，validate 那条「这个账号保存后要有运行时连接」不成立
-     * → 整次保存被取消，而回给用户的是一句在讲路由与 exclude 的话，完全指不到「那条连接是停用的」。
-     * 显式传了 enable=false 的照他说的办
-     */
-    const nextEnable = body.enable !== undefined ? bool(body.enable, true) : true
-
-    const err = nextEnable
-      ? requireAccounts({ ...existing, url: nextUrl, bind: nextBind, exclude: nextExclude })
-      : undefined
-    if (err) throw new Error(err)
-
-    const patch: ConnectionPatch = { bind: nextBind }
-    if (nextEnable !== (existing.enable !== false)) patch.enable = nextEnable
-    if (freed) patch.exclude = nextExclude.length ? nextExclude : null
-    if (nextUrl !== existing.url) patch.url = nextUrl
-    if (existing.bot_id) patch.bot_id = null
+  if (plan.merge) {
+    const { index, existing, patch, nextBind, nextEnable } = plan.merge
     updateConnection(
-      idx,
+      index,
       patch,
-      doc => {
-        for (const id of nextBind) {
-          // 判据是 bind（本次请求点明要绑的那几个）而不是 nextBind：后者含这条连接上的老账号，
-          // 替他们改平台标识是越权。
-          // 注意：这一支必须 force —— 老连接上多半已有一行自动推断出来的映射，而
-          // writeAccountBotId 默认「有值就不写」，用户在面板里明确填的 bot_id 会静默失效；
-          // 反过来不带 explicit 的那一支保持不覆盖，那只是推断，不该盖掉用户的记录
-          if (explicit && bind.includes(String(id)))
-            writeAccountBotId(doc, id, explicit, undefined, true)
-          else writeAccountBotId(doc, id, undefined, config.bot_id_map)
-        }
-      },
-      nextEnable && bind.length
-        ? bind.map(account => ({ sourceIndex: idx, account, action: "绑定" }))
+      botmapWriter(nextBind, requested, explicit),
+      nextEnable && requested.length
+        ? requested.map(account => ({ sourceIndex: index, account, action: "绑定" }))
         : undefined,
     )
-    applyConnections({ sourceIndex: idx })
+    applyConnections({ sourceIndex: index })
     // 回包话术里的名字过 label()：没起名字的连接拿地址当名字，那串可能带凭据
-    return getWsConnections()[idx]?.name || label(existing)
+    return getWsConnections()[index]?.name || label(existing)
   }
 
-  let name = String(body.name || "").trim() || `core${list.length + 1}`
-  if (list.some(c => (c.name || c.url) === name)) name = `${name}-${Date.now().toString(36)}`
-
-  const conf: WsConnection = {
-    name,
-    url,
-    token: String(body.token || ""),
-    enable: bool(body.enable, true),
-    reconnect_interval: Number(body.reconnect_interval) || 5,
-    max_reconnect_attempts: num(body.max_reconnect_attempts, DEFAULT_MAX_RECONNECT),
-    bind,
-    exclude,
-  }
-
-  // 落盘前拦：自动端点没有明确账号就派生不出任何运行时连接，存下来只是条永远不连的死配置。
-  // 话术与指令层共用，两处说法不会漂
-  const err = conf.enable === false ? undefined : requireAccounts(conf)
-  if (err) throw new Error(err)
-
-  const addedSourceIndex = list.length
+  const { conf, sourceIndex } = plan.create
   appendConnection(
     conf,
-    doc => {
-      // 注意：新建也要 force —— bot_id_map 是全局的，这个账号可能早因别条连接留了一行，
-      // 不 force 的话「新建连接时填的 bot_id」会静默失效
-      for (const id of bind) {
-        if (explicit) writeAccountBotId(doc, id, explicit, undefined, true)
-        else writeAccountBotId(doc, id, undefined, config.bot_id_map)
-      }
-    },
+    botmapWriter(requested, requested, explicit),
     conf.enable === false
       ? []
-      : bind.length
-        ? bind.map(account => ({ sourceIndex: addedSourceIndex, account, action: "新增" }))
+      : requested.length
+        ? requested.map(account => ({ sourceIndex, account, action: "新增" }))
         : undefined,
   )
 
   // sourceIndex 只用来把展开诊断收窄到刚加的这条：新连接撞了别人已占的路由时会被跳过
   //（前项优先），那句话才是用户此刻要看的；别条连接的历史冲突不该跟着重刷一遍
-  applyConnections({ sourceIndex: getWsConnections().length - 1 })
+  applyConnections({ sourceIndex })
   return conf.name
 }
 
