@@ -9,7 +9,7 @@ import fs from "node:fs"
 import path from "node:path"
 import YAML from "yaml"
 import type { Document, ParsedNode } from "yaml"
-import { ConfigPath, PluginPath } from "@/dir"
+import { ConfigPath } from "@/dir"
 import { unflow } from "./yaml.js"
 import { readIdList, writeAccountBotId } from "./botmap.js"
 // compat 只 import 了一个 type，不会与本文件成环
@@ -82,10 +82,11 @@ export function upgradeUserConfig(userFile: string): string[] {
   }
 
   // 备份一份再写：这是唯一一处「插件主动改用户已有配置」的地方，出了问题要能原样找回来。
-  // 注意：只在 .bak 不存在时写 —— 每次覆盖会让它只记「上一次升级前」，而要记的是「插件第一次动我的文件之前」（实际发生过：用户的 .bak 只剩 13 字节）
+  // 注意：路径跟随 userFile，不硬锚 PluginPath —— 硬锚会让 GSCORE_CONFIG 指向临时文件时仍把备份写进真实配置目录（.bak 只剩 13 字节就是这么来的：测试 fixture 占掉了备份位）
+  // 注意：只在 .bak 不存在时写 —— 每次覆盖会让它只记「上一次升级前」，而要记的是「插件第一次动我的文件之前」
   // 备份失败不阻断升级：出错的风险已由上面那次解析自查兜过一层，而下面这句是就地 writeFileSync，不是原子替换
   try {
-    const bak = path.join(PluginPath, "config", "config.yaml.bak")
+    const bak = `${userFile}.bak`
     if (!fs.existsSync(bak)) fs.copyFileSync(userFile, bak)
   } catch {
     // 备份失败不阻断升级
