@@ -58,7 +58,7 @@ import { getBot, onlineBots, qqAvatar } from "@/utils/bots.js"
 import { restartFileServer } from "@/utils/fileServer.js"
 // 三个「效力值」直接问下游要：面板要显示实际生效的那个数，各自再写一遍 `|| 默认` 就会漂
 import { fileMaxSize, linkExpire, mediaMaxSize } from "@/utils/media.js"
-import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus, reconnectBase } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
@@ -195,7 +195,7 @@ function connView(
      * 会对一条配过 token 的连接报「没配 token」
      */
     has_token: !!conf.token || inlineToken(conf.url) !== null,
-    reconnect_interval: Number(conf.reconnect_interval) || 5,
+    reconnect_interval: reconnectBase(conf.reconnect_interval),
     // 字段缺失时回默认次数而不是 0：面板上那个数字就是运行时真正用的值，回 0 会显示成「无限重连」
     max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
@@ -390,19 +390,19 @@ function stored(path: string): unknown {
  * 注意：缺省值必须与下游读它的那句一致 —— 默认 true 的项在下游写成 `!== false`，填成 false
  * 会让「面板里没表态」被存成关闭，开合与实际行为相反
  */
-const BOOL_FIELDS: [path: string, dflt: boolean][] = [
-  ["enable", true],
-  ["log_truncate", true],
-  ["notify_master", false],
-  ["client.enable_ws", true],
-  ["filter.report_private", true],
-  ["filter.report_group", true],
-  ["filter.report_meta", true],
-  ["filter.only_reply_at", false],
-  ["update_check.enable", false],
-  ["update_check.notify", true],
-  ["file_server.enable", true],
-  ["file_server.once", true],
+const BOOL_FIELDS: [path: string, dflt: boolean, label: string][] = [
+  ["enable", true, "适配器"],
+  ["log_truncate", true, "日志截断"],
+  ["notify_master", false, "断线通知主人"],
+  ["client.enable_ws", true, "启用 ws 通路"],
+  ["filter.report_private", true, "私聊上报"],
+  ["filter.report_group", true, "群聊上报"],
+  ["filter.report_meta", true, "事件上报"],
+  ["filter.only_reply_at", false, "仅响应 at"],
+  ["update_check.enable", false, "定时检查更新"],
+  ["update_check.notify", true, "有更新时通知"],
+  ["file_server.enable", true, "内置文件服务"],
+  ["file_server.once", true, "外链一次性"],
 ]
 
 /**
@@ -516,13 +516,12 @@ async function saveGlobal(body: PanelBody) {
   const before = fsState()
 
   saveConfig(doc => {
-    for (const [field, dflt] of BOOL_FIELDS) {
+    for (const [field, dflt, cn] of BOOL_FIELDS) {
       const v = pick(body, field)
       if (v === undefined) continue
-      // 同连接那几个动作走 requireSwitch 而不是 bool()：后者把认不出的值一律当 false，
-      // `{enable:"yes"}` 会静默关掉整个适配器并回 200。空串与 null 仍取默认值（「没表态」不算关闭）。
-      // 注意：在 saveConfig 的 mutator 里抛是安全的，写盘是事务性的（同下面 boundsError 那处）
-      doc.setIn(field.split("."), requireSwitch(v, dflt, field))
+      // 注意：走 requireSwitch 不用 bool()，理由见 plan 的 parseSwitch —— 这一项 falsy 会静默关掉整个适配器。
+      // 空串与 null 仍取默认值（「没表态」不算关闭）；在 mutator 里抛是安全的，写盘是事务性的（同下面 boundsError）
+      doc.setIn(field.split("."), requireSwitch(v, dflt, cn))
       changed.push(field)
     }
 
@@ -831,8 +830,7 @@ function toggleConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  // 走 requireSwitch 而不是 bool()：后者把认不出的值一律当 false，`enable: "yes"` 会静默把连接停掉且回 200。
-  // 判定与 plan 里的 edit 同一套 —— 同一个值不该在 edit 里被拒、在这里静默生效
+  // 注意：走 requireSwitch 不用 bool()，理由见 plan 的 parseSwitch；判定与 edit 同一套
   const on = requireSwitch(body.enable, true)
   updateConnection(
     hit.index,

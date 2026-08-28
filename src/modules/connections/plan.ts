@@ -1,17 +1,9 @@
 /**
- * @description 连接增改的共用核心：校验与算 patch 在这里，写盘与回执由调用方做
- * 指令层（apps/admin.ts）与面板（modules/webadapter）原先各写了一遍，且两套规则互相矛盾 ——
- * reconnect_interval 一边收 0 一边拒 <1、enable 一边报错一边静默当停用、合并分支一边校验指令里的
- * 字段一边校验合并后状态。现在校验只有这一处。
- *
- * 分工：本模块只做「收归一化输入 → 出 {errors, patch}」，不写盘、不碰 e.reply、不返回话术。
- * 错误是结构化码 + 参数，两边各自渲染 —— 指令层要念「用 #早柚连接列表 查看」这种聊天专属提示，
- * 面板得念成链接，共用成品中文串会把聊天指令漏进面板。
- *
- * 注意：定位不在本模块 —— find() 是 1 起、locate() 是 0 起，两个基准刻意各自保留，所以本模块收的是
- * 已经解析好的 {index, conf}，而不是 key
- * 注意：只 import 子文件，不碰 @/modules/client barrel —— 那个 barrel 里 framework.ts 有顶层 await 且
- * 路径相对 cwd，从云崽根目录跑会给真实 bot 的配置挂上监听
+ * @description 连接增改的共用核心：只收归一化输入、出 {errors, patch}，不写盘、不碰 e.reply、不返回话术
+ * 指令层（apps/admin.ts）与面板（modules/webadapter）共用它，校验规则只有这一处。
+ * 注意：错误是结构化码，不因层而异的自带 message —— 共用成品中文串会把聊天专属指令漏进面板
+ * 注意：定位不进来 —— find() 是 1 起、locate() 是 0 起（两个基准刻意各自保留，见 webadapter 的 locate），所以收的是已解析好的 {index, conf}
+ * 注意：只 import 子文件，不碰 @/modules/client barrel —— 它的 framework.ts 有顶层 await 且路径相对 cwd，从云崽根目录跑会给真实 bot 的配置挂上监听
  */
 import { config, type ConnectionPatch } from "@/config"
 import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
@@ -31,12 +23,9 @@ export interface ListChange {
 }
 
 /**
- * @description 归一化后的连接输入
- * 两种入口各自映射到这里：指令层解析 key=value，面板读 JSON。
- * 注意：token 是三态 —— undefined 不改、null 清空（删键）、字符串写入。指令层把 `token=` 空值映射成
- * null，面板把 clear_token 映射成 null；两边输入习惯不同，落盘结果统一成删键
- * 注意：add 时 bind 的缺省值由调用方显式传（指令层传发指令那个账号，HTTP 没有事件对象只能传空）——
- * 本模块不认识 e
+ * @description 归一化后的连接输入。指令层解析 key=value、面板读 JSON，各自映射到这里
+ * 注意：token 三态 —— undefined 不改、null 清空（删键）、字符串写入
+ * 注意：add 的 bind 缺省值由调用方给（本模块不认识 e，HTTP 那边也没有事件对象）
  */
 export interface ConnInput {
   url?: string
@@ -56,9 +45,7 @@ export interface ConnInput {
 
 /**
  * @description 校验失败：码 + 渲染所需的参数
- * 注意：不因层而异的文案自带 message（字段校验、地址、账号缺失），因层而异的只给码 —— 后三个引用了指令
- * 语法（bind=all / bind+= / 请先 bind=），面板照抄会出现用户点不到的指令。这样两层各自只需渲染三个码，
- * 而不是把五条相同文案在两处各抄一遍
+ * 注意：不因层而异的自带 message，两层直接用；只有末尾三个引用了指令语法的要各层自己渲染，免得把五条相同文案抄两遍
  */
 export type PlanError =
   /** 地址缺失、协议不对或解析不了。message 来自 requireWsUrl，本身就是可用的建议 */
@@ -92,9 +79,8 @@ export interface PlanResult {
     existing: WsConnection
     patch: ConnectionPatch
     /**
-     * @description 本次从排除名单里放出来的账号。指令层回执要念具体账号，不能只给布尔值
-     * 注意：只有 planAdd 的合并分支算它 —— planEdit 里 exclude 是用户直接给的最终值，
-     * 「放出来了谁」不是那条路上的概念，所以那边不给这个字段（而不是给个会被读成「一个都没放」的空数组）
+     * @description 本次从排除名单里放出来的账号，指令层回执要念具体账号
+     * 注意：只有 planAdd 的合并分支算它；planEdit 那边 exclude 是用户直接给的最终值，故不给这个字段而不是给空数组
      */
     freed?: string[]
     nextBind: string[]
@@ -112,11 +98,8 @@ export interface PlanResult {
 
 /**
  * @description 严格解析开关值：认不出来返回 "invalid"，不静默当停用
- * 注意：面板原先的 bool() 把认不出的值一律当 false，`enable: "yes"` 会静默把连接停掉且不报错。
- * 注意：认 1/0 与 on/off 是为了收下面板前端实际会送的形状（表单值可能是数字或字符串）——
- * 相对指令层原先只认 true/false 是放宽了一点，换来的是两层同一套判定
- * 注意：导出是给面板的 toggle / bind 两个动作用的 —— 它们不走 plan，但「什么算合法开关值」
- * 必须与这里同一套，否则同一个值在 edit 里被拒、在 toggle 里静默当停用
+ * 注意：面板原先的 bool() 把认不出的值一律当 false，`enable: "yes"` 会静默关掉功能且回 200
+ * 注意：认 1/0 与 on/off 是为了收下面板表单实际会送的形状；导出给 toggle / bind / 全局设置三处不走 plan 的动作共用，否则同一个值在 edit 里被拒、在别处静默生效
  */
 export function parseSwitch(v: unknown): boolean | "invalid" | undefined {
   if (v === undefined || v === null || v === "") return undefined
@@ -231,13 +214,10 @@ export function planAdd(
     const nextExclude = prevExclude.filter(id => !bind.includes(id))
     const freed = bind.filter(id => prevExclude.includes(id))
 
-    /*
-     * 停用状态下要顺手打开 —— 这条指令的语义就是「添加并立即启动」。
-     * 注意：不打开的话首装最常见那条路必然失败。出厂示例连接是 `enable: false`（没绑账号前不该去连），
-     * 地址又恰好是 ws://127.0.0.1:8765，于是填这个地址会被 findSameCore 命中、走到本分支；
-     * 只写 bind 的话保存后它仍是停用的，validate 那条「这个账号保存后要有运行时连接」不成立 →
-     * 整次保存被取消，而回给用户的是一句在讲路由与 exclude 的话。显式传了 enable=false 的照他说的办
-     */
+    // 停用状态下顺手打开 —— 这条指令的语义就是「添加并立即启动」。
+    // 注意：不打开的话首装必踩：出厂那条示例是 enable:false 且地址恰好 ws://127.0.0.1:8765，被 findSameCore 命中走本分支，
+    // 只写 bind 则保存后仍停用 → validate 的「这个账号保存后要有运行时连接」不成立 → 整次保存被取消，而话术在讲路由与 exclude。
+    // 显式传了 enable=false 的照他说的办
     const nextEnable = enableInput !== undefined ? enableInput : true
 
     // 注意：校验的是合并后的真实状态，不是输入里那几个字段 —— existing.exclude 原样留着时，
@@ -299,11 +279,9 @@ export function planAdd(
 
 /**
  * @description 修改一条已有连接：算 patch 与合并后状态
- * @param hit 已定位好的连接。定位不在本模块 —— find() 是 1 起、locate() 是 0 起，两个基准各自保留
- * @param urlOverride 调用方已解析好的新地址。面板要先判「这一栏动过没有」（它回填的是脱敏串），
- *   指令层要搬旧地址的查询参数，两边的判定各自不同，所以地址由调用方给成品，本模块只管写不写进 patch
- *
- * 注意：patch 的键序即指令层回执里「xx 已更新」的顺序，改动顺序会改回执文案
+ * @param hit 已定位好的连接，定位不进本模块（理由见文件头）
+ * @param urlOverride 调用方已解析好的新地址 —— 面板要先判「这一栏动过没有」、指令层要搬旧地址的查询参数，两种判定不同
+ * 注意：patch 的键序即指令层回执里「xx 已更新」的顺序
  */
 export function planEdit(
   input: ConnInput,
@@ -336,13 +314,9 @@ export function planEdit(
   if (nextUrl !== conf.url) patch.url = nextUrl
   if (input.name !== undefined) patch.name = input.name
   if (input.token !== undefined) patch.token = input.token
-  /*
-   * 覆写 url 时把内联凭据搬进 token 字段。
-   * 注意：`url=10.0.0.5:8765` 写的是裸地址，而旧地址的凭据只存在于 `?token=` 里、跟着地址一起没了 ——
-   * 改完不报错、下次握手直接无凭据，症状和地址毫无关系。面板那边更隐蔽：它回填的是脱敏地址，
-   * 提交回来的新地址不带查询串，而面板没有任何字段能把凭据填回来（token 留空表示「不改」）。
-   * 显式给了 token、或新地址已内联凭据时不搬 —— 那是用户的意图
-   */
+  // 覆写 url 时把内联凭据搬进 token 字段。
+  // 注意：裸地址会让只存在于旧地址 `?token=` 里的凭据跟着一起没了 —— 改完不报错、下次握手无凭据，症状和地址毫无关系；
+  // 面板更隐蔽，它回填的是脱敏地址且没有任何字段能把凭据填回来。显式给了 token、或新地址已内联的不搬，那是用户的意图
   if (patch.url !== undefined && patch.token === undefined) {
     const carried = inlineToken(conf.url)
     if (carried !== null && inlineToken(patch.url) === null) patch.token = carried

@@ -50,11 +50,27 @@ export function pickByStatus<T extends { status: 0 | 1 | 2 | 3 }>(items: T[]): T
 export const DEFAULT_MAX_RECONNECT = 5
 
 /**
- * @description 重连间隔的下限（秒），指令层、面板与运行时退避共用
- * 0 秒重连是紧密循环，断线时会把 CPU 与对端一起灼掉；负数更糟 —— 退避会算出负延时，setTimeout 立刻回调。
- * 注意：两个写入口都拦，运行时也要兜一层 —— 手改 yaml 是第三条路，那条没有任何校验
+ * @description 重连间隔的下限（秒）
+ * 注意：0 是紧密循环，负数会让退避算出负延时、setTimeout 立刻回调；两个写入口都拦了，但手改 yaml 是第三条路，所以由 {@link reconnectBase} 兜住
  */
 export const MIN_RECONNECT_INTERVAL = 1
+
+/**
+ * @description setTimeout 能表达的最大延时（ms）
+ * 注意：超过它的延时会被回退成 1ms 并打 TimeoutOverflowWarning —— 一个大得离谱的间隔（yaml 写 .inf 或 2147484）会从上界掉进热重连循环
+ */
+export const MAX_TIMER_DELAY = 2 ** 31 - 1
+
+/**
+ * @description 一条连接实际生效的重连间隔（秒）
+ * 0、空、非数字、无穷都当「没配」走默认 5；配了但低于下限的按下限。
+ * 注意：退避、面板卡片与状态图三处都问它要 —— 各自再写一遍 `|| 5` 就会漂（手改 yaml 写 -3 时图上念「间隔 -3s 起」而运行时其实等 1 秒）
+ */
+export function reconnectBase(v: unknown): number {
+  const n = Number(v)
+  if (!Number.isFinite(n) || n === 0) return 5
+  return Math.max(n, MIN_RECONNECT_INTERVAL)
+}
 
 /**
  * @description media_max_size / file_max_size 的硬上限（字节），三个写入口共用

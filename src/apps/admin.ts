@@ -169,8 +169,8 @@ function toInput(kv: ParsedKV, url?: string): ConnInput {
 
 /**
  * @description 把校验错误渲染成聊天话术
- * 注意：只有这三个码因层而异（它们引用 key=value 语法），其余自带 message —— 别把相同文案在这里和面板各抄一遍
- * @param usage 地址错误时附的用法提示，各指令不同
+ * @param from 哪条指令 —— 只有地址错误要附各自不同的用法提示
+ * 注意：只有这三个码因层而异（它们引用 key=value 语法），其余自带 message，别和面板各抄一遍
  */
 function sayError(err: PlanError, from: "add" | "edit"): string {
   switch (err.code) {
@@ -193,8 +193,7 @@ function sayError(err: PlanError, from: "add" | "edit"): string {
 
 /**
  * @description 「平台标识：…」那一行，念的是写盘后的实际表
- * 注意：只念落盘值，不复述输入 —— 输入和结果并不必然相同（mapKey 可能因键类型把值写到另一处，或干脆
- * 判定不该写）。念输入就会出现「平台标识：A=qqgroup」这样一句看不出问题的假话
+ * 注意：不复述输入 —— mapKey 可能因键类型把值写到另一处或判定不该写，念输入就会出现「平台标识：A=qqgroup」这种看不出问题的假话
  */
 function mappedLine(ids: string[], suffix = ""): string {
   const mapped = ids
@@ -381,11 +380,9 @@ export default class GsCoreAdmin extends plugin<"message"> {
     if (kv.bind !== undefined && parseBind(kv.bind) === null)
       return e.reply("bind=all 已不再支持：请写明要接入的账号")
 
-    // 地址由调用方给成品：本层要把旧地址的查询参数搬过去，面板那边要先判「这一栏动过没有」，两种判定不同。
-    // requireWsUrl 会抛（协议错、解析不了），而这一步在写盘之外，抛出去就是一条框架级异常日志而不是回给用户的话。
-    // 注意：协议门吃的是用户新填的原串，搬参数必须发生在门之后 —— mergeEndpointQuery 是容错的（旧地址解析不了
-    // 就静默回退成新地址），垫在 requireWsUrl 前面就等于让协议门去校验一个派生串，门放行的范围会跟着 merge
-    // 悄悄变。放在门之后不削弱校验：merge 只往 searchParams 里补名字，协议、主机、路径一概不碰。
+    // 自己 try：requireWsUrl 会抛，而这一步在写盘之外，漏出去就是一条框架级异常日志而不是回给用户的话
+    // 注意：搬参数必须排在协议门之后 —— mergeEndpointQuery 是容错的（旧地址解析不了就静默回退成新地址），
+    // 垫在 requireWsUrl 前面等于让协议门去校验一个派生串，门放行的范围会跟着 merge 悄悄变
     let urlOverride: string | undefined
     if (kv.url) {
       try {

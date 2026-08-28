@@ -6,7 +6,7 @@ import { config, getWsConnections, enabled, profileWithPlatform } from "@/config
 import { type RuntimeWsConnection, type WsConnection } from "@/types"
 import { clients } from "@/modules/client"
 import { expandConnections, effectiveAccounts } from "@/modules/client/expand.js"
-import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus, reconnectBase } from "@/constants"
 import { PluginName } from "@/dir"
 import { forwardMode, missingBotApis } from "@/utils/compat"
 import { fileServerEnabled, pendingFiles } from "@/utils/fileServer.js"
@@ -571,7 +571,7 @@ function settingFacts(): SettingFacts[] {
  * 各连接可以各配一个次数，值不一致时不必逐条列出 —— 那是 #早柚连接列表 的事。
  */
 function reconnectLabel(conns: WsConnection[]): string {
-  const base = Number(conns[0]?.reconnect_interval) || 5
+  const base = reconnectBase(conns[0]?.reconnect_interval)
   if (!conns.length) return `间隔 ${base}s 起 · 默认最多 ${DEFAULT_MAX_RECONNECT} 次`
   const caps = conns.map(c => Number(c.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT))
   const unlimited = caps.filter(n => !(n > 0)).length
