@@ -347,7 +347,11 @@ function locate(key: unknown) {
   return i > -1 ? { index: i, conf: list[i] } : null
 }
 
-/** 布尔字段：前端可能传 "true" 这种字符串 */
+/**
+ * @description 布尔字段：前端可能传 "true" 这种字符串
+ * 注意：只剩图床的 clear 标志在用它 —— 那一处 falsy 就是「没点清除」，认不出的值当没点是对的。
+ * 配置项与连接开关一律走 plan 的 requireSwitch：那些地方 falsy 会静默关掉功能，必须报错
+ */
 function bool(v: unknown, dflt: boolean): boolean {
   if (v === undefined || v === null || v === "") return dflt
   if (typeof v === "boolean") return v
@@ -515,7 +519,10 @@ async function saveGlobal(body: PanelBody) {
     for (const [field, dflt] of BOOL_FIELDS) {
       const v = pick(body, field)
       if (v === undefined) continue
-      doc.setIn(field.split("."), bool(v, dflt))
+      // 同连接那几个动作走 requireSwitch 而不是 bool()：后者把认不出的值一律当 false，
+      // `{enable:"yes"}` 会静默关掉整个适配器并回 200。空串与 null 仍取默认值（「没表态」不算关闭）。
+      // 注意：在 saveConfig 的 mutator 里抛是安全的，写盘是事务性的（同下面 boundsError 那处）
+      doc.setIn(field.split("."), requireSwitch(v, dflt, field))
       changed.push(field)
     }
 
