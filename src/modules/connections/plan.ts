@@ -91,8 +91,12 @@ export interface PlanResult {
     index: number
     existing: WsConnection
     patch: ConnectionPatch
-    /** 本次从排除名单里放出来的账号。指令层回执要念具体账号，不能只给布尔值 */
-    freed: string[]
+    /**
+     * @description 本次从排除名单里放出来的账号。指令层回执要念具体账号，不能只给布尔值
+     * 注意：只有 planAdd 的合并分支算它 —— planEdit 里 exclude 是用户直接给的最终值，
+     * 「放出来了谁」不是那条路上的概念，所以那边不给这个字段（而不是给个会被读成「一个都没放」的空数组）
+     */
+    freed?: string[]
     nextBind: string[]
     nextExclude: string[]
     nextUrl: string
@@ -191,7 +195,9 @@ export function planAdd(
   try {
     url = requireWsUrl(input.url)
   } catch (err) {
-    errors.push({
+    // 注意：unshift 而不是 push —— 两层都只渲染 errors[0]，而地址那句自带换算好的可用地址
+    //（`不支持 http://…请改用：ws://…`），是这几个错误里唯一直接告诉用户该发什么的
+    errors.unshift({
       code: "url_invalid",
       message: err instanceof Error ? err.message : String(err),
     })
@@ -351,7 +357,6 @@ export function planEdit(
       index: hit.index,
       existing: conf,
       patch,
-      freed: [],
       nextBind,
       nextExclude,
       nextUrl,

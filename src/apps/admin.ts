@@ -309,7 +309,7 @@ export default class GsCoreAdmin extends plugin<"message"> {
           `核心地址：${redactUrl(nextUrl)}\n` +
           `当前绑定：${nextBind.length ? nextBind.join("、") : "未绑定账号"}\n` +
           // 悄悄改掉 exclude 会让用户下次看配置时莫名其妙，这里明说一句
-          (freed.length ? `已从排除名单移出：${freed.join("、")}\n` : "") +
+          (freed?.length ? `已从排除名单移出：${freed.join("、")}\n` : "") +
           // 状态被这条指令翻过来的话也要说 —— 首装时它就是从出厂的停用状态被打开的
           (patch.enable !== undefined ? `连接状态：${patch.enable ? "已启用" : "已停用"}\n` : "") +
           mappedLine(nextBind) +

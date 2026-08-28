@@ -669,10 +669,21 @@ function toConnInput(body: PanelBody): ConnInput {
     enable: body.enable,
     reconnect_interval: body.reconnect_interval,
     max_reconnect_attempts: body.max_reconnect_attempts,
-    bind: Array.isArray(body.bind) ? { ids: body.bind.map(String) } : undefined,
-    exclude: Array.isArray(body.exclude) ? { ids: body.exclude.map(String) } : undefined,
+    bind: idList(body, "bind"),
+    exclude: idList(body, "exclude"),
     bot_id: body.bot_id !== undefined ? String(body.bot_id) : undefined,
   }
+}
+
+/**
+ * @description 账号列表字段：提交了就必须是数组
+ * 注意：形状不对要当场抛，不能当成「没提交这一栏」—— 那会让 `bind: "111"` 静默保存成功、bind 一个字没改，
+ * 而回包说已保存。这是入参形状校验（指令层的 splitIds 必然产出数组），所以留在本层而不是进 plan
+ */
+function idList(body: PanelBody, field: "bind" | "exclude") {
+  if (body[field] === undefined) return undefined
+  if (!Array.isArray(body[field])) throw new Error(`${field} 应为数组`)
+  return { ids: (body[field] as unknown[]).map(String) }
 }
 
 /**

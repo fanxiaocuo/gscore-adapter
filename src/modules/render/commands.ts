@@ -4,7 +4,7 @@
  * 漏一处只表现为「帮助图和真实指令不一致」，不报错也不测试。现在一条条目同时产出两边。
  * 不按角色分支（kkk 按 master/member 过滤）：本插件所有指令都是 permission: "master"，只在条目上标 MASTER。
  * 注意：本文件保持零运行时依赖（只有 type import）—— apps 与 render 两边都要 import 它，带副作用会把 @/config 拖进渲染链
- * 注意：条目按「帮助展示顺序」排，rule 数组由 app 过滤派生 —— 17 条正则两两不相交（见 test/probe-rules-snapshot.mjs），顺序对派发无影响
+ * 注意：条目按「帮助展示顺序」排，rule 数组由 app 过滤派生 —— 全部正则两两不相交（test/commands.test.mjs 逐条扫过），顺序对派发无影响
  * 注意：设置 的空参数条目必须排在带参数那条前面 —— 现在 (.+) 要求至少一字符所以两者不重叠，但哪天有人放宽成 (.*)，这个顺序是唯一的兜底
  */
 import type { HelpGroup, HelpItem } from "./components/Help.js"

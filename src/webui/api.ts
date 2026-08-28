@@ -64,7 +64,9 @@ export interface ConnView {
   reconnect_interval: number
   max_reconnect_attempts: number
   /**
-   * @description 用户写下的绑定意图，原样回（YAML 里写成数字就是数字）
+   * @description 用户写下的绑定意图，读什么回什么（手改 yaml 写成数字的就是数字）
+   * 注意：类型留着 number 是因为**读**这一侧不归一化 —— 但凡经指令或面板改过一次，落盘的就都是字符串了
+   * （plan 那边统一走 readIds），所以别指望数字类型能保持
    * 注意：不是开关状态 —— 一个号可以同时在这里与 {@link exclude} 里，那时它绑了却不会连；
    * 开关读 {@link accounts}
    */
