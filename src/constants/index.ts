@@ -50,6 +50,13 @@ export function pickByStatus<T extends { status: 0 | 1 | 2 | 3 }>(items: T[]): T
 export const DEFAULT_MAX_RECONNECT = 5
 
 /**
+ * @description 重连间隔的下限（秒），指令层、面板与运行时退避共用
+ * 0 秒重连是紧密循环，断线时会把 CPU 与对端一起灼掉；负数更糟 —— 退避会算出负延时，setTimeout 立刻回调。
+ * 注意：两个写入口都拦，运行时也要兜一层 —— 手改 yaml 是第三条路，那条没有任何校验
+ */
+export const MIN_RECONNECT_INTERVAL = 1
+
+/**
  * @description media_max_size / file_max_size 的硬上限（字节），三个写入口共用
  * 这两项是「超过就改用 link:// 外链」的阈值，调爆等于关掉外链兜底、每个附件都在内存里 base64 一份。
  * 注意：256 MB 远高于任何真实 QQ 附件，它拦的是「把配置文件里读到的字节数原样敲进按 MB 收的中文指令」

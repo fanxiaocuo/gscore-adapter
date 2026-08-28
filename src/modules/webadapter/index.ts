@@ -49,6 +49,7 @@ import {
   editBotmapWriter,
   planAdd,
   planEdit,
+  requireSwitch,
   type ConnInput,
   type PlanError,
 } from "@/modules/connections/plan"
@@ -823,7 +824,9 @@ function toggleConnection(body: PanelBody) {
   const hit = locate(body.key ?? body.index ?? body.name)
   if (!hit) throw new Error("找不到该连接")
 
-  const on = bool(body.enable, true)
+  // 走 requireSwitch 而不是 bool()：后者把认不出的值一律当 false，`enable: "yes"` 会静默把连接停掉且回 200。
+  // 判定与 plan 里的 edit 同一套 —— 同一个值不该在 edit 里被拒、在这里静默生效
+  const on = requireSwitch(body.enable, true)
   updateConnection(
     hit.index,
     { enable: on },
@@ -844,7 +847,8 @@ function bindConnection(body: PanelBody): string {
   if (!hit) throw new Error("找不到该连接")
   const id = String(body.id || "").trim()
   if (!id) throw new Error("缺少账号")
-  const on = bool(body.on, false)
+  // 同 toggleConnection：认不出的值要报错，不能静默当成「取消绑定」
+  const on = requireSwitch(body.on, false, "on")
 
   const bind = readIds(hit.conf.bind).filter(x => x !== id)
   const exclude = readIds(hit.conf.exclude)

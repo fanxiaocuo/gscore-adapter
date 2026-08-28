@@ -18,7 +18,7 @@ import { writeAccountBotId, writeAccountBotIds } from "@/config/botmap"
 import { requireAccounts } from "@/modules/client/expand"
 import { findSameCore, inlineToken, normalizeEndpoint, requireWsUrl } from "@/utils/url"
 import { readIds } from "@/utils/ids"
-import { DEFAULT_MAX_RECONNECT } from "@/constants"
+import { DEFAULT_MAX_RECONNECT, MIN_RECONNECT_INTERVAL } from "@/constants"
 import type { WsConnection } from "@/types"
 
 /** @description 列表字段的操作：追加 / 移除 / 整体替换 */
@@ -110,22 +110,31 @@ export interface PlanResult {
   }
 }
 
-/** @description reconnect_interval 的下限。0 秒重连是紧密循环，断线时会把 CPU 与对端一起灼掉 */
-const MIN_INTERVAL = 1
-
 /**
  * @description 严格解析开关值：认不出来返回 "invalid"，不静默当停用
  * 注意：面板原先的 bool() 把认不出的值一律当 false，`enable: "yes"` 会静默把连接停掉且不报错。
  * 注意：认 1/0 与 on/off 是为了收下面板前端实际会送的形状（表单值可能是数字或字符串）——
  * 相对指令层原先只认 true/false 是放宽了一点，换来的是两层同一套判定
+ * 注意：导出是给面板的 toggle / bind 两个动作用的 —— 它们不走 plan，但「什么算合法开关值」
+ * 必须与这里同一套，否则同一个值在 edit 里被拒、在 toggle 里静默当停用
  */
-function parseEnable(v: unknown): boolean | "invalid" | undefined {
+export function parseSwitch(v: unknown): boolean | "invalid" | undefined {
   if (v === undefined || v === null || v === "") return undefined
   if (typeof v === "boolean") return v
   const s = String(v).trim().toLowerCase()
   if (["true", "1", "on"].includes(s)) return true
   if (["false", "0", "off"].includes(s)) return false
   return "invalid"
+}
+
+/**
+ * @description 开关值解析 + 默认值，认不出来就抛
+ * @param what 出现在错误话术里的字段名
+ */
+export function requireSwitch(v: unknown, dflt: boolean, what = "enable"): boolean {
+  const parsed = parseSwitch(v)
+  if (parsed === "invalid") throw new Error(`${what} 只能是 true 或 false`)
+  return parsed ?? dflt
 }
 
 /** @description 数字字段：空串与 null 视为没填，返回 undefined 让默认值接手 */
@@ -154,16 +163,16 @@ export function applyListOp(current: string[], ids: string[], op: ListOp = "repl
 function normalize(input: ConnInput) {
   const errors: PlanError[] = []
 
-  const parsedEnable = parseEnable(input.enable)
+  const parsedEnable = parseSwitch(input.enable)
   if (parsedEnable === "invalid")
     errors.push({ code: "enable_invalid", message: "enable 只能是 true 或 false" })
   const enable = parsedEnable === "invalid" ? undefined : parsedEnable
 
   const interval = parseNum(input.reconnect_interval)
-  if (interval !== undefined && (!Number.isFinite(interval) || interval < MIN_INTERVAL))
+  if (interval !== undefined && (!Number.isFinite(interval) || interval < MIN_RECONNECT_INTERVAL))
     errors.push({
       code: "interval_invalid",
-      message: `reconnect_interval 应为不小于 ${MIN_INTERVAL} 的数字`,
+      message: `reconnect_interval 应为不小于 ${MIN_RECONNECT_INTERVAL} 的数字`,
     })
 
   const retry = parseNum(input.max_reconnect_attempts)

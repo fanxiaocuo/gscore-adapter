@@ -1,6 +1,6 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
-import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT } from "@/constants"
+import { STATUS_TEXT, GS_LOG_RE, DEFAULT_MAX_RECONNECT, MIN_RECONNECT_INTERVAL } from "@/constants"
 import {
   logStr,
   sendMessageId,
@@ -277,7 +277,9 @@ export class GsCoreClient {
     this.retry++
     // 指数退避：base * 2^(retry-1)，封顶 base 的 12 倍（默认 5s → 最长 60s）。配成无限重试时
     // 退避让它收敛到低频探活，而不是以固定间隔一直打日志、占连接
-    const base = Number(this.conf.reconnect_interval) || 5
+    // 注意：取下限兜手改 yaml —— 指令与面板都拦了小于 1 的值，而手改文件那条路没有任何校验，
+    // 负数会让下面这行算出负延时、setTimeout 立刻回调，成热重连循环
+    const base = Math.max(Number(this.conf.reconnect_interval) || 5, MIN_RECONNECT_INTERVAL)
     const wait = Math.min(base * 2 ** (this.retry - 1), base * 12) * 1000
     this.log("info", `${wait / 1000}s 后进行第 ${this.retry} 次重连`)
     clearTimeout(this.timer)
