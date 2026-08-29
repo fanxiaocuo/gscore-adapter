@@ -63,13 +63,23 @@ export const MAX_TIMER_DELAY = 2 ** 31 - 1
 
 /**
  * @description 一条连接实际生效的重连间隔（秒）
- * 0、空、非数字、无穷都当「没配」走默认 5；配了但低于下限的按下限。
- * 注意：退避、面板卡片与状态图三处都问它要 —— 各自再写一遍 `|| 5` 就会漂（手改 yaml 写 -3 时图上念「间隔 -3s 起」而运行时其实等 1 秒）
+ * 0、空、非数字、无穷都当「没配」走默认 5；配了但低于下限的按下限，不小于 1 的原样返回。
+ * 注意：退避、面板卡片与 #早柚设置 图三处都问它要 —— 各自再写一遍 `|| 5` 就会漂（手改 yaml 写 -3 时图上念「间隔 -3s 起」而运行时其实等 1 秒）
  */
 export function reconnectBase(v: unknown): number {
   const n = Number(v)
   if (!Number.isFinite(n) || n === 0) return 5
   return Math.max(n, MIN_RECONNECT_INTERVAL)
+}
+
+/**
+ * @description 一条连接实际生效的最大重连次数，<=0 为无限
+ * 注意：`??` 而不是 `||` —— 配了 0 是「显式要无限重连」，不能被兜成默认值；而非数字（手改 yaml 写 abc、.inf）
+ * 当没配走默认，别让 NaN 漏出去：面板那栏拿 NaN 会序列化成 null、输入框变空，保存时又提交 0，静默变成无限重连
+ */
+export function reconnectCap(v: unknown): number {
+  const n = Number(v ?? DEFAULT_MAX_RECONNECT)
+  return Number.isFinite(n) ? n : DEFAULT_MAX_RECONNECT
 }
 
 /**

@@ -58,7 +58,7 @@ import { getBot, onlineBots, qqAvatar } from "@/utils/bots.js"
 import { restartFileServer } from "@/utils/fileServer.js"
 // 三个「效力值」直接问下游要：面板要显示实际生效的那个数，各自再写一遍 `|| 默认` 就会漂
 import { fileMaxSize, linkExpire, mediaMaxSize } from "@/utils/media.js"
-import { DEFAULT_MAX_RECONNECT, STATUS_TEXT, pickByStatus, reconnectBase } from "@/constants"
+import { STATUS_TEXT, pickByStatus, reconnectBase, reconnectCap } from "@/constants"
 import { makeLog } from "@/utils/compat"
 import { versionLabel } from "@/modules/render/version.js"
 import { PLUGIN_LOGO } from "@/modules/render/assets.js"
@@ -197,7 +197,7 @@ function connView(
     has_token: !!conf.token || inlineToken(conf.url) !== null,
     reconnect_interval: reconnectBase(conf.reconnect_interval),
     // 字段缺失时回默认次数而不是 0：面板上那个数字就是运行时真正用的值，回 0 会显示成「无限重连」
-    max_reconnect_attempts: Number(conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT),
+    max_reconnect_attempts: reconnectCap(conf.max_reconnect_attempts),
     bind: Array.isArray(conf.bind) ? conf.bind : [],
     exclude: Array.isArray(conf.exclude) ? conf.exclude : [],
     accounts,

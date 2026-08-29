@@ -1,12 +1,6 @@
 import { WebSocket } from "ws"
 import { config, resolveBotId } from "@/config"
-import {
-  STATUS_TEXT,
-  GS_LOG_RE,
-  DEFAULT_MAX_RECONNECT,
-  MAX_TIMER_DELAY,
-  reconnectBase,
-} from "@/constants"
+import { STATUS_TEXT, GS_LOG_RE, MAX_TIMER_DELAY, reconnectBase, reconnectCap } from "@/constants"
 import {
   logStr,
   sendMessageId,
@@ -269,8 +263,8 @@ export class GsCoreClient {
       return
     }
 
-    // ?? 而不是 ||：配了 0 是「显式要无限重连」，不能被兜成默认值。字段缺失按默认次数算
-    const max = Number(this.conf.max_reconnect_attempts ?? DEFAULT_MAX_RECONNECT)
+    // 语义（含 0 为无限、非数字当没配）在 constants 的 reconnectCap 里，与面板显示同源
+    const max = reconnectCap(this.conf.max_reconnect_attempts)
     if (max > 0 && this.retry >= max) {
       this.status = 0
       return this.log("error", `达到最大重连次数 ${max}，停止重连（可用 #早柚重连 恢复）`)
