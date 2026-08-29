@@ -3,6 +3,29 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.5.2](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.5.1...v4.5.2) (2026-08-29)
+
+
+### 🐛 问题修复
+
+* **admin:** bind/exclude 读取统一走 readIds，不再漏 trim 与去重 ([1bd8f64](https://github.com/fanxiaocuo/gscore-adapter/commit/1bd8f64dad746d6872c03ded1553cd06a39e7212))
+* **config:** 配置备份跟随 userFile，不再写进真实配置目录 ([3bc4fa9](https://github.com/fanxiaocuo/gscore-adapter/commit/3bc4fa955509b1f37295be61308a480654bc7178))
+* **constants:** 重连次数也走共用取值，NaN 不再漏进面板 ([e503706](https://github.com/fanxiaocuo/gscore-adapter/commit/e5037067bf2069188f1022fc7f52de7754259503))
+* **webadapter:** toggle / bind 的开关值也走严格解析，并给退避补下限 ([f35e0bf](https://github.com/fanxiaocuo/gscore-adapter/commit/f35e0bf80b0c48d03ac840d4c6b8be5126cda92f))
+* **webadapter:** 全局布尔项也走严格解析，不再静默关功能 ([65c6e71](https://github.com/fanxiaocuo/gscore-adapter/commit/65c6e71821ca9a200ac9dfc578f8407beca7111e))
+* **webadapter:** 合并进已有连接时顺手启用它，与指令层一致 ([1df8f82](https://github.com/fanxiaocuo/gscore-adapter/commit/1df8f821cbf301ef5e1b828c820b3f9f8dd1928b))
+* **webadapter:** 非数组的 bind / exclude 恢复报错，别当成「没提交这一栏」 ([2048a58](https://github.com/fanxiaocuo/gscore-adapter/commit/2048a5871487f6fdeb6956700710860839b5fd26))
+
+
+### ♻️ 代码重构
+
+* **commands:** rule 正则与帮助条目改由声明表统一生成 ([e296e6a](https://github.com/fanxiaocuo/gscore-adapter/commit/e296e6a70f7d83720299889518d4f766d62d1073))
+* **commands:** 前缀剥离改由声明表派生，消掉第二个漂移面 ([09dc8c2](https://github.com/fanxiaocuo/gscore-adapter/commit/09dc8c207c18fe3fca8cc0575064ea4ef24c13ad))
+* **commands:** 收窄命令面，砍掉无文档的别名并补齐缺失条目 ([eabbf67](https://github.com/fanxiaocuo/gscore-adapter/commit/eabbf67e3e7eb5e2a1f0c989972a237549672549))
+* **connections:** 修改连接也接入共用核心，两层校验合一 ([8dfe1c1](https://github.com/fanxiaocuo/gscore-adapter/commit/8dfe1c19efab9a86906af23921c7b06c2caae266))
+* **connections:** 添加连接的校验与算 patch 抽成共用核心，两层同一套规则 ([3c20b51](https://github.com/fanxiaocuo/gscore-adapter/commit/3c20b51e4599ad84d2a7f7db5bad2283b9ad0da1))
+* 收敛注释，并修审查带出的重连间隔三处漂移 ([a1884de](https://github.com/fanxiaocuo/gscore-adapter/commit/a1884de422dab680549dc59a1fc46696b12ecc9d))
+
 ## [4.5.1](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.5.0...v4.5.1) (2026-08-26)
 
 
