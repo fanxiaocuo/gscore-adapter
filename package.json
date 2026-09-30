@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.webui.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "node --import tsx --test \"test/*.test.mjs\"",
+    "test": "node --import tsx --test --test-concurrency=8 \"test/*.test.mjs\"",
     "preview": "node --import tsx test/preview.mjs",
     "contrast": "node --import tsx test/contrast.mjs",
     "dev": "node --import tsx test/dev.mjs",
