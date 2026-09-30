@@ -23,7 +23,8 @@ client:
     - # 连接名，仅用于日志与 #早柚状态
       name: gsuid_core
       # 早柚核心地址，只填到 host:port。
-      # 运行时按下面 bind 里的每个账号连成 /ws/Yunzai-<账号>，
+      # 运行时按下面 bind 里的每个账号连成 /ws/TRSS-Yunzai-<账号>
+      #（喵崽则是 /ws/Miao-Yunzai-<账号>，框架自动判定），
       # 每个账号在核心侧是独立客户端，不会互相顶掉。
       url: ws://127.0.0.1:8765
       # 鉴权 token，早柚核心以 ?token= 查询参数接收，留空则不发送

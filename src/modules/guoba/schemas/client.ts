@@ -4,6 +4,7 @@
  * 理由见 types/Config.ts 的 client 那段
  */
 import { onlineBots } from "@/utils/bots.js"
+import { framePathBase } from "@/utils/url.js"
 import { group } from "./group.js"
 
 /**
@@ -81,8 +82,8 @@ export function clientSchemas() {
           {
             field: "url",
             label: "地址",
-            bottomHelpMessage:
-              "早柚核心地址，只填到 host:port。运行时按绑定账号生成 /ws/Yunzai-<账号>，不用自己写路径",
+            // 前缀现取不写死：靠 clientSchemas() 每次重建（见函数头）才拿得到真实框架名
+            bottomHelpMessage: `早柚核心地址，只填到 host:port。运行时按绑定账号生成 ${framePathBase()}-<账号>，不用自己写路径`,
             component: "Input",
             componentProps: { placeholder: "ws://127.0.0.1:8765" },
           },

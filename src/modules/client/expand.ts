@@ -5,6 +5,7 @@
 import type { RuntimeWsConnection, WsConnection } from "@/types"
 import { readIds } from "@/utils/ids.js"
 import {
+  framePathBase,
   isAutoYunzaiPath,
   materializeAccountUrl,
   normalizeEndpoint,
@@ -100,8 +101,9 @@ export function requireAccounts(conf: WsConnection): string | null {
   if (!parsed) return "核心地址无法解析或不是 WebSocket 地址"
   if (!isRootEndpoint(parsed)) return null
   if (effectiveAccounts(conf).accounts.length) return null
+  // 前缀现取而不写死：两个框架连同一个核心时才分得清谁是谁，写死会跟真实派生出的地址对不上
   return (
-    "自动连接至少要绑定一个机器人账号：核心侧的客户端标识就是 /ws/Yunzai-<账号>。\n" +
+    `自动连接至少要绑定一个机器人账号：核心侧的客户端标识就是 ${framePathBase()}-<账号>。\n` +
     "请用 bind=<账号> 指定；不想连了请停用或删除整条连接"
   )
 }
@@ -116,7 +118,7 @@ export interface ExpandError {
   /**
    * 这条原因是不是「有运行时连接没起来」
    *
-   * 注意：不是所有 errors 都意味着连接起不来（bind∩exclude、仍用共享 /ws/Yunzai 都照常跑），
+   * 注意：不是所有 errors 都意味着连接起不来（bind∩exclude、仍用共享 Yunzai 路径都照常跑），
    * 面板靠这个布尔量分栏；别改成解析话术，那等于把措辞冻成契约。
    * 账号编码失败算 true：跳掉的那个账号确实没起来。
    */

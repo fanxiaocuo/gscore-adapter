@@ -145,7 +145,7 @@ export function BotSwitchList({
                   describedBy={last ? noteId : undefined}
                   hint={
                     last
-                      ? "自动连接至少要留一个绑定账号：核心侧的客户端标识就是 /ws/Yunzai-<账号>。不想连了请停用或删除整条连接"
+                      ? "自动连接至少要留一个绑定账号：核心侧的客户端标识就是 /ws/<框架名>-<账号>。不想连了请停用或删除整条连接"
                       : undefined
                   }
                   onChange={next => onToggle(b.id, next)}
