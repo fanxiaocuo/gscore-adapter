@@ -3,6 +3,30 @@
 本文件由 [release-please](https://github.com/googleapis/release-please) 依据
 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 提交信息自动维护。
 
+## [4.6.0](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.5.2...v4.6.0) (2026-09-30)
+
+
+### ✨ 新功能
+
+* **client:** file 段改走 icqq 原生 sendFile，并补上 Miao 缺的 segment 工厂 ([67d37ca](https://github.com/fanxiaocuo/gscore-adapter/commit/67d37cacc9ea2758ec73c8a2cd9850f48ab1338f))
+* **url:** ws 路径带上框架名，核心后台分得清 TRSS 与喵崽 ([b919410](https://github.com/fanxiaocuo/gscore-adapter/commit/b919410a4329e91419157e9a156c79d282a0db96))
+* **webui:** 面板跟随宿主的主题色 ([e820842](https://github.com/fanxiaocuo/gscore-adapter/commit/e820842177580e919bb72e3882684e6b13ea24d7))
+
+
+### 🐛 问题修复
+
+* **forward:** 合并转发取用兼容 OneBot，取不到内容也不再整条丢掉 ([13fba50](https://github.com/fanxiaocuo/gscore-adapter/commit/13fba50ab53ad8e314708027fa15029116dd5d9a))
+
+
+### ♻️ 代码重构
+
+* 收敛注释 ([c0976ea](https://github.com/fanxiaocuo/gscore-adapter/commit/c0976ea18ab7bb5459cf9a65d8f8f60b8862c176))
+
+
+### 📝 文档
+
+* 同步带框架名的 ws 路径 ([eafdf67](https://github.com/fanxiaocuo/gscore-adapter/commit/eafdf67bd92277d1989337cd222dd7a47462e9a2))
+
 ## [4.5.2](https://github.com/fanxiaocuo/gscore-adapter/compare/v4.5.1...v4.5.2) (2026-08-29)
 
 ### ⚠️ 行为变更
