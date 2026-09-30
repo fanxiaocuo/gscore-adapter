@@ -173,7 +173,7 @@ export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise
       }
 
       case "forward": {
-        // Milky 的入站转发段只有 id、没有内容，落到 default 会被 toStr 按普通对象 JSON.stringify，
+        // 入站转发段只有 id、没有内容，落到 default 会被 toStr 按普通对象 JSON.stringify，
         // 于是 raw_text 里出现一坨 {"type":"forward","id":"..."} —— 纯转发时无害，但「ww面板 + 转发」
         // 同时发来时核心那些 ^...$ 命令正则就匹配不上了
         const nodes = await resolveForwardMessage(String(i.id ?? ""), e)
@@ -182,11 +182,11 @@ export async function msgToGscore(msg: YunzaiMessage, e?: AdapterEvent): Promise
           break
         }
 
-        // 注意：取不到内容时什么都不上报，不放 "[合并转发]" 之类的占位 —— 占位同样是 text 段，会和命令文本
-        // 拼进同一个 raw_text，对 ^ww面板$ 来说与那坨 JSON 是一样的失配。转发正文本来就不进 raw_text，
-        // 丢掉它核心并没有少掉可匹配的东西（与 case "at" 丢弃 "all" 同一路数）。
-        // 代价：只有一个转发段的消息会因 content 为空被 yunzaiToGscore 判 false、整条不上报。
-        makeLog("debug", `合并转发取不到内容，不上报占位：${i.id}`, "GsCore", true)
+        // 取不到内容时上报空 node：node 段不进 raw_text，命令正则不受影响（与放 "[合并转发]" 这类 text
+        // 占位的区别正在这），又不至于让只含一个转发段的消息因 content 为空被 yunzaiToGscore 整条丢掉。
+        // 注意：flattenNodes 会滤掉所有 node 段，所以这只在顶层生效，嵌套转发照旧什么都不留
+        makeLog("debug", `合并转发取不到内容：${i.id}`, "GsCore", true)
+        out.push({ type: "node", data: [] })
         break
       }
 

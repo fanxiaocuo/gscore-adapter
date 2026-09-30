@@ -1,22 +1,17 @@
 /**
  * @description 合并转发段的内容获取：把「只给了一个 id」的入站转发段回查成真正的消息
- *
- * Milky 的入站转发段只有一个 id（adapter/Milky.js:853-854 把协议的 forward 段压成
- * `{ type:"forward", id }`，正文一个字都不带），想要内容只能回查。
- * 回查能力：OneBotv11 有 getForwardMsg（挂在 pickFriend/pickGuild/pickGroup 上）；
- * Milky 没有任何包装，但通用 `sendApi("get_forwarded_messages")` 通道在，
- * 翻译协议原始段则借它自己的 `adapter.parseMsg`（Milky.js:819-872）。
- * 注意：两样东西都**按能力探测**拿，不 import 宿主模块、也不照抄一份 parseMsg 等着两边漂移。
- * 注意：不写 `adapter_id === "Milky"` 这种名字分支（理由同 compat.ts 文件头）——
- * 名字会被 fork 改掉，而非 Milky 的实现收到未知 action 会回非 0 retcode，走同一条降级路径。
+ * 入站转发段只给一个 id、不带正文（Milky.js:853-854 压成 `{type:"forward", id}`；OneBot 家给 `[CQ:forward,id=...]`），想要内容只能回查
+ * 注意：内容一律自己用 `sendApi` 取 —— 宿主 OneBotv11 的 getForwardMsg 里 `if (i?.message)`（OneBotv11.js:242）在协议端只给 `content` 时不成立，
+ * parseMsg 从没跑过，段停在 `{type,data:{...}}` 原始态、被下游按抬平字段名读取而整体丢弃
+ * 注意：翻译借宿主自己的 `adapter.parseMsg` 按能力探测拿，不 import 宿主模块、也不照抄一份等着两边漂移
+ * 注意：不写 `adapter_id === "Milky"` 这种名字分支（名字会被 fork 改掉）—— 改用「有没有包 getForwardMsg」选 action：包了的是 OneBot 家，没包的按 Milky 算
  */
 import type { AdapterEvent, YunzaiSegment } from "@/types"
 import { makeLog, toStr } from "./compat.js"
 
 /**
  * @description 云崽 node 段载荷的一项：一条被转发的消息
- * 只保证 `message` 字段，其余原样保留适配器给的（sender / time / ...）——
- * 调用方（toGscore 的拍平逻辑）也只读 message，不去发明一套字段映射。
+ * 只保证 `message` 字段，其余原样保留适配器给的（sender / time / ...）；调用方（toGscore 的拍平逻辑）也只读 message
  */
 export interface ForwardNode {
   /** 被转发那条消息的云崽消息段 */
@@ -42,29 +37,45 @@ function toNodes(raw: any): ForwardNode[] {
   return out
 }
 
-/** Milky：协议有 get_forwarded_messages，适配器没包装，走通用 sendApi + parseMsg。 */
-async function fromMilky(id: string, e?: AdapterEvent): Promise<ForwardNode[]> {
+/** @description 取会话对象 —— getForwardMsg 只挂在 pickGroup / pickFriend 的返回上，Bot 上没有 */
+function pickTarget(e?: AdapterEvent): any {
+  const group = e?.isGroup || e?.message_type === "group"
+  return group ? e?.group : e?.friend
+}
+
+/**
+ * @description 自己发一次请求取内容，翻译走宿主的 parseMsg
+ * 注意：只发一个 action —— OneBotv11 的 sendApi 超时 60s 且到点会 ws.terminate()（OneBotv11.js:23-27），盲试第二个 action 被静默忽略就是一次断线
+ */
+async function fromSendApi(id: string, e?: AdapterEvent): Promise<ForwardNode[]> {
   const bot: any = e?.bot
   if (typeof bot?.sendApi !== "function" || typeof bot?.adapter?.parseMsg !== "function") return []
 
+  const onebot = typeof pickTarget(e)?.getForwardMsg === "function"
+  const action = onebot ? "get_forward_msg" : "get_forwarded_messages"
+  const params = onebot ? { message_id: id } : { forward_id: id }
+
   try {
-    const ret = await bot.sendApi("get_forwarded_messages", { forward_id: id })
-    // Milky 的 callApi 在 retcode 缺失时补 0（Milky.js:403-405），所以非 0 一定是真失败
-    // （含「不认识这个 action」）。silent 降级，不往用户日志里塞。
-    if (!ret || ret.retcode !== 0) {
-      makeLog("debug", [`get_forwarded_messages 未返回内容：${toStr(ret)}`], "GsCore", true)
+    const ret = await bot.sendApi(action, params)
+    // 注意：两家失败姿势不同 —— OneBotv11 对非 0 retcode 直接 throw（OneBotv11.js:31-32），
+    // Milky 的 callApi 在 retcode 缺失时补 0（Milky.js:403-405），所以既要 catch 也要查 retcode
+    if (!ret || (ret.retcode != null && ret.retcode !== 0)) {
+      makeLog("debug", [`${action} 未返回内容：${toStr(ret)}`], "GsCore", true)
       return []
     }
 
+    // OneBotv11 把响应包成读穿 data 的 Proxy（OneBotv11.js:34-36），两种取法都通
+    const messages = ret.data?.messages ?? ret.messages
     const out: ForwardNode[] = []
-    for (const m of Array.isArray(ret.data?.messages) ? ret.data.messages : []) {
-      const message = bot.adapter.parseMsg(m?.segments)
-      if (!Array.isArray(message) || !message.length) continue
-      out.push({ ...m, message })
+    for (const m of Array.isArray(messages) ? messages : []) {
+      // 注意：只喂原始段 —— parseMsg 是 `{...i.data, type:i.type}`，对已翻译的段再跑一次会把
+      // 正文抹成 `{type:"text"}`，所以不拿 m.message 兜底
+      const message = bot.adapter.parseMsg(m?.segments ?? m?.content)
+      if (Array.isArray(message) && message.length) out.push({ ...m, message })
     }
     return out
   } catch (err) {
-    makeLog("debug", ["通过 get_forwarded_messages 获取合并转发失败", err], "GsCore", true)
+    makeLog("debug", [`通过 ${action} 获取合并转发失败`, err], "GsCore", true)
     return []
   }
 }
@@ -80,19 +91,19 @@ async function fromMilky(id: string, e?: AdapterEvent): Promise<ForwardNode[]> {
 export async function resolveForwardMessage(id: string, e?: AdapterEvent): Promise<ForwardNode[]> {
   if (!id) return []
 
-  // 注意：getForwardMsg 只挂在 pickGroup / pickFriend 返回的会话对象上，Bot 上没有
-  // （OneBotv11.js 的三处挂载全在 pick* 里）
-  const group = e?.isGroup || e?.message_type === "group"
-  const target: any = group ? e?.group : e?.friend
+  const nodes = await fromSendApi(id, e)
+  if (nodes.length) return nodes
 
+  // 兜底：只包了 getForwardMsg、bot 上没挂 sendApi 的适配器还能走这条
+  // 注意：这条路不补翻译 —— 宿主漏翻译时拿到的仍是原始段，下游拍不出东西，落到空 node
+  const target: any = pickTarget(e)
   if (typeof target?.getForwardMsg === "function") {
     try {
-      const nodes = toNodes(await target.getForwardMsg(id))
-      if (nodes.length) return nodes
+      return toNodes(await target.getForwardMsg(id))
     } catch (err) {
       makeLog("debug", ["通过 getForwardMsg 获取合并转发失败", err], "GsCore", true)
     }
   }
 
-  return fromMilky(id, e)
+  return []
 }
