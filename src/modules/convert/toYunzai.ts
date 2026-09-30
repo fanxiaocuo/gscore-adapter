@@ -4,7 +4,7 @@
 import { fromGscoreMedia } from "@/utils"
 import { GS_LOG_RE, LOG_LEVELS, LOG_ALIAS } from "@/constants"
 import { buttonsFromGscore } from "./buttons.js"
-import { makeLog, toStr, makeForwardMsg } from "@/utils/compat"
+import { makeLog, toStr, makeForwardMsg, segFile } from "@/utils/compat"
 import type { SendSegment, SendTarget, YunzaiSegment } from "@/types"
 
 /**
@@ -98,7 +98,7 @@ export async function gscoreToYunzai(
         const idx = s.indexOf("|")
         const name = idx > -1 ? s.slice(0, idx) : undefined
         const body = idx > -1 ? s.slice(idx + 1) : s
-        message.push(segment.file(fromGscoreMedia(body), name))
+        message.push(segFile(fromGscoreMedia(body), name))
         break
       }
 

@@ -55,6 +55,26 @@ export function isQQBotAppId(id: string | number | null | undefined): boolean {
 }
 
 /**
+ * @description 是不是 icqq（TRSS 的 ICQQ-Plugin，或 Miao 的裸 icqq Client）
+ * 下行 file 段要据此走原生 sendFile（见 GsCoreClient.sendIcqq）：icqq 的 group/friend.sendFile 只认
+ * Buffer/Uint8Array 当字节流、字符串一律 String() 后 fs.stat 当本地路径（gfs.js:315-329 / friend.js:466-482），
+ * 而 file 段载荷是 `base64://…`，直接塞会去 stat 一个不存在的「路径」而 ENOENT。
+ * 注意：不能只判 adapter.name —— Miao-Yunzai 的 Bot 就是 icqq Client 本身、压根没有 adapter 字段，
+ * 只认名字会让 Miao 上这条修复恒不生效（照旧撞 converter.js:441 的抛错）。故补一条结构判据：
+ * icqq Client 独有 `sendUni`（core/base-client.js 的协议层方法），其它适配器都没有。
+ * adapter.name 只认 "ICQQ"（ICQQ-Plugin index.js:66），不拿 adapter.id 判：它的 "QQ" 与
+ * OneBotv11 / OPQBot 撞车，而那两家的 file 段各自 makeMsg 已处理、不该走这条路径。
+ */
+export function isICQQ(
+  bot?: { adapter?: { name?: string }; sendUni?: unknown; [k: string]: any } | null,
+): boolean {
+  if (!bot) return false
+  if (bot.adapter?.name === "ICQQ") return true
+  // Miao：Bot 即 icqq Client。要求同时有 adapter 缺席，避免别的适配器恰好也挂了个 sendUni
+  return !bot.adapter && typeof bot.sendUni === "function"
+}
+
+/**
  * @description 按账号与 Bot 对象推断核心平台标识，先具体后笼统：账号前缀 → QQBot appid 特征 → 适配器名/id 查表
  * 推不出返回 "" 而不兜 onebot：添加连接时就不写 bot_id_map，上报兜底那步在 `resolveBotId` 里。
  *
