@@ -1,33 +1,19 @@
 /**
  * @description 面板配置项的字段表：渲染、收集、脏集合三处共用同一份定义
  *
- * 字段全集就是 `api.ts` 的 {@link PayloadConfig}，一个不漏一个不多 —— 两边对不上时表现为
- * 面板上一个空控件或一项永远存不下去的配置，而不是编译错误。
+ * 字段全集就是 `api.ts` 的 {@link PayloadConfig}，一个不漏一个不多，两边对不上时表现为面板上一个空控件或一项永远存不下去的配置，而不是编译错误。
  *
- * 注意：类型层**没有**联系。本文件一个 import 都没有（浏览器包不能 import 服务端代码，
- * 见 vite.config.mts），`Field.k` 标的是 string 而不是 `keyof PayloadConfig`。下面那个
- * {@link FIELD_COUNT} 只是把本文件自己的两个数互相比，拦不住「契约加了字段而这里忘了跟」。
- * 真正的门在 `test/panel.test.mjs` 那两条：一条把本表与 `GET /config` 的真回包逐项对齐
- *（回包那侧由 tsc 卡着 —— configView() 的返回类型标了 `Payload["config"]`），另一条逐项提交
- * 去撞服务端的写白名单。加字段时那两条会红，别只看 FIELD_COUNT
- *
- * 注意：key 写成 `filter.report_private` 这种点号路径，取值由 main.tsx 的 `dig()` 按路径走。
- * 分层照 yaml 原样（client / filter / update_check / file_server 各一层），不摊平 —— 提交时
- * 按同一条路径塞回嵌套对象，摊平的话服务端白名单还得再维护一份映射
- * 注意：三个换算字段收的是 MB 与秒，落盘是字节与毫秒，**换算在服务端做**。前端一个换算都不做：
- * 两头各算一次的话 MEDIA_SIZE_MAX 那道校验与面板显示会各持一种口径
+ * 注意：类型层**没有**联系。本文件一个 import 都没有（浏览器包不能 import 服务端代码，见 vite.config.mts），`Field.k` 标的是 string 而非 `keyof PayloadConfig`；{@link FIELD_COUNT} 只把本文件自己的两个数互相比，拦不住「契约加了字段而这里忘了跟」。真正的门在 `test/panel.test.mjs` 两条：一条把本表与 `GET /config` 真回包逐项对齐（回包侧由 tsc 卡着，configView() 返回类型标了 `Payload["config"]`），另一条逐项提交去撞服务端写白名单。加字段时那两条会红，别只看 FIELD_COUNT。
+ * 注意：key 写成 `filter.report_private` 这种点号路径，取值由 main.tsx 的 `dig()` 按路径走。分层照 yaml 原样（client / filter / update_check / file_server 各一层）不摊平，提交时按同一路径塞回嵌套对象，摊平的话服务端白名单还得再维护一份映射。
+ * 注意：三个换算字段收 MB 与秒、落盘是字节与毫秒，**换算在服务端做**，前端一个不做，否则 MEDIA_SIZE_MAX 那道校验与面板显示会各持一种口径。
  */
 
 /**
  * @description 数字控件的取值区间，**必须与服务端一致**
  *
- * 权威在 `src/config/units.ts`（`displayRange()`）与 webadapter 的 `NUM_FIELDS`。这里只能抄一份
- * 字面值，不能 import 过来：webui 是浏览器包，Vite 刻意不给 `@/` 别名（见 vite.config.mts
- * 「只有浏览器端进 bundle」），开了这个口子迟早有人把带 fs/chokidar 的 `@/config` 拉进 bundle。
- * 注意：抄的这几个数由 `test/panel-bounds.test.mjs` 钉着 —— 那条测试同时 import 本文件与
- * units.ts 逐项比对，改任一边而忘了另一边就会红。别只改这里
- * 注意：两边不一致的后果是「面板放行、保存必失败」：控件让用户填 0 或 500，服务端 boundsError
- * 一律拒，整批保存被回退
+ * 权威在 `src/config/units.ts`（`displayRange()`）与 webadapter 的 `NUM_FIELDS`，这里只能抄字面值不能 import：webui 是浏览器包，Vite 刻意不给 `@/` 别名（见 vite.config.mts），开这口子迟早有人把带 fs/chokidar 的 `@/config` 拉进 bundle。
+ * 注意：抄的这几个数由 `test/panel-bounds.test.mjs` 钉着（同时 import 本文件与 units.ts 逐项比对），改任一边而忘了另一边就会红，别只改这里。
+ * 注意：两边不一致的后果是「面板放行、保存必失败」，服务端 boundsError 一律拒，整批保存被回退。
  */
 const MB_RANGE = { min: 0.01, max: 256 }
 const EXPIRE_MIN = 1
@@ -37,11 +23,9 @@ const PORT_MAX = 65535
 const INTERVAL_MIN = 1
 
 /**
- * @description 控件类型。用联合字面量而不是 string：写错一个字母时 `type === "swtich"`
- * 不会报错，只会让那一行静默渲成输入框
+ * @description 控件类型。用联合字面量而非 string：写错字母时 `type === "swtich"` 不报错，只让那行静默渲成输入框
  *
- * - `chips` 是标签输入（components/Chips.tsx），不叫 list —— 连接弹层里的 `list` 是
- *   逗号分隔的单行文本框，两者的交互与数据形状都不同
+ * - `chips` 是标签输入（components/Chips.tsx），不叫 list：连接弹层里的 `list` 是逗号分隔的单行文本框，交互与数据形状都不同
  * - `path` 与 text 的差别只在等宽字与占位符提示，值都是字符串
  */
 export type FieldType = "switch" | "number" | "text" | "password" | "chips" | "path"
@@ -54,30 +38,26 @@ export interface Field {
   k: string
   label: string
   /**
-   * @description 说明列的中文短句，写「改了会怎样」而不是「这一项是什么」
-   * 空串表示这一行不需要说明（标题已经说清了）
+   * @description 说明列的中文短句，写「改了会怎样」而非「这一项是什么」
+   * 空串表示这一行不需要说明（标题已说清）
    */
   hint: string
   type: FieldType
   /**
    * @description 读值路径，与 {@link k} 不同时才给
-   * 凭据脱敏用：写的是 `file_server.imagebed_token`，而整包只回 `has_imagebed_token`
-   *（布尔，只说明配没配）。见 api.ts 的 PayloadConfig.file_server
+   * 凭据脱敏用：写 `file_server.imagebed_token`，而整包只回 `has_imagebed_token`（布尔，只说明配没配）。见 api.ts 的 PayloadConfig.file_server
    */
   read?: string
   /** chips 能从已知群 / 好友里挑时给，对应 `GET /targets?kind=` */
   picker?: "group" | "friend"
   /**
-   * @description 这一栏收的是 MB，说明列顺手报出保存后会落盘的字节数
+   * @description 这一栏收 MB，说明列顺手报出落盘字节数
    * 只给「面板单位是 MB」的那两项。link_expire 收的是秒，没有量级可折算，不给
    */
   scale?: "MB"
   /**
    * @description 数字上下界，直接给控件的 min/max
-   * 值取本文件顶上那几个常量，别在字段里现写数字 —— 权威是 config/units.ts 与 webadapter
-   * 的 NUM_FIELDS，而这里只是抄的一份（不能跨包 import 的理由见那段注释），
-   * 由 test/panel-bounds.test.mjs 钉着两边一致。
-   * 其余字段的 0 是「关闭」或「随机」，那种不设下界
+   * 值取本文件顶上那几个常量别现写数字，权威是 config/units.ts 与 webadapter 的 NUM_FIELDS（不能跨包 import 的理由见那段注释），由 test/panel-bounds.test.mjs 钉着两边一致。其余字段的 0 是「关闭」或「随机」，不设下界
    */
   min?: number
   max?: number
@@ -91,8 +71,7 @@ export interface Section {
   hint?: string
   /**
    * @description 整节延迟提交：连开关都不即时写，攒到悬浮保存条一起交
-   * 只有文件服务一节是 true。`port` / `host` / `public_host` 是一个意图，`enable` 先即时写
-   * 会按旧端口重启一次、用户填完端口再重启一次，而每次重启都作废在途外链
+   * 只有文件服务一节是 true。`port` / `host` / `public_host` 是一个意图，`enable` 先即时写会按旧端口重启一次、填完端口再重启一次，每次重启都作废在途外链
    */
   defer?: boolean
   fields: Field[]
@@ -121,8 +100,7 @@ export const TABS: Tab[] = [
             k: "client.enable_ws",
             label: "启用 ws 通路",
             type: "switch",
-            // 与「设置」tab 的总开关 enable 语义重叠，两处的说明都要点明差别，
-            // 否则用户关了一个发现还连着、以为没生效
+            // 与「设置」tab 的总开关 enable 语义重叠，两处说明都要点明差别，否则用户关了一个发现还连着
             hint: "只关 ws 这一条通路。要连都不连请用「设置」里的启用适配器",
           },
           {
@@ -215,8 +193,7 @@ export const TABS: Tab[] = [
       {
         id: "file_server",
         title: "内置文件服务",
-        // 措辞照 resources/config/default_config.yaml 那一节的注释，别自己另写一版：
-        // 用户对着 yaml 与面板两处看，说法不一致会以为是两个不同的开关
+        // 措辞照 resources/config/default_config.yaml 那节注释，别另写一版：用户对着 yaml 与面板两处看，说法不一致会以为是两个不同的开关
         hint: "仅在框架没有 Bot.fileToUrl 时启用（Miao-Yunzai）。TRSS-Yunzai 自带文件服务，这一节完全无效，不用管。改完自动重启文件服务，在途外链会作废",
         defer: true,
         fields: [
@@ -430,11 +407,7 @@ export const DEFERRED = new Set(
  * @description 字段总数，与 api.ts 的 PayloadConfig 字段数一致（30）
  *
  * 契约扩了字段而字段表忘了跟，面板上只是少一行、没有任何报错，所以要有这道数目校验。
- * 注意：**这里不能 throw**。原先写的是「模块顶层 throw 会在打包期炸掉」，那是错的 ——
- * Vite/Rolldown 只打包、不执行模块顶层，那句 throw 会原样进 panel.js，改到浏览器加载时才炸：
- * React 根本没挂上，用户看到的是一整片空白面板加一条控制台报错，比「少一行」严重得多。
- * 真正的门在 `test/panel-bounds.test.mjs`（Node 侧能执行，跑得到断言）；这里只留一条
- * console.error，让面板照常渲染出来、同时把不一致喊出来
+ * 注意：**这里不能 throw**。Vite/Rolldown 只打包、不执行模块顶层，那句 throw 会原样进 panel.js、到浏览器加载时才炸：React 没挂上，用户看到一整片空白面板加一条控制台报错，比「少一行」严重得多。真正的门在 `test/panel-bounds.test.mjs`（Node 侧能执行到断言），这里只留一条 console.error，让面板照常渲染同时把不一致喊出来。
  */
 export const FIELD_COUNT = 30
 if (ALL_FIELDS.length !== FIELD_COUNT)

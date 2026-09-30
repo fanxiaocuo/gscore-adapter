@@ -4,14 +4,11 @@
 export interface WsConnection {
   /** 连接名，仅用于日志与 #早柚状态 */
   name?: string
-  /** 早柚核心 WebSocket 地址，默认路由 /ws/Yunzai */
+  /** 早柚核心 WebSocket 地址，只填到 host:port；路由段按绑定账号派生成 `/ws/<框架名>-<账号>` */
   url: string
   /** 鉴权 token，作为 ?token= 查询参数附加；留空则不发送 */
   token?: string
-  /**
-   * @description 旧字段，上报只读 bot_id_map，不读这里
-   * 注意：启动时会迁移掉（按 bind 减 exclude 给每个账号写一行 bot_id_map，再删掉本字段），读它等于读一份已经不生效的声明 —— 见 config/upgrade.ts 的 seedAccountBotIds
-   */
+  /** @description 旧字段，上报只读 bot_id_map，不读这里；启动时迁移掉并删除本字段，见 config/upgrade.ts 的 seedAccountBotIds */
   bot_id?: string
   /** 是否启用本连接 */
   enable?: boolean
@@ -33,7 +30,7 @@ export interface RuntimeWsConnection extends WsConnection {
   account: string | null
   /**
    * @description 稳定身份：规范化后的运行时路由（见 utils/url.ts 的 routeKey）
-   * 注意：停起 / 复用 / 冲突仲裁都按它比，不能按 {@link runtimeName} —— 名字会随改名与「删掉前面一条导致序号整体位移」变化，按名字比会把没动过的连接判成删旧起新，用户那头是一次无谓的断线重连
+   * 注意：停起/复用/冲突仲裁都按它比，不能按 {@link runtimeName}（名字会随改名与序号位移变化）
    */
   runtimeKey: string
   /** 日志 / 状态 / 统计用的显示名称。仅用于展示，不做身份 */
@@ -48,10 +45,7 @@ export interface RuntimeWsConnection extends WsConnection {
 
 /** @description 消息过滤，仅影响 client 方向的上报 */
 export interface FilterConfig {
-  /**
-   * @description 是否上报私聊消息
-   * 比黑白名单粗一档：想「只让群消息过核心」时不必把所有私聊用户列进黑名单。
-   */
+  /** @description 是否上报私聊消息；比黑白名单粗一档，「只让群消息过核心」时不必把私聊用户全列黑名单 */
   report_private?: boolean
   /** 是否上报群消息（含频道） */
   report_group?: boolean
@@ -90,23 +84,17 @@ export interface FileServerConfig {
   once?: boolean
   /**
    * @description 图床转接口的凭据；同机部署留空即可
-   *
-   * 早柚核心生成 markdown 时会把图先上传到「自定义图床 API」（pic_upload_config 的 custom_url），
-   * 而 ImageBed-Plugin 只提供进程内的 `Bot.imageToUrl()`，核心那个独立的 Python 进程调不到。
-   * 所以本插件挂一个 `POST /gscore/imagebed`，把 imageToUrl 包成核心要的响应形状。
-   *
-   * 优先挂到本体的 `Bot.express` 上（复用它已经在跑的端口），没有它才回落到自带文件服务 ——
-   * 因此 TRSS 上这个接口与 {@link FileServerConfig.port} 无关，Miao 上才需要把端口固定下来。
-   *
-   * 注意：访问控制只能靠它自己 —— 本体的 serverAuth 在 `cfg.server.auth` 没配时完全放行。
-   * 规则是本机来源免凭据（能连环回口的人已经在这台机器上了），非本机必须带 token，没配 token 就一律拒绝。
+   * 核心生成 markdown 时把图上传到自定义图床 API（pic_upload_config 的 custom_url），而 ImageBed-Plugin 只有进程内
+   * `Bot.imageToUrl()`，核心的独立 Python 进程调不到，故本插件挂 `POST /gscore/imagebed` 把它包成核心要的响应形状。
+   * 优先挂本体 `Bot.express`（复用已在跑的端口），否则回落自带文件服务：TRSS 上与 {@link FileServerConfig.port} 无关，Miao 才需固定端口。
+   * 注意：访问控制只能靠它自己 —— 本体 serverAuth 在 `cfg.server.auth` 没配时完全放行；规则是本机来源免凭据、非本机必带 token、没配 token 一律拒绝。
    */
   imagebed_token?: string
 }
 
 /**
  * @description 定时更新检查
- * 比的是「本地 HEAD 落后跟踪分支几个提交」而不是 registry 上的 semver —— 本插件是 git 仓库安装，没有可比的发布版本号。
+ * 注意：比的是本地 HEAD 落后跟踪分支几个提交，不是 registry 的 semver（git 仓库安装，没有发布版本号）
  */
 export interface UpdateCheckConfig {
   /** 是否启用定时检查；关掉后手动指令仍可用 */
@@ -121,10 +109,7 @@ export interface UpdateCheckConfig {
 
 /** @description 插件配置文件结构（对应 config/default_config/config.yaml） */
 export interface Config {
-  /**
-   * @description 是否启用适配器，false 则完全不连早柚核心
-   * 改完即时生效：index.ts 在 onConfigReload 里按这个值热起停连接。
-   */
+  /** @description 是否启用适配器，false 则完全不连早柚核心；改完即时生效（index.ts 的 onConfigReload 热起停连接） */
   enable?: boolean
   /** 早柚核心连接。只有 WebSocket 一种 */
   client?: {
@@ -153,10 +138,7 @@ export interface Config {
   link_expire?: number
   /** 内置文件服务，仅在框架没有 Bot.fileToUrl 时启用 */
   file_server?: FileServerConfig
-  /**
-   * @description 自定义图床模块路径（可选），默认导出 `(buf, name) => Promise<string>`
-   * 内置文件服务被关掉或起不来时的后备。
-   */
+  /** @description 自定义图床模块路径（可选），默认导出 `(buf, name) => Promise<string>`；内置文件服务关掉或起不来时的后备 */
   upload_hook?: string
   /** 日志中截断 base64 */
   log_truncate?: boolean

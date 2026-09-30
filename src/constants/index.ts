@@ -1,7 +1,6 @@
 /**
  * @description 连接状态数值的可读名
- * 显式标 Record 而不是让它推断：渲染两处拿 `0 | 1 | 2 | 3` 直接索引，标了之后「查表必有值」由类型保证，
- * 将来加了状态码 4 而漏配文案会在索引处编译报错。与 {@link statusRank} 的差别正在这里，那个收 `number`。
+ * 显式标 Record 而非推断：渲染两处拿 `0|1|2|3` 直接索引，「查表必有值」由类型保证，将来加状态码 4 漏配文案会在索引处编译报错（{@link statusRank} 收 number，故不同）
  */
 export const STATUS_TEXT: Record<0 | 1 | 2 | 3, string> = {
   0: "未连接",
@@ -12,15 +11,15 @@ export const STATUS_TEXT: Record<0 | 1 | 2 | 3, string> = {
 
 /**
  * @description 聚合状态的取值顺序：已连接 > 连接中 > 断线待重连 > 未连接
- * 一条逻辑连接的多个账号各有状态，对外只显示一个（只特判「已连接」、其余取第一条会把正在握手的账号说成未连接）。
- * 注意：这不是 WebSocket 的 readyState 而是本插件自己的状态码（见 {@link STATUS_TEXT}），别按 readyState 的语义「修正」这个顺序
+ * 一条逻辑连接的多账号各有状态，对外只显示一个（只特判「已连接」、其余取第一条会把握手中的账号说成未连接）
+ * 注意：这不是 WebSocket 的 readyState 而是本插件自己的状态码（见 {@link STATUS_TEXT}），别按 readyState 语义「修正」此顺序
  */
 export const STATUS_ORDER: (0 | 1 | 2 | 3)[] = [1, 2, 3, 0]
 
 /**
  * @description 状态在 {@link STATUS_ORDER} 里的名次，数字越大越糟
- * 与 {@link pickByStatus} 共用同一张顺序表：那个答「这条逻辑连接对外算什么状态」，这个答「账号级子行超出条数上限时谁更该被看到」。
- * 注意：两处必须共用一张表，否则会出现「代表状态说通了，而被折叠掉的偏偏是唯一没通的账号」；表外的状态码排到最后（最糟），不认识的更该被看见
+ * 与 {@link pickByStatus} 共用同一张顺序表（那个答对外算什么状态，这个答子行超上限时谁更该被看到）
+ * 注意：两处必须共用一张表，否则会出现「代表状态说通了，被折叠掉的偏偏是唯一没通的账号」；表外状态码排最后（最糟），不认识的更该被看见
  */
 export function statusRank(status: number): number {
   const at = STATUS_ORDER.indexOf(status as 0 | 1 | 2 | 3)
@@ -29,9 +28,8 @@ export function statusRank(status: number): number {
 
 /**
  * @description 按 {@link STATUS_ORDER} 挑出代表整条逻辑连接的那一项
- * 放在 constants 而不是各模块自己写一遍：Web 面板与状态图都要回答「这条核心通不通」，各存一份就会漂。
- * 泛型是因为两边喂进来的东西不同（面板是序列化后的运行时视图，状态图是 GsCoreClient），共同点只有 status。
- * 同名次内保持入参顺序（find 取首个），也就是展开顺序、亦即 bind 的书写顺序。
+ * 放 constants 共用避免各模块各写一份漂掉；泛型因两边入参不同（面板是序列化后的运行时视图，状态图是 GsCoreClient），共同点只有 status
+ * 同名次内保持入参顺序（find 取首个），即展开顺序、亦即 bind 的书写顺序
  */
 export function pickByStatus<T extends { status: 0 | 1 | 2 | 3 }>(items: T[]): T | undefined {
   for (const status of STATUS_ORDER) {
@@ -43,28 +41,27 @@ export function pickByStatus<T extends { status: 0 | 1 | 2 | 3 }>(items: T[]): T
 
 /**
  * @description 默认最大重连次数
- * 原来是 0（无限重连），而退避封顶在 interval*12（默认 60s），核心真下线时会每分钟敲一次门、日志一直刷。
- * 5 次配 5s 起步约覆盖 2.3 分钟，够核心重启，而「地址写错了」不会拖着日志跑一整夜；停下后 #早柚重连 即可恢复。
- * 想要旧行为写 max_reconnect_attempts: 0，语义未变（<=0 为无限）。
+ * 无限重连时退避封顶在 interval*12（默认 60s），核心真下线会每分钟刷一次日志；5 次配 5s 起步约覆盖 2.3 分钟够核心重启，停下后 #早柚重连 即可恢复
+ * 想要无限重连写 max_reconnect_attempts: 0（<=0 为无限）
  */
 export const DEFAULT_MAX_RECONNECT = 5
 
 /**
  * @description 重连间隔的下限（秒）
- * 注意：0 是紧密循环，负数会让退避算出负延时、setTimeout 立刻回调；两个写入口都拦了，但手改 yaml 是第三条路，所以由 {@link reconnectBase} 兜住
+ * 注意：0 是紧密循环，负数让退避算出负延时使 setTimeout 立刻回调；两个写入口都拦了，但手改 yaml 是第三条路，故由 {@link reconnectBase} 兜住
  */
 export const MIN_RECONNECT_INTERVAL = 1
 
 /**
  * @description setTimeout 能表达的最大延时（ms）
- * 注意：超过它的延时会被回退成 1ms 并打 TimeoutOverflowWarning —— 一个大得离谱的间隔（yaml 写 .inf 或 2147484）会从上界掉进热重连循环
+ * 注意：超过它的延时会被回退成 1ms 并打 TimeoutOverflowWarning —— 大得离谱的间隔（yaml 写 .inf 或 2147484）会从上界掉进热重连循环
  */
 export const MAX_TIMER_DELAY = 2 ** 31 - 1
 
 /**
  * @description 一条连接实际生效的重连间隔（秒）
- * 0、空、非数字、无穷都当「没配」走默认 5；配了但低于下限的按下限，不小于 1 的原样返回。
- * 注意：退避、面板卡片与 #早柚设置 图三处都问它要 —— 各自再写一遍 `|| 5` 就会漂（手改 yaml 写 -3 时图上念「间隔 -3s 起」而运行时其实等 1 秒）
+ * 0、空、非数字、无穷当「没配」走默认 5；低于下限按下限
+ * 注意：退避、面板卡片与 #早柚设置 图三处共用，各写一遍 `|| 5` 会漂（yaml 写 -3 时图上念「间隔 -3s 起」而运行时其实等 1 秒）
  */
 export function reconnectBase(v: unknown): number {
   const n = Number(v)
@@ -74,8 +71,7 @@ export function reconnectBase(v: unknown): number {
 
 /**
  * @description 一条连接实际生效的最大重连次数，<=0 为无限
- * 注意：`??` 而不是 `||` —— 配了 0 是「显式要无限重连」，不能被兜成默认值；而非数字（手改 yaml 写 abc、.inf）
- * 当没配走默认，别让 NaN 漏出去：面板那栏拿 NaN 会序列化成 null、输入框变空，保存时又提交 0，静默变成无限重连
+ * 注意：用 `??` 而非 `||` —— 配 0 是显式要无限重连，不能被兜成默认值；非数字（yaml 写 abc、.inf）当没配走默认，别让 NaN 漏出去：面板那栏拿 NaN 会序列化成 null、输入框变空、保存时提交 0，静默变无限重连
  */
 export function reconnectCap(v: unknown): number {
   const n = Number(v ?? DEFAULT_MAX_RECONNECT)
@@ -84,8 +80,8 @@ export function reconnectCap(v: unknown): number {
 
 /**
  * @description media_max_size / file_max_size 的硬上限（字节），三个写入口共用
- * 这两项是「超过就改用 link:// 外链」的阈值，调爆等于关掉外链兜底、每个附件都在内存里 base64 一份。
- * 注意：256 MB 远高于任何真实 QQ 附件，它拦的是「把配置文件里读到的字节数原样敲进按 MB 收的中文指令」
+ * 这两项是「超过就改用 link:// 外链」的阈值，调爆等于关掉外链兜底、每个附件在内存里 base64 一份
+ * 注意：256 MB 远高于任何真实 QQ 附件，它拦的是「把配置里读到的字节数原样敲进按 MB 收的中文指令」
  */
 export const MEDIA_SIZE_MAX = 256 * 1024 * 1024
 
@@ -106,9 +102,8 @@ export const LOG_ALIAS = { warning: "warn", success: "mark", critical: "fatal" }
 
 /**
  * @description notice 事件的 sub_type -> 早柚事件名映射
- * 注意：本 fork 把 notice_type 按 _ 拆成两段（OneBotv11.js:1330-1333，对齐 ICQQ 原生形状）：
- * group_increase -> notice_type="group" + sub_type="increase"，所以匹配主键是 sub_type，写 notice_type === "group_increase" 恒为 false
- * 标 `Record<string, string | undefined>` 而不是字面量对象：键是任意 `e.sub_type`，没命中是正常分支（notice/index.ts 靠 `if (!eventName) return null`）。
+ * 注意：本 fork 把 notice_type 按 _ 拆两段（OneBotv11.js:1330-1333，对齐 ICQQ 原生形状）：group_increase -> notice_type="group" + sub_type="increase"，故匹配主键是 sub_type，写 notice_type === "group_increase" 恒为 false
+ * 标 `Record<string, string | undefined>` 而非字面量对象：键是任意 `e.sub_type`，没命中是正常分支（notice/index.ts 靠 `if (!eventName) return null`）
  */
 export const SUB_TYPE_MAP: Record<string, string | undefined> = {
   increase: "user_join_group",

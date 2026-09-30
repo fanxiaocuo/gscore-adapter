@@ -1,7 +1,7 @@
 /**
  * @description 早柚核心（gsuid_core）协议类型声明
- * 来源：gsuid_core/models.py 的 msgspec Struct 定义 + gsuid_core/segment.py，修改前请先核对上游源码。
- * 注意：permisson / excute_ 均为核心源码原文的错拼，必须逐字匹配，勿凭直觉"修正"拼写
+ * 来源：gsuid_core/models.py 的 msgspec Struct 定义 + gsuid_core/segment.py。
+ * 注意：permisson / excute_ 是核心源码原文错拼，须逐字匹配，勿"修正"
  */
 
 import type { YunzaiSegment } from "./Event.js"
@@ -107,10 +107,8 @@ export interface SegGroup {
 }
 
 /**
- * @description meta 事件段，仅出现在 MessageReceive 方向（适配器 -> 核心）
- * 非消息事件（入退群、戳一戳等）没有正文可发，靠它把事件名与数据带给核心：核心取 `meta-` 之后的部分作
- * event.meta_event_type，data 为 dict 时整体存入 event.meta_event_data，还会用其中的 user_id / group_id 回填顶层缺失字段。
- * 注意：不并进 {@link MessageSegment} —— 正文段的 data 都是 string / 数组，这里是字典，混在一起每个消费正文的地方都要先排除它
+ * @description meta 事件段，仅出现在 MessageReceive 方向（适配器 -> 核心）；核心取 `meta-` 之后的部分作 event.meta_event_type，data（dict）整体存入 event.meta_event_data，并用其中 user_id / group_id 回填顶层缺失字段
+ * 注意：不并进 {@link MessageSegment} —— 正文段 data 是 string/数组，这里是字典，混在一起每个消费正文处都要先排除它
  */
 export interface SegMeta {
   type: `meta-${string}`
@@ -169,24 +167,13 @@ export interface Button {
   text: string
   /** 点击后显示的文本 */
   pressed_text?: string | null
-  /**
-   * 动作类型
-   * - 0 跳转链接
-   * - 1 回调
-   * - 2 发送命令
-   */
+  /** 动作类型：0 跳转链接 / 1 回调 / 2 发送命令 */
   action: 0 | 1 | 2
   /** 按钮携带的数据，语义随 action 变化（链接 / 回调数据 / 命令文本） */
   data: string
   /** 样式，通常 0 灰底 1 蓝字 */
   style?: number
-  /**
-   * 可见/可点击权限
-   * - 0 指定用户（配合 specify_user_ids）
-   * - 1 仅管理者
-   * - 2 所有人
-   * - 3 指定身份组（配合 specify_role_ids）
-   */
+  /** 可见/可点击权限：0 指定用户（配合 specify_user_ids）/ 1 仅管理者 / 2 所有人 / 3 指定身份组（配合 specify_role_ids） */
   permisson?: 0 | 1 | 2 | 3
   /** permisson 为 3 时生效 */
   specify_role_ids?: string[]
@@ -277,15 +264,9 @@ export interface MessageReceive {
   user_type?: UserType
   /** 群/频道 id；私聊为 null */
   group_id: string | null
-  /**
-   * @description 消息内容
-   * 含 {@link SegMeta} 是因为非消息事件（入退群、戳一戳）走同一个上行结构，只是 content 里放 `meta-{eventName}` 段而不是正文段 —— 见 modules/notice。
-   */
+  /** @description 消息内容；含 {@link SegMeta} 因非消息事件（入退群、戳一戳）走同一上行结构，content 放 `meta-{eventName}` 段而非正文段（见 modules/notice） */
   content: (MessageSegment | SegMeta)[]
-  /**
-   * @description 发送者信息
-   * 注意：meta 事件没有发送者语义（"某人被踢"里 e.user_id 与事件涉及的用户不是一个人），那条路径发的是 `{}`，所以每个字段都得可选 —— 唯一必填的 user_id 在顶层已有
-   */
+  /** @description 发送者信息。注意：meta 事件无发送者语义（"某人被踢"里 e.user_id 非事件涉及的用户），该路径发 `{}`，故字段全可选（必填的 user_id 在顶层已有） */
   sender?: Partial<Sender>
   /** meta 事件专用，形如 "meta-{eventName}" 时由核心 handler 提取 */
   meta_event_type?: string
@@ -324,10 +305,7 @@ export interface RecallReceipt {
   }
 }
 
-/**
- * @description 核心内部事件结构（handler.py 中由 MessageReceive 加工得到）
- * 适配器一般不直接构造，此处保留用于理解 meta 事件流转。
- */
+/** @description 核心内部事件结构（handler.py 中由 MessageReceive 加工得到）；适配器一般不直接构造，保留用于理解 meta 事件流转 */
 export interface Event extends MessageReceive {
   /** 由 `meta-xxx` 前缀剥离后得到 */
   meta_event_type?: string

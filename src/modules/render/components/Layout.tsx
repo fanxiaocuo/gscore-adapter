@@ -10,30 +10,16 @@ import { textWidth } from "../metrics.js"
 
 /**
  * @description 液态玻璃卡面：面 + 边 + 厚度三件套，全套卡片共用
- *
- * 三件事一起才成立，缺一件就退回「半透明矩形」：
- *   面    竖向渐变 .52 → .24 的白，上亮下暗是玻璃的体积感来源，底下的弥散光透得上来
- *   边    两条方向相反的 1px 内阴影代替描边：左上受光边、右下背光边 —— 描边四周同色，
- *         而玻璃的边随光向一半亮一半暗，圆角处自然过渡（这也是不能用 border 的原因：
- *         四条边只能同一个颜色）
- *   厚度  顶部 28px 白色内发光（玻璃体内的漫射）＋ 一层外投影把卡片托起来
- *
- * 抽成常量而不是在五处各写一遍那串取值：改一处漏四处，而 classes.test.mjs 查的是
- * 「类有没有定义」，查不出「五处材质不一致」——那正是这次要修的东西本身。
- *
- * 注意：底端停在 .24 而不是更透。按 test/glassink.mjs 实测，.17 那档第一张统计卡的最暗
- * 单像素是 4.41，差 0.09 掉出正文 4.5；抬到 .24 后是 4.63，看不出画面差别。
- * 注意：这串取值只在 Layout.tsx 里出现，但 Tailwind 扫的是 components/*.tsx 的正则级候选，
- * 本文件在扫描范围内，所以别把它挪去 theme.ts 那类不被扫的文件 —— 会静默丢掉这几条规则。
+ * 面=竖向渐变 .52→.24 的白（体积感 + 透出弥散光）；边=两条反向 1px 内阴影代替 border（border 四边只能同色，玻璃边需一半亮一半暗）；厚度=顶部 28px 内发光 + 外投影。抽成常量共用避免五处漂移（classes.test.mjs 只查类是否定义，查不出材质不一致）。
+ * 注意：底端停在 .24 —— 按 test/glassink.mjs 实测 .17 档最暗单像素 4.41 掉出正文 4.5，.24 为 4.63。
+ * 注意：Tailwind 扫的是 components/*.tsx 的正则级候选，本文件在扫描内；别把这串取值挪去 theme.ts 等不被扫的文件，否则规则被静默丢掉。
  */
 export const GLASS =
   "[background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_1px_1px_0_rgba(255,255,255,.95),inset_-1px_-1px_0_var(--border),inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
 
 /**
  * @description 无方向性边的玻璃：给自带描边的卡用（目前只有空态卡）
- * 空态卡的虚线描边是语义标记（「这里本该有东西」），不是材质的边。两者叠在同一像素上会打架：
- * 左上角是「虚线的 border 色」紧贴「受光白线」，读起来是脏边而不是玻璃。所以那里只取面与厚度，
- * 边交给虚线本身。
+ * 只取面与厚度、边交给虚线本身：虚线描边与受光白线叠在同一像素会读成脏边。
  */
 export const GLASS_SOFT =
   "[background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.33)_44%,rgba(255,255,255,.24))] [box-shadow:inset_0_28px_40px_-32px_rgba(255,255,255,.95),0_16px_36px_-22px_rgba(16,26,40,.20)]"
@@ -43,20 +29,9 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
   return (
     <>
       {/*
-       * 弥散光：五团大色斑互相咬合
-       *
-       * 三团各自成形、能数出「三个光球」；提到五团并把半径放大到超出画布（负边距 + 超宽高），团边落在画布外，
-       * 看到的只有中段过渡。尺寸/位置/旋转刻意各不相同：等距等大的斑会形成可辨的节奏，反而像图案。
-       *
-       * 这一层现在是画面的主体。压花高光去掉之后，「不显廉价」不再有纹理兜着，全靠色相跨度 + 下面那层絮状
-       * 调制 + 暗角三件事撑 —— 取值与理由见 theme.ts 的 glow。
-       *
-       * 注意：别给这几团加回 CSS 模糊。本体用 --disable-gpu 起 Chromium，模糊全走 CPU 且滤镜区域要按 3σ 外扩，
-       * 五团约 5000 万像素 —— 实测帮助页有模糊 5090ms、无模糊 1530ms，而整页逐像素比对平均只差 1.93/255、
-       * p99 差 8，并看分不出来。原因是这层本来就没有高频：radial-gradient 到 66~74% 处已经收干，边是渐变自己
-       * 收尾吃掉的，不是模糊吃的。缩盒子再 scale 回去（k=2/3/4/6 全试过）省不了，Chromium 按最终设备尺度光栅化。
-       *
-       * 注意：rounded-[9999px] 而不是 rounded-full —— 后者是 calc(infinity*1px)，算出来是 3.35544e+07px。
+       * 弥散光：五团大色斑互相咬合，半径放大到超出画布只留中段过渡；尺寸/位置/旋转刻意各不相同，等距等大会像图案。取值与理由见 theme.ts 的 glow。
+       * 注意：别加回 CSS 模糊。--disable-gpu 起的 Chromium 下模糊全走 CPU、滤镜区按 3σ 外扩，五团约 5000 万像素，实测帮助页有模糊 5090ms、无模糊 1530ms，而逐像素比对平均只差 1.93/255、p99 差 8，看不出。这层无高频（radial-gradient 到 66~74% 已收干），缩盒子再 scale 回去（k=2/3/4/6）也省不了，Chromium 按最终设备尺度光栅化。
+       * 注意：用 rounded-[9999px] 而非 rounded-full —— 后者是 calc(infinity*1px)，算出来 3.35544e+07px。
        */}
       <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div className="absolute top-[-420px] left-[-320px] h-[1680px] w-[1560px] rounded-[9999px] [transform:rotate(-18deg)] [background:radial-gradient(ellipse_at_42%_38%,var(--glow-1)_0%,transparent_68%)]" />
@@ -67,19 +42,8 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
       </div>
 
       {/*
-       * 絮状调制：极低频的一层，专治「纯渐变像塑料」
-       *
-       * 换掉压花鳞片的关键在**频率**，不在有没有噪声。旧的那层是 baseFrequency 0.1（周期约 10px）配
-       * feSpecularLighting，1~2px 的锐白点和字的笔画抢像素，读作雪花；而 jpeg 的 DCT 最压不动的正是
-       * 中间调 + 高频锐噪，所以它一个人吃掉七八成体积。
-       *
-       * 这里只留 0.009（周期约 110px）的 fractalNoise，不加镜面光照。出来是大块柔和的明暗起伏，
-       * 肉眼不成形、也不与字争，只把纯渐变那种塑料感压掉。低频对 DCT 友好，几乎不涨体积。
-       *
-       * feColorMatrix 把亮度搬进 alpha 并压到很低（0.16 的斜率 + 负偏置），于是只有噪声的亮处留下
-       * 一点提亮，暗处直接透明 —— 这样它永远只提亮、不压暗，不会吃掉正文对比度。
-       *
-       * 注意：opacity 别往上抬。这层的作用是「让人说不出哪里不平」，一旦看得出颗粒就又回到旧问题了。
+       * 絮状调制：极低频一层，专治「纯渐变像塑料」。关键在频率不在噪声：旧层 baseFrequency 0.1（周期约 10px）配 feSpecularLighting，1~2px 锐白点与字笔画抢像素读作雪花，且 jpeg DCT 最压不动中间调 + 高频锐噪，独吃七八成体积。这里只留 0.009（周期约 110px）fractalNoise、不加镜面光照，低频对 DCT 友好几乎不涨体积。feColorMatrix 把亮度搬进 alpha 压低（0.16 斜率 + 负偏置），只提亮不压暗，不吃正文对比度。
+       * 注意：opacity 别往上抬，一旦看得出颗粒就回到旧问题。
        */}
       <div className="pointer-events-none absolute inset-0 z-0 opacity-[.5] [mix-blend-mode:soft-light]">
         <svg className="size-full" xmlns="http://www.w3.org/2000/svg">
@@ -101,23 +65,14 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
       </div>
 
       {/*
-       * 暗角：把视线收进画面
-       *
-       * 五团色斑铺满整幅之后四角最容易发飘 —— 尤其近白的那套，边缘几乎与页面外的白融在一起，
-       * 画面没有边。一道很轻的径向暗角给它收个口。
-       *
-       * 注意：用 --fg 而不是写死黑。COOL 的前景是 #0f1720（偏蓝），纯黑压在银灰底上会显脏。
-       * 注意：第一版给的是 58% + .055，四角根本没收住 —— 起点太靠外、浓度也太淡。现在 42% 起收、
-       * .085 收尾，画面才有边。再往内会压到统计条那一带的正文，inkprobe 会先报出来。
+       * 暗角：一道很轻的径向暗角把发飘的四角收个口。
+       * 注意：用 --fg 而非写死黑 —— COOL 前景 #0f1720（偏蓝），纯黑压在银灰底上显脏。
+       * 注意：42% 起收、.085 收尾（58% + .055 收不住四角）；再往内会压到统计条正文，inkprobe 会先报出来。
        */}
       <div className="pointer-events-none absolute inset-0 z-0 opacity-[.085] [background:radial-gradient(ellipse_at_50%_40%,transparent_42%,var(--fg)_100%)]" />
 
       {/*
-       * 竖排气氛大字
-       *
-       * top 默认 560px：起点更高的话大字正好压在第四张统计卡背后，字面笔画透过半透明卡片显出来、像脏了。
-       * 560px 落在统计条下方的列表区，那里行高一致、底色均匀。透明度压到 .028 —— 列表卡片比统计卡更透。
-       * ghostTop 由页面给（关于页多一张 hero 卡、内容整体下移约 260px），所以位置跟着版式走，不写死。
+       * 竖排气氛大字：top 默认 560px 落在统计条下方列表区（更高会压在第四张统计卡背后透出笔画像脏了）；透明度 .028。ghostTop 由页面给（关于页多一张 hero 卡、内容下移约 260px），位置跟版式走不写死。
        */}
       <div
         className="pointer-events-none absolute top-[560px] right-[56px] z-0 text-[200px] font-black leading-none tracking-[-.04em] opacity-[.028] [writing-mode:vertical-rl] [text-orientation:mixed]"
@@ -127,31 +82,22 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
       </div>
 
       {/*
-       * 角落装饰：左上点阵与右上刻度线是一对，要对称
-       *
-       * 两块退到画布边缘 40px 处（原来 48px 时点阵右下角正好压到徽标那颗 LED 上），点阵缩到 3 列让出徽标横带。
-       * 几何上：点阵 3×3 = 29px 见方，刻度 3 条 = 20px 高、最长 72px —— 行数相同、高度接近、最长边同量级，
-       * 两个角落才配平（曾经是 2 行点阵配 128px 长刻度线，右边分量重出四倍）。
-       * 列宽用 repeat(3,1fr) 而不是 grid-cols-3，理由同 Stats：后者的最小值是 0。
+       * 角落装饰：左上点阵与右上刻度线一对要对称。两块退到边缘 40px（48px 时点阵右下角压到徽标 LED），点阵缩 3 列让出徽标横带。几何上点阵 3×3=29px 见方、刻度 3 条=20px 高最长 72px，行数/高度/最长边同量级才配平。列宽用 repeat(3,1fr) 而非 grid-cols-3，理由同 Stats：后者最小值是 0。
        */}
       <div className="absolute top-[40px] left-[40px] z-0 grid [grid-template-columns:repeat(3,1fr)] gap-[7px] opacity-[.16]">
         {Array.from({ length: 9 }, (_, i) => (
-          // 老规则是 `.dots i`，样式挂在生成出来的子元素上，迁移后直接写在 <i> 上
+          // 老规则 `.dots i` 挂在生成的子元素上，迁移后直接写在 <i> 上
           <i key={i} className="size-[5px] rounded-[9999px] bg-fg" />
         ))}
       </div>
-      {/* 固定宽度而非随机：随机值会让每次截图产生无意义的像素差异。最长 72px 而不是 128px 的理由见上面的配平 */}
+      {/* 固定宽度而非随机：随机值会让每次截图产生无意义像素差异。最长 72px 理由见上面配平 */}
       <div className="absolute top-[40px] right-[40px] z-0 flex flex-col items-end gap-[4px] opacity-[.16]">
         {[72, 52, 32].map(w => (
           <i key={w} className="h-[4px] bg-fg" style={{ width: w }} />
         ))}
       </div>
       {/*
-       * 左下角落：一团很淡的辉光，不再是 45° 斜纹
-       *
-       * 那条斜纹是压花时代的遗物：那时满屏鳞片，一块 5px 周期的规则纹理混在里面看不出来。背景一干净，
-       * 它就成了整幅唯一一块「机器画的几何」，而且只在左下角、右边没有对称物，读作画错了地方。
-       * 换成同色系的一团辉光：仍然给左下角一点分量（不然那片空得发虚），但它与五团色斑是同一种语言。
+       * 左下角落：一团很淡的辉光（不再是 45° 斜纹）。给左下角一点分量、不然发虚，与五团色斑同一种语言。
        */}
       <div className="pointer-events-none absolute bottom-[-220px] left-[-180px] z-0 h-[720px] w-[860px] rounded-[9999px] opacity-[.5] [background:radial-gradient(ellipse_at_46%_54%,var(--glow-2)_0%,transparent_70%)]" />
     </>
@@ -160,8 +106,7 @@ export function Backdrop({ word, ghostTop }: { word: string; ghostTop?: number }
 
 /**
  * @description 概览统计条：四张等宽大数字卡
- * 抽成组件而不是让帮助页/状态页/更新日志页各写一遍那串二十来个类 —— 改一处漏两处，而 classes.test.mjs 查的是
- * 「类有没有定义」，查不出「三处不一致」。
+ * 抽成组件供帮助页/状态页/更新日志页共用，避免三处漂移（classes.test.mjs 只查类是否定义，查不出不一致）。
  */
 export function Stats({
   items,
@@ -170,28 +115,21 @@ export function Stats({
   items: { key: string; value: string; sub?: string }[]
   palette: Palette
 }) {
-  // 注意：列宽用 repeat(4,1fr) 而不是 grid-cols-4 —— 后者编出来是 repeat(4,minmax(0,1fr))，最小值被钉在 0、
-  // 四列恒等宽；而 1fr 的最小值是 auto，放不下的列可以超出等分。更新日志页的上排小字够长，它那四列实际是
-  // 382/162/299/380 而非 306×4，换成 minmax(0,1fr) 会把那页的统计条压回等分
+  // 注意：列宽用 repeat(4,1fr) 而非 grid-cols-4 —— 后者是 repeat(4,minmax(0,1fr))，最小值钉在 0、四列恒等宽；1fr 最小值是 auto，放不下的列可超出等分。更新日志页那四列实际是 382/162/299/380 而非 306×4，换 minmax(0,1fr) 会压回等分
   return (
     <div className="mb-[72px] grid [grid-template-columns:repeat(4,1fr)] gap-[24px]">
       {items.map((s, i) => (
-        /*
-         * 四张卡等高（grid 默认 stretch），内部三行 flex 竖排；卡面走 {@link GLASS} —— 取值与理由见那里。
-         * 52px 的大数字走大字 3.0 那条线，比 GLASS 上的正文宽裕得多。
-         */
+        /* 四张卡等高（grid 默认 stretch），内部三行 flex 竖排；卡面走 {@link GLASS}。 */
         <div
           className={`flex flex-col gap-[10px] rounded-[22px] px-[26px] py-[24px] ${GLASS}`}
           key={i}
         >
-          {/* 三行字号 16 / 52 / 18：原先是 19 / 60 / 21，19 与 21 几乎同级、层级读不出来，60 又跳得太远 */}
+          {/* 三行字号 16 / 52 / 18（原 19/60/21：19 与 21 几乎同级层级读不出，60 跳太远） */}
           <div className="font-mono text-[16px] font-extrabold uppercase leading-[1.3] tracking-[.16em] text-muted">
             {s.key}
           </div>
           {/*
-           * 大数字走渐变点缀：四张卡各取 spectrum 的一档，同一条渐变上的连续取样。
-           * 渐变字必须给 background-clip:text + 透明字色；用内联 style 而不是 utility 是因为颜色来自运行时
-           * Palette，编译期拿不到值。tabular-nums 让四张卡的数字宽度一致，不会因 1 比 8 窄而歪。
+           * 大数字渐变点缀：四张卡各取 spectrum 一档。渐变字须 background-clip:text + 透明字色；用内联 style 而非 utility 因颜色来自运行时 Palette、编译期拿不到值。tabular-nums 让数字宽度一致，不因 1 比 8 窄而歪。
            */}
           <div
             className="text-[52px] font-black leading-[1.05] tracking-[-.02em] [font-variant-numeric:tabular-nums]"
@@ -216,8 +154,7 @@ export function Stats({
 
 /**
  * @description 分节标题：圆点 + 文字 + 一条向右淡出的渐变线
- * 关于页的「环境摘要 / 本版变更」与状态页的分组明细都用它。做成组件之后，从前那种「关于页私有类被状态页借用、
- * 改哪边都会波及对方」在类型上就不成立了。渐变线与圆点的颜色来自运行时轮换色，走内联 style；组件只定形。
+ * 关于页与状态页共用；渐变线与圆点颜色来自运行时轮换色走内联 style，组件只定形。
  */
 export function Section({
   title,
@@ -252,12 +189,7 @@ export function Section({
 
 /**
  * @description 空态卡：状态页「暂无连接」、更新日志页「已是最新」
- *
- * 虚线描边是这张卡的语义标记（「这里本该有东西」），它保留着 —— 但内容卡都迁成玻璃之后，
- * 从前那句理由（「与实线内容卡区分开」）不再成立了：现在的对照是「虚线 vs 无描边」，
- * 区分度反而比从前的「虚线 vs 实线」更大。
- * 卡面走 {@link GLASS_SOFT} 而不是 GLASS：虚线与受光白线叠在同一像素上会读成脏边。
- * whitespace-pre-line 保留说明里的换行（提示文案带 \n 分段）。
+ * 虚线描边是语义标记（「这里本该有东西」）保留着。卡面走 {@link GLASS_SOFT} 而非 GLASS：虚线与受光白线叠在同一像素会读成脏边。whitespace-pre-line 保留提示文案的 \n 分段。
  */
 export function Empty({ title, tip }: { title: string; tip: string }) {
   return (
@@ -310,11 +242,8 @@ export function Header({
         {/* pl-[4px]：只给很小的内缩，让 LED 离开角落装饰的视觉范围，标题仍与它左对齐 */}
         <div className="flex items-center gap-[14px] pl-[4px] opacity-70">
           {/*
-           * 注意：字号字距与 text-muted 要写在这颗圆点上，尽管它没有文字 —— 老规则是 `.badge span`，两个 span
-           * 都命中，圆点也跟着拿到 20px/.22em/700 与 muted。letter-spacing 会在行内盒右侧留出一个字距的空位，
-           * 删掉的话徽标整体宽度会变；color 也是计算值，不写就从 #container 继承 fg。
-           * 光晕走任意属性而不是 shadow-* 那族：后者是复合属性，即使只给一层也会展开成一长串。
-           * 注意这里刻意不把那个写法原样抄进注释 —— 扫描器是正则级别的，会把注释里带方括号的片段也当候选。
+           * 注意：字号字距与 text-muted 要写在这颗无文字圆点上 —— 老规则 `.badge span` 命中两个 span，圆点也拿到 20px/.22em/700 与 muted；letter-spacing 在行内盒右侧留一个字距空位，删掉徽标整宽会变；color 不写就从 #container 继承 fg。光晕走任意属性而非 shadow-*（复合属性即使一层也展开成一长串）。
+           * 注意：这里刻意不把那个写法原样抄进注释 —— 扫描器是正则级别的，会把注释里带方括号的片段也当候选。
            */}
           <span
             className={`size-[10px] flex-none rounded-[9999px] text-[20px] font-bold uppercase leading-none tracking-[.22em] text-muted ${
@@ -372,11 +301,7 @@ const FOOT = {
 
 /**
  * @description 页脚水印：插件图标 + 插件名/版本 ｜ 框架图标 + POWER BY 框架名/版本
- * 版式照 kkk 的 DefaultLayout：居中一排，左半是插件、右半是框架，中间一根竖线分隔。
- * 必须是一行，所以在 SSR 阶段估一遍总宽（metrics.ts），超了就靠 CSS 变量 --fs 整体等比缩小 —— 靠 flex-wrap
- * 兜底会把框架半边甩到第二行、并列关系断掉，而只禁止换行会溢出被 overflow:hidden 裁掉，比换行更糟。
- * 版本号旁的 Stable/Preview 取自 env.ts 的 releaseType：预览版用 warning 色，让「这不是发布版本」一眼可见。
- * 不做 kkk 那套像素隐写（要 sharp 的原生二进制，且用户看不见），也不显示构建工具标（本插件是运行时 SSR）。
+ * 版式照 kkk 的 DefaultLayout，居中一排竖线分隔。必须一行，故 SSR 阶段估总宽（metrics.ts），超了靠 CSS 变量 --fs 整体等比缩小：flex-wrap 会把框架半边甩到第二行断掉并列，禁止换行则溢出被 overflow:hidden 裁掉，都更糟。版本旁 Stable/Preview 取自 env.ts 的 releaseType，预览版用 warning 色。不做 kkk 的像素隐写（要 sharp 原生二进制且用户看不见），也不显示构建工具标（本插件运行时 SSR）。
  */
 export function Footer({
   name,
@@ -393,10 +318,7 @@ export function Footer({
   palette: Palette
   /**
    * 框架名 + 版本，如 Miao-Yunzai v3.1.3
-   *
-   * 默认值在组件里探测而不是让各页面从 pages.ts 传进来：角标对每个页面都一样，走 props 就得同时改几份 data
-   * 接口和几处调用，加新页面还容易漏掉署名。组件只在 Node 里做 SSR，读进程信息与文件系统是安全的。
-   * 留着 props 是为了单测能注入固定值。
+   * 默认值在组件里探测而非各页面传入（角标每页都一样，走 props 要改多份 data 接口且加页易漏署名；组件只在 Node SSR，读进程/文件系统安全）。留着 props 是为单测注入固定值。
    */
   frame?: string
   /** 框架图标的 data URI，空串则只显示文字 */
@@ -443,13 +365,7 @@ export function Footer({
         <div className="flex min-w-0 items-center gap-[20px]">
           {logo && (
             /*
-             * 图标：外层 span 定框，内层 img 决定字形实际大小
-             *
-             * 两张图构图不同：logo.webp 的字形只占画幅 70.7%，frame-logo.webp 是满幅不透明图。同样塞进框、
-             * 同样内缩时早柚字形只有 42px、云崽有 60px —— 差三分之一，就是「适配器图标偏小」的来源。所以让
-             * img 溢出框 112% 把那圈留白顶出去（字形 ≈ 63px），overflow-hidden 裁掉溢出部分。
-             * 不给底色和描边：logo.webp 是透明底，加了淡底 + 边框就成了两个方块罩在字形外，而页脚这行只是
-             * 水印，方框比它要标记的内容更抢眼。圆角留着只为裁剪溢出。
+             * 图标：外层 span 定框，内层 img 决定字形实际大小。logo.webp 字形只占画幅 70.7%、frame-logo.webp 是满幅图，同样内缩时早柚字形只 42px、云崽 60px（「适配器图标偏小」的来源），故让 img 溢出框 112% 顶出留白（字形 ≈ 63px）、overflow-hidden 裁掉。不给底色描边：logo.webp 透明底，加淡底 + 边框会成两个方块罩在字形外；圆角留着只为裁剪溢出。
              */
             <span className="flex size-[80px] flex-none items-center justify-center overflow-hidden rounded-[20px]">
               <img className="block size-[112%] object-contain" src={logo} alt="" />
@@ -488,8 +404,7 @@ export function Footer({
         {/* 框架半边 */}
         <div className="flex min-w-0 items-center gap-[20px]">
           {frameLogo && (
-            /* 满幅图内缩 8px，字形 = 80 - 16 = 64px，与左边的 63px 相当。frame-logo 自带白底、本身就是个
-               方块，不需要再补边框框住它 */
+            /* 满幅图内缩 8px，字形 = 80 - 16 = 64px，与左边 63px 相当。frame-logo 自带白底本就是方块，不需再补边框 */
             <span className="flex size-[80px] flex-none items-center justify-center overflow-hidden rounded-[20px]">
               <img className="block size-full p-[8px] object-contain" src={frameLogo} alt="" />
             </span>
@@ -526,9 +441,7 @@ export function Footer({
 
 /**
  * @description 一整页
- * 注意：不收 palette。骨架曾经要读它给压花高光按主题分档，换成弥散渐变之后背景的颜色全部走 cssVars 下发的
- * 自定义属性，骨架本身不再碰任何字面量色值。别为了「以后可能要用」把这个 prop 加回来 —— 一个什么都不做的
- * prop 会让下一个人以为骨架的外观能按调色板变。
+ * 注意：不收 palette。背景颜色全走 cssVars 下发的自定义属性，骨架不碰任何字面量色值；别为「以后可能要用」把这个 prop 加回来（一个什么都不做的 prop 会让人以为骨架外观能按调色板变）。
  */
 export function Page({
   word,

@@ -1,11 +1,7 @@
 /**
  * @description chip 标签输入，用在 filter 那批数组字段（前缀、屏蔽词、群号、用户 ID）
- *
- * 不用逗号分隔的单行文本框（连接弹层里那个 `type: "list"`）：群黑白名单是一串 9 位数字，
- * 挤在一个输入框里既数不出有几项、也删不掉中间那个。
- * 注意：**不校验形状** —— 前缀里的 `#`、关键词里的空格与大小写改一个字都会让匹配对不上
- *（锅巴那边为此专门不加 valueFormatter，见 modules/guoba/schemas/filter.ts）；
- * QQ 号 5-11 位、QQBot openid 32 位十六进制，卡长度只会把非 QQ 平台的 ID 拦在外面
+ * 不用逗号分隔的单行文本框：群黑白名单是一串 9 位数字，挤一个框里数不清也删不掉中间项。
+ * 注意：不校验形状，前缀里的 `#`、关键词的空格与大小写改一字就匹配不上（锅巴那边为此不加 valueFormatter，见 modules/guoba/schemas/filter.ts）；QQ 号 5-11 位、QQBot openid 32 位十六进制，卡长度会把非 QQ 平台的 ID 拦掉。
  */
 import { useRef, useState } from "react"
 import { FOCUS, MONO, toList } from "../ui.js"
@@ -40,11 +36,10 @@ export function Chips({
 
   /**
    * @description 收下当前草稿。静默去重、空值不收
-   * 注意：比较前 String() 一遍 —— 已存的群号可能是数字 9 位，用户手输的是字符串，
-   * 不统一类型比的话同一个群会进两次
+   * 注意：比较前 String() 一遍，已存群号可能是数字、手输的是字符串，不统一类型同一个群会进两次。
    */
   const commit = (raw: string) => {
-    // 与连接弹层那个逗号文本框同一套解析（ui.ts 的 toList），别在这儿再写一份
+    // 复用 ui.ts 的 toList（连接弹层逗号文本框同一套解析），别再写一份
     const parts = toList(raw)
     if (!parts.length) {
       setDraft("")
@@ -58,29 +53,22 @@ export function Chips({
       add.push(p)
     }
     setDraft("")
-    // 一个新值都没有时不调 onChange：那会把这一项标成脏、让保存条为「没有变化」亮起
+    // 没有新值时不调 onChange，否则会把这一项标成脏、让保存条在「没有变化」时亮起
     if (add.length) onChange([...value, ...add])
   }
 
   const remove = (i: number) => {
     onChange(value.filter((_, j) => j !== i))
-    // 删完把焦点还给输入框：不还的话按钮随 DOM 一起消失，焦点掉到 body，
-    // 键盘用户得从页面顶部重新 Tab 一遍
+    // 删完把焦点还给输入框：不还的话按钮随 DOM 消失、焦点掉到 body，键盘用户得从页面顶部重新 Tab
     inputRef.current?.focus()
   }
 
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    /*
-     * 注意：组字中的回车一律放过。中文输入法用回车**确认候选词**，而 Chromium 照样派发
-     * keydown（key === "Enter"、isComposing === true）—— 不判这一下，打 chouka 选「抽卡」
-     * 会先把拼音草稿 "chouka" 存成一个 chip，随后 compositionend 再把「抽卡」塞回输入框。
-     * 而这几栏（屏蔽关键词、屏蔽前缀）本来就是给中文用的，且明确不做任何清洗，
-     * 用户根本看不出存进去的是拼音
-     */
+    // 注意：组字中的回车一律放过。中文输入法用回车确认候选词，Chromium 照样派发 keydown（key === "Enter" 且 isComposing === true），不判这下会把拼音草稿先存成 chip、随后 compositionend 再塞回中文；这几栏给中文用且不清洗，用户看不出存的是拼音。
     if (e.nativeEvent.isComposing) return
 
     if (e.key === "Enter" || e.key === "," || e.key === "，") {
-      // Enter 在表单里会触发提交，逗号会落进输入框，两者都要拦
+      // Enter 在表单里触发提交、逗号会落进输入框，两者都要拦
       e.preventDefault()
       commit(draft)
       return
@@ -93,22 +81,12 @@ export function Chips({
   }
 
   return (
-    /*
-     * 整块当输入框画：描边用 border-strong（控件边界要过 3:1），底色 surface2。
-     * flex-wrap + min-w-0 让长串换行而不是把行顶宽。
-     * 注意：聚焦环挂在容器上（focus-within）而不是里头那个 input —— input 自己
-     * outline-none、只占一行末尾的一小条，轮廓画在它身上看不出「这个框在编辑中」；
-     * hover 只提亮描边不换底色，免得与 chip 自己的 surface2 糊成一片
-     */
+    /* 整块当输入框画：描边 border-strong（控件边界要过 3:1）、底色 surface2，flex-wrap + min-w-0 让长串换行不顶宽。
+       注意：聚焦环挂容器上（focus-within）而非里头的 input，input 自己 outline-none 且只占行末一小条，轮廓画它身上看不出「在编辑中」；hover 只提亮描边不换底色，免得与 chip 的 surface2 糊成一片。 */
     <div className="flex min-w-0 flex-wrap items-center gap-[6px] rounded-[8px] border border-border-strong bg-surface2 px-[8px] py-[6px] hover:border-accent focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
       {value.map((v, i) => {
         const s = String(v)
-        /*
-         * 按**码点**数而不是 `s.length`：后者是 UTF-16 码元数，`slice(0, 18)` 会把一个星区字符
-         * （emoji 等占两个码元的字）切成半个代理对，chip 上渲染成 U+FFFD 替换字符。
-         * 这几栏明确「原样存、给中文用」，看到乱码的人会以为自己填的东西被改了
-         *（落盘值与 title 全文都不受影响，纯显示层，但显示层正是这里唯一的产出）
-         */
+        /* 按码点数而非 s.length：后者是 UTF-16 码元数，slice(0, 18) 会把星区字符（emoji 等占两码元）切成半个代理对，chip 上渲染成 U+FFFD。落盘值与 title 全文不受影响，纯显示层，但看到乱码的人会以为填的东西被改了。 */
         const cps = [...s]
         const long = cps.length > MAX_SHOW
         return (

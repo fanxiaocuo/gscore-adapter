@@ -313,7 +313,7 @@ function payload(): Payload {
     connections,
     // 只上话术，不带 sourceIndex：前端把错误统一列在顶部一个块里，不逐卡显示。
     // 注意：skipped 必须分成两个数组 —— 红框标题是「有连接没能启动」，而警告那两条
-    //（bind/exclude 撞、共享 /ws/Yunzai）之后连接照常跑，混在一起会让正常收发的连接顶着红框
+    //（bind/exclude 撞、共享 Yunzai 路径）之后连接照常跑，混在一起会让正常收发的连接顶着红框
     errors: errors.filter(e => e.skipped).map(e => e.message),
     warnings: errors.filter(e => !e.skipped).map(e => e.message),
     totals: {

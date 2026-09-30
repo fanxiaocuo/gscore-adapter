@@ -1,9 +1,7 @@
 /**
  * @description 面板按 MB / 秒 显示、配置文件仍存字节 / 毫秒的那几栏，换算与边界只有这一份
- *
- * 三个写入口（锅巴、web 面板、#早柚设置）以前各写一遍这组数字，新增字段就要重复第四遍。
- * 注意：单位不能真的改进配置 —— 下游（utils/media.ts、fileServer 的 ttl）都按原单位读。
- * 注意：apps/admin.ts 那份刻意不并进来，它的措辞是给出图那张结果图写的（CN_LABEL + 单条话术），形状不一样
+ * 注意：单位不能真的改进配置 —— 下游（utils/media.ts、fileServer 的 ttl）都按原单位读
+ * 注意：apps/admin.ts 那份刻意不并进来，形状不一样（CN_LABEL + 单条话术，给出图结果图用）
  */
 import { MEDIA_SIZE_MAX } from "@/constants"
 
@@ -28,14 +26,14 @@ export interface UnitField {
 }
 
 /**
- * @description 写「MB」而除数仍是 1048576：口语一致（用户说的就是 mb），术语上不严格
- * 注意：换成 1000 会与 #早柚设置（utils/settings.ts 乘 1024*1024）算出不同的字节数，那是真的错
+ * @description 写「MB」而除数是 1048576：口语一致，术语不严格
+ * 注意：换成 1000 会与 #早柚设置（utils/settings.ts 乘 1024*1024）算出不同字节数，那是真的错
  */
 const MB = 1024 * 1024
 
 /**
  * @description 换算字段表
- * 注意：下限不能是 0 —— utils/media.ts 把 0 当「没配」并悄悄换成默认值，之后三个面板与实际生效值会一致地对不上
+ * 注意：下限不能是 0 —— utils/media.ts 把 0 当「没配」换成默认值，三个面板与实际生效值会一致地对不上
  */
 export const UNIT_FIELDS: Record<string, UnitField> = {
   media_max_size: {
@@ -84,7 +82,7 @@ function round2(n: number): number {
 
 /**
  * @description 落盘值 → 面板显示值
- * 注意：只认有限数字，缺省/字符串/null 原样返回，别在这里补默认值 —— 那等于把「用户没配过」悄悄写成一个具体数
+ * 注意：只认有限数字，缺省/字符串/null 原样返回，别在这里补默认值（等于把「没配过」写成一个具体数）
  */
 export function toDisplay(field: string, value: unknown): unknown {
   const f = UNIT_FIELDS[field]
@@ -93,11 +91,10 @@ export function toDisplay(field: string, value: unknown): unknown {
 }
 
 /**
- * @description 面板显示值 → 落盘值；非换算字段原样返回
- * 注意：不能用 Number() 兜 —— 清空输入框时控件发 null，Number(null) 是 0，而下游把 0 当「没配」换成默认值
- * （utils/media.ts 的 `|| 默认`），于是面板显示 0、实际跑 10 MB。返回 undefined 表示「这栏不写」，
- * 写盘循环跳过它、原值保住
- * @param current 当前落盘值。面板没动过这一栏就原样留着 —— toDisplay 收两位小数，乘回去是另一个数
+ * @description 面板显示值 → 落盘值；非换算字段原样返回。返回 undefined 表示「这栏不写」，写盘循环跳过、原值保住
+ * 注意：不能用 Number() 兜 —— 清空输入框控件发 null，Number(null) 是 0，下游把 0 当「没配」换默认值
+ * （utils/media.ts 的 `|| 默认`），于是面板显示 0、实际跑 10 MB
+ * @param current 当前落盘值。面板没动过这一栏就原样留着 —— toDisplay 收两位小数、乘回去是另一个数
  *                （5000000 显示成 4.77 MB，存回来变 5001708），否则保存别的项会顺手改了它
  */
 export function toStored(field: string, value: unknown, current?: unknown): unknown {

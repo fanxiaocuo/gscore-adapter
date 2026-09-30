@@ -18,8 +18,7 @@ import { upgradeUserConfig } from "./upgrade.js"
 export { writeAccountBotId, writeAccountBotIds, syncConnectionAccounts } from "./botmap.js"
 
 /**
- * @description 默认值随插件发布（resources/config/），用户配置目录被 .gitignore 忽略，升级不覆盖用户改动
- * 路径由 dir.ts 从 import.meta.url 推导，插件改名或换目录都不受影响。
+ * @description 默认值随插件发布（resources/config/），用户配置目录被 .gitignore 忽略，升级不覆盖用户改动；路径由 dir.ts 从 import.meta.url 推导，插件改名或换目录都不受影响
  */
 const defFile = path.join(ConfigPath, "default_config.yaml")
 const userDir = path.join(PluginPath, "config")
@@ -41,9 +40,8 @@ function merge(def: unknown, user: unknown): unknown {
 
 /**
  * @description 摘掉 filter 下所有列表字段里的 null/undefined/空串项（`0` 是合法值，原样保留）
- * 空项不减 length 而判据全是 `?.length && …`，后果全是静默的：white_group 有空项会停掉全部群上报，
- * block_prefix / block_include 有空串会停掉全部上报，prefix 有空串让 only_reply_at 形同废止。
- * 注意：清洗放在读取侧，锅巴（云崽只洗经过锅巴的写入）与手写 yaml 两条来路都覆盖。
+ * 判据全是 `?.length && …`，空项不减 length：white_group 空项停掉全部群上报，block_prefix / block_include 空串停掉全部上报，prefix 空串让 only_reply_at 废止。
+ * 注意：清洗放读取侧，覆盖锅巴与手写 yaml 两条来路（云崽只洗经过锅巴的写入）。
  */
 function pruneFilterLists(conf: Config): Config {
   const f = conf.filter
@@ -98,8 +96,7 @@ function load(migrate = false) {
 
 /**
  * @description 读重载候选配置，解析失败照抛，不像 read() 那样退成空配置
- * @param userText 用户文件的原文。watcher 传它进来是为了「读一次、就解析那一份」——
- *                 自己再读一遍的话，两次读之间文件可能又变了，于是校验的是 A、落地的是 B
+ * @param userText 用户文件原文，watcher 传它进来为「读一次就解析那一份」——自己再读一遍则两次读之间文件可能又变，校验的是 A、落地的是 B
  */
 function loadStrict(userText?: string) {
   const defaults = YAML.parse(fs.readFileSync(defFile, "utf8")) || {}
@@ -109,8 +106,7 @@ function loadStrict(userText?: string) {
 }
 
 /**
- * @description 配置对象，热重载时原地更新（delete + assign）
- * 保证其它模块已 import 的引用同步生效。
+ * @description 配置对象，热重载时原地更新（delete + assign），保证其它模块已 import 的引用同步生效
  */
 export const config: Config = load(true)
 
@@ -118,13 +114,8 @@ export const config: Config = load(true)
 export const configFile = userFile
 
 /**
- * @description 当前已生效的那份用户配置原文，watcher 用它判断「文件到底变没变」
- *
- * 原先这里是一个 `selfWrite` 布尔闩：saveConfig 写盘前置位，watcher 收到事件就清位并跳过。
- * 那个做法有个静默的洞 —— 自己写盘与用户手改挨得近时，两次写会被合并成**一个** change 事件，
- * 闩把它当成「我写的」吞掉，用户在文件管理器里改的东西就此不生效，且一条日志都没有。
- * 比内容比闩靠得住：内容一样就是真没变（谁写的都一样，没什么要重载的），
- * 内容不一样就一定要重载。重复事件、事件合并、事件丢失，三种情况都不再影响正确性。
+ * @description 当前已生效的那份用户配置原文，watcher 用它比对判断文件变没变
+ * 比内容而非 selfWrite 布尔闩：闩会在自己写盘与用户手改被合并成一个 change 事件时把它当「我写的」吞掉，用户改动静默不生效且无日志。比内容后重复 / 合并 / 丢失事件都不影响正确性。
  */
 let loadedText = fs.existsSync(userFile) ? fs.readFileSync(userFile, "utf8") : ""
 
@@ -155,9 +146,7 @@ function reload() {
 }
 
 /**
- * @description online 之前不碰连接：watcher 在本模块求值时就装好，而登录要几秒到几十秒
- * 提前拉起会撞上 e.isMaster 尚未定义、消息落到还没有登录号的全局 Bot（同 src/index.ts 顶部那条）。
- * 跳过不丢改动：online 那一刻的 startClients 读的是当时的配置。
+ * @description online 之前不碰连接：提前拉起会撞上 e.isMaster 未定义、消息落到没有登录号的全局 Bot；跳过不丢改动，online 那刻的 startClients 读当时的配置
  * 注意：latch 由 src/index.ts 的 online 钩子推过来 —— 本模块求值早于 Bot 就绪，自己 `Bot?.once?.()` 会静默不注册、latch 永远为 false
  */
 let online = false
@@ -169,7 +158,7 @@ export function markOnline() {
 
 /**
  * @description 把跑着的连接收敛到刚重载的配置，返回一句接在「配置已重载」后面的话
- * 手改 yaml 是第四个配置入口（指令 / 面板 / 锅巴 / 手改），另外三个都在自己那头收敛了，只有它没人替它做。
+ * 手改 yaml 是第四个配置入口（指令 / 面板 / 锅巴 / 手改），另外三个各自收敛，只有它没人替它做。
  * 注意：lifecycle 静态 import 了本模块，只能动态 import 才不成环
  * 注意：不能挂 onConfigReload —— saveConfig 也走那条路，且拿不到「本次改的是哪一条」，会把所有来源的展开诊断重打一遍
  */
@@ -231,11 +220,7 @@ async function onFileChanged() {
 
 /**
  * @description 合并短时间内的多次事件，只按最后那一次读文件
- *
- * 编辑器保存不是一次原子写：多数是「先截断、再分块写」，chokidar 会在中间态就报一次 change。
- * 那一刻读到的是半截 yaml —— 解析得到的是个残缺对象，与默认值合并后**用户配的项静默变回默认**，
- * 而日志照样报「配置已重载」。实测过：截断后立刻读到的 media_max_size 就是默认值。
- * 合并之后只读稳定下来的那一份。awaitWriteFinish 也开着，两道一起兜
+ * 编辑器保存多是「先截断、再分块写」，chokidar 会在中间态报 change：那时读到半截 yaml，解析出残缺对象与默认值合并后用户配的项静默变回默认（实测 media_max_size），日志却照报「配置已重载」。合并后只读稳定的那份，awaitWriteFinish 也开着一起兜
  */
 let debounce: NodeJS.Timeout | undefined
 function scheduleReload() {
@@ -245,8 +230,7 @@ function scheduleReload() {
 
 /*
  * cfg.bot.file_watch 为 false 时框架已全局 stub 掉 chokidar.watch，此处自动尊重。
- * 注意：add 也要收 —— 部分编辑器与文件管理器的保存是「删掉再新建」而不是原地改，
- * 那种形状下只有 add 事件；内容比对让重复触发不产生副作用，多收一种事件没有代价
+ * 注意：add 也要收 —— 部分编辑器 / 文件管理器的保存是「删掉再新建」，那种形状下只有 add 事件；内容比对让重复触发无副作用，多收一种事件没代价
  */
 const watcher = chokidar
   .watch(userFile, { awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 50 } })
@@ -265,8 +249,7 @@ export function stopConfigWatch(): Promise<void> {
 
 /**
  * @description saveConfig 回调收到的 yaml 文档
- * Strict 取 false（第二个类型参数）：路径都是运行时拼出来的字符串数组，Strict 为 true 时
- * getIn 返回 unknown，每个 `doc.getIn(path).add(...)` 调用点都要补一次 `as YAMLSeq`。
+ * Strict 取 false（第二个类型参数）：路径是运行时拼的字符串数组，Strict 为 true 时 getIn 返回 unknown，每个 `doc.getIn(path).add(...)` 调用点都要补 `as YAMLSeq`。
  */
 export type ConfigDoc = Document.Parsed<ParsedNode, false>
 
@@ -330,10 +313,8 @@ export function getWsConnections() {
 
 /**
  * @description 取用户文档里的 client.connections 序列，缺失时把当前生效的列表原样物化进去
- * 用户文件没写过这个键时运行时列表来自默认配置的示例连接：指令能看到它、能删它，而 saveConfig 操作的
- * 用户文档里根本没这个键，直接 deleteIn/setIn 会抛 `Expected YAML collection at connections`。
- * 物化后删除示例连接会留下 `connections: []`，靠「数组整体覆盖」的合并规则不再从默认值冒出来。
- * 注意：`client` 存在但不是 map（手改成 null / 标量）时要先删再建，否则 setIn 在 client 那一层抛同样的错
+ * 用户文件没写过这个键时运行时列表来自默认配置示例连接，而用户文档里没这个键，直接 deleteIn/setIn 会抛 `Expected YAML collection at connections`；物化后删示例连接留下 `connections: []`，靠「数组整体覆盖」的合并规则不再从默认值冒出来。
+ * 注意：`client` 存在但不是 map（手改成 null / 标量）时要先删再建，否则 setIn 在 client 那层抛同样的错
  */
 function ensureWsConnections(doc: ConfigDoc): YAMLSeq {
   const target = ["client", "connections"]
@@ -351,8 +332,7 @@ export type ConnectionPatch = { [K in keyof WsConnection]?: WsConnection[K] | nu
 
 /**
  * @description 以下三个函数是连接的增 / 改 / 删，指令、Web 面板等入口共用
- * 调用方只负责把用户输入校验成 patch / conf，以及把抛出来的错误变成一句能回给用户的话 ——
- * 校验刻意留在调用方：指令回中文短句、面板回 400 JSON，措辞与时机都不同。
+ * 校验刻意留在调用方（指令回中文短句、面板回 400 JSON，措辞与时机都不同）：调用方负责把输入校验成 patch / conf，并把抛出的错误变成回给用户的话。
  */
 
 /** @description 追加一条连接并写盘；extra 在同一次保存里执行（如添加时顺手记 bot_id_map） */
@@ -408,7 +388,7 @@ export function removeConnection(index: number) {
 
 /**
  * @description 适配器是否启用，缺省 true（配置里没写过这项时按启用算）
- * 注意：每次调用都读当前 config 不缓存 —— index.ts 靠 onConfigReload 在这个值翻转时热起停连接，缓存住就又要重启才生效
+ * 注意：每次调用都读当前 config 不缓存 —— index.ts 靠 onConfigReload 在此值翻转时热起停连接，缓存住就要重启才生效
  */
 export function enabled(): boolean {
   return config.enable !== false
@@ -428,8 +408,7 @@ export function accountPlatform(selfId: string | number): string {
 }
 
 /**
- * @description 档案叠加平台标识，bot_id_map 的显式映射优先于适配器推断
- * 用户手写的映射才是上报时真正用的值，被在线实例的猜测盖掉就成了假显示。
+ * @description 档案叠加平台标识，bot_id_map 的显式映射优先于适配器推断（手写映射才是上报真正用的值，被在线实例猜测盖掉就成假显示）
  * 平台为空时原样返回，不白拷一层 —— 消费方（面板整包、状态图胶囊）都只读。
  */
 export function withPlatform(p: BotProfile): BotProfile {
@@ -439,16 +418,14 @@ export function withPlatform(p: BotProfile): BotProfile {
 
 /**
  * @description 按账号取档案并叠上平台标识，面板的绑定候选与状态图的 bind 胶囊共用
- * 注意：放在 config 而不是 utils/bots —— 那边不能反向 import @/config（见该文件头，会成 config↔bots 的环，
- * 表现为启动期 TDZ 崩）。
+ * 注意：放在 config 而非 utils/bots —— 那边不能反向 import @/config，会成 config↔bots 的环（启动期 TDZ 崩）
  */
 export function profileWithPlatform(id: string | number): BotProfile {
   return withPlatform(botProfile(id))
 }
 
 /**
- * @description 这条频道事件是不是 QQ 家族的（只有它们才该报 qqguild）
- * 优先看账号形状（qg_ 前缀的频道级账号、QQBot 的 appid），账号缺失或认不出时退到适配器名。
+ * @description 这条频道事件是不是 QQ 家族的（只有它们才该报 qqguild），优先看账号形状（qg_ 前缀频道级账号、QQBot 的 appid），账号缺失或认不出时退到适配器名
  */
 function isQQChannel(e: AdapterEvent, sid: string): boolean {
   if (sid.startsWith("qg_") || isQQBotAppId(sid)) return true
@@ -457,13 +434,12 @@ function isQQChannel(e: AdapterEvent, sid: string): boolean {
 }
 
 /**
- * @description 解析上报用的平台 bot_id
- * 优先级：频道特判 > self_id 精确匹配 > 适配器 id > 适配器 name > 形状推断 > 兜底
- * 一条连接可以 bind 多个平台各异的账号（ICQQ → onebot、QQBot → qqgroup），所以按账号查 `bot_id_map`。
- * 注意：必须查 adapter.name，各适配器的 id 大量撞车（ICQQ / OneBotv11 / OPQBot 都是 "QQ"），而 e.adapter_id 取的是 id
+ * @description 解析上报用的平台 bot_id，优先级：频道特判 > self_id 精确匹配 > 适配器 id > 适配器 name > 形状推断 > 兜底
+ * 一条连接可 bind 多个平台各异的账号（ICQQ → onebot、QQBot → qqgroup），故按账号查 `bot_id_map`。
+ * 注意：必须查 adapter.name，各适配器 id 大量撞车（ICQQ / OneBotv11 / OPQBot 都是 "QQ"），而 e.adapter_id 取的是 id
  * 注意：频道特判压在账号级映射之前 —— QQBot-Plugin 群与频道共用 adapter.id 与 appid，只能按事件形状分，而账号级那行记的是群平台 qqgroup
  * 注意：查表全落空时先过 guessPlatform 再落 map.default，否则 wx_ / tg_ / dc_ 前缀与 QQBot appid 会全被兜成 onebot
- * @param selfId 调用方解析过的账号。不传则退回 e.self_id —— 它可能为 null，不过滤会拿字符串 "null" 去查表
+ * @param selfId 调用方解析过的账号，不传则退回 e.self_id —— 它可能为 null，不过滤会拿字符串 "null" 去查表
  */
 export function resolveBotId(e: AdapterEvent, _conf?: WsConnection | null, selfId?: string) {
   const map = config.bot_id_map || {}

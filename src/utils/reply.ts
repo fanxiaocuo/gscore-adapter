@@ -1,21 +1,8 @@
 /**
  * @description 引用回复的 message_id 与正文解析，把各适配器五花八门的表达收敛到一处
- *
- * 新协议要求上报两段：reply_id 放 message_id，reply 放引用正文，引用图片另作 image 段。
- * 大部分适配器（OneBotv11 / Milky / Satori / ComWeChat）走 reply 段，有 message_id；
- * ICQQ 与 QQBot-Plugin 两者都没有，需要各自补。
- *
- * ICQQ：`e.source` 只有 user_id / seq / rand / time，且它的 parser 永不产出 reply 段，
- * 所以两个常规分支双双不可达。补法是用 icqq 自己的 genGroupMessageId / genDmMessageId 反算——
- * 与我们当初上报那条消息用的 msg_id 必然一致，核心拿它当键查缓存才有意义。
- * 注意：这两个函数从 `Bot[self_id].icqq` **按能力探测**取（ICQQ-Plugin index.js:868 挂的），
- * 不去 import icqq —— 本插件不依赖它，用户也可能根本没装。
- * 已知不精确：`source.rand` 上游缺失时会是 0，算出的 id 对不上，行为退化成「没有引用」，不会更糟。
- *
- * QQBot：三条路径全断（没有 getReply、不设 source / reply_id、也不产出入站 reply 段），
- * 但被引用消息的媒体直链就在 `e.msg_elements[].attachments[].url` 里，比回查还省事。
- * 注意：唯一拿不到的是 message_id —— `msg_idx` 是 `REFIDX_xxx` 引用索引，与 msg_id 不同源，
- * 所以引用正文与媒体不能挂在「有 reply_id」这个前提上（见 `hasReplyContext` 与 toGscore.ts）。
+ * 新协议上报两段：reply_id 放 message_id，reply 放引用正文，引用图片另作 image 段。
+ * 大部分适配器（OneBotv11 / Milky / Satori / ComWeChat）走 reply 段有 message_id；ICQQ 与 QQBot 都没有，各自补。
+ * 注意：ICQQ 由 source 反算 id，source.rand 上游缺失时为 0，算出的 id 对不上，退化成「没有引用」不会更糟。
  */
 import type { AdapterEvent, YunzaiSegment } from "@/types"
 import { makeLog } from "./compat.js"
@@ -73,9 +60,8 @@ function fromMsgElements(e: AdapterEvent): YunzaiSegment[] {
       if (!url) continue
       const kind = String(a.content_type ?? "")
 
-      // 注意：只提图片。引用块最终只回传 image / image_size / node，其余类型转了也会被丢掉；
-      // 而 file 更糟 —— toGscoreFile 用的 toBuffer 没开 http 直通，会把整个 URL 下载成 base64
-      // （可能是个 200MB 文件）再扔掉。所以非图片只在引用正文里留个标记。
+      // 注意：只提图片。引用块最终只回传 image / image_size / node，其余类型转了也被丢掉；
+      // file 更糟——toGscoreFile 的 toBuffer 没开 http 直通，会把整个 URL 下成 base64 再扔掉。故非图片只在引用正文留标记
       if (kind.startsWith("image/")) {
         images.push({
           type: "image",
@@ -169,8 +155,7 @@ function fromIcqqSource(e: AdapterEvent): string {
   const src = e?.source
   if (!src || src.seq == null) return ""
 
-  // 注意：整个 icqq 模块挂在 Bot[uin].icqq 上（ICQQ-Plugin index.js:868），没有就说明
-  // 不是 ICQQ 或版本变了 —— 两种情况都只能放弃，不猜。走 any 是因为它不属于框架契约。
+  // 注意：icqq 模块挂在 Bot[uin].icqq 上（ICQQ-Plugin index.js:868），没有就是非 ICQQ 或版本变了，放弃不猜。走 any 因它不属于框架契约
   const icqq = e.bot?.icqq ?? (globalThis.Bot as any)?.[e.self_id]?.icqq
   if (!icqq) return ""
 
@@ -182,14 +167,12 @@ function fromIcqqSource(e: AdapterEvent): string {
   try {
     const gid = Number(e.group_id)
     if (gid && typeof icqq.genGroupMessageId === "function") {
-      // pktnum 恒给 1：source 里没有这个信息，而分片消息在引用场景极少见。
-      // 给错只会让核心查不到缓存，不会发错消息。
+      // pktnum 恒给 1：source 无此信息，分片消息在引用场景极少见；给错只会让核心查不到缓存，不会发错消息
       return String(icqq.genGroupMessageId(gid, Number(src.user_id) || 0, seq, rand, time, 1))
     }
 
     if (typeof icqq.genDmMessageId === "function") {
-      // 私聊 id 里存的是「对方账号」而非发送者（icqq message.js:297-300）：
-      // 被引用那条若是自己发的（source.user_id === self_id），flag 取 1，否则 0。
+      // 私聊 id 存的是「对方账号」而非发送者（icqq message.js:297-300）：被引用那条若自己发的（source.user_id === self_id）flag 取 1，否则 0
       const self = String(e.self_id)
       const flag = String(src.user_id) === self ? 1 : 0
       return String(icqq.genDmMessageId(Number(e.user_id) || 0, seq, rand, time, flag))
@@ -202,11 +185,8 @@ function fromIcqqSource(e: AdapterEvent): string {
 
 /**
  * @description QQBot 的引用索引可能挂在事件的哪几处
- *
- * 早先只看 `e.msg_elements`，而 QQBot-Plugin 按事件种类把原始 payload 分别挂在 `raw` / `raw_event`
- * 上（各自还可能再套一层 `d`），于是那些形状下的引用一律取不到。
- * 参考 xiowo/yunzai-gscore-adapter 的 f2febe2（他那边同样是从固定链路扩成扫一组候选）。
- * 注意：去重靠 Set —— 同一个对象可能被两条路径指到（如 `e.raw === e.raw_event`），重复扫没有意义
+ * QQBot-Plugin 按事件种类把原始 payload 分别挂在 `raw` / `raw_event`（各自还可能再套一层 `d`），只看 `e.msg_elements` 会漏。
+ * 注意：去重靠 Set，同一对象可能被两条路径指到（如 `e.raw === e.raw_event`），重复扫没有意义
  */
 function rawPayloads(e: AdapterEvent): unknown[] {
   const raw = e?.raw as Record<string, unknown> | undefined

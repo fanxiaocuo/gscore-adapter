@@ -55,7 +55,7 @@ export function countSource(sourceIndex: number): number {
 
 /**
  * @description 打展开诊断，级别按 skipped 分
- * 注意：bind/exclude 撞与共享 /ws/Yunzai 之后连接照常跑，打成 error 会让一条正在正常收发的连接看着像坏了。
+ * 注意：bind/exclude 撞与共享 Yunzai 路径之后连接照常跑，打成 error 会让一条正在正常收发的连接看着像坏了。
  * @param only 只打属于这条来源的。面板每个开关都走一次展开，而展开必须喂完整列表 —— 全打一遍的话，
  *   点一下与本次操作无关的开关就会重刷别条连接的冲突报错，看着像刚出的新故障
  */
