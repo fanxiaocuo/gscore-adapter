@@ -5,7 +5,7 @@
  */
 import { onlineBots } from "@/utils/bots.js"
 import { framePathBase } from "@/utils/url.js"
-import { group } from "./group.js"
+import { group } from "./group"
 
 /**
  * @description 账号候选项，给 bind / exclude 两个下拉用，取的是调用那一刻的在线账号

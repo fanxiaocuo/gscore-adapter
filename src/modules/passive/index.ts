@@ -10,7 +10,7 @@
  */
 import { makeLog } from "@/utils/compat"
 import type { AdapterEvent, SendBot } from "@/types"
-import * as db from "./db.js"
+import * as db from "./db"
 
 /**
  * 被动回复窗口。官方给 5 分钟，取 4 分 30 秒留余量：时间戳来自本机时钟，加网络与处理延迟，卡 5 分钟可能刚好过期。

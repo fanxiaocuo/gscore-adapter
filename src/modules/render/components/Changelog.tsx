@@ -3,9 +3,9 @@
  * 左侧短 hash 当序号，中间标题，右侧提交时间。按 git 提交列而没有版本段落，所以「新提交 / 本地提交」两种语境
  * 共用一套行，靠 heading 与 tip 区分。
  */
-import type { Palette } from "../theme.js"
+import type { Palette } from "../theme"
 import type { Commit } from "@/modules/update/git.js"
-import { Empty, Footer, GLASS, Header, Notice, Page, Stats } from "./Layout.js"
+import { Empty, Footer, GLASS, Header, Notice, Page, Stats } from "./Layout"
 
 export interface ChangelogData {
   title: string

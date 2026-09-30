@@ -9,7 +9,7 @@
  * 不在这儿用 margin 顶 —— 条是 fixed 的，它不占文档流，撑不开任何东西
  */
 import { useEffect } from "react"
-import { BTN, BTN_PRIMARY } from "../ui.js"
+import { BTN, BTN_PRIMARY } from "../ui"
 
 export function SaveBar({
   count,

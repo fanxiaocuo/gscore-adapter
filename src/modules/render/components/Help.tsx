@@ -2,9 +2,9 @@
  * @description 帮助页：分组标题（色条 + 巨型标题）→ 双栏条目网格 → 子分组，结构照 kkk 的 Help.tsx
  * 图标见 Icons.tsx。
  */
-import type { Palette } from "../theme.js"
-import { Icon, type IconName } from "./Icons.js"
-import { Footer, Header, Page, Stats } from "./Layout.js"
+import type { Palette } from "../theme"
+import { Icon, type IconName } from "./Icons"
+import { Footer, Header, Page, Stats } from "./Layout"
 
 /** @description 一条指令 */
 export interface HelpItem {

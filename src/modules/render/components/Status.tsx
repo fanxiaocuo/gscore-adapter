@@ -3,8 +3,8 @@
  * 版式：概览统计条 + 逐行卡片，每行左侧序号、中间主信息、右侧状态灯胶囊
  */
 import { statusRank } from "@/constants"
-import type { Palette } from "../theme.js"
-import { Empty, Footer, GLASS, Header, Page, Section, Stats } from "./Layout.js"
+import type { Palette } from "../theme"
+import { Empty, Footer, GLASS, Header, Page, Section, Stats } from "./Layout"
 
 /**
  * @description 一个 bind 账号：档案 + 它那条 ws 的运行时状态

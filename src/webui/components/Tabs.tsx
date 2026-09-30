@@ -5,7 +5,7 @@
  * 注意：不加下划线，iframe 窄屏里会与下方卡片描边贴在一起像卡片顶边裂开。
  */
 import { useCallback, useEffect, useRef, useState } from "react"
-import { FOCUS } from "../ui.js"
+import { FOCUS } from "../ui"
 
 /** 选中页记在这个 key 下，刷新与切页回来仍停在原处 */
 const STORE_KEY = "gscore-panel-tab"

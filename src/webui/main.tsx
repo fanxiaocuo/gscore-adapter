@@ -5,26 +5,18 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api.js"
-import { Avatar } from "./components/Avatar.js"
-import { BotSwitchList } from "./components/BotSwitchList.js"
-import { Chips } from "./components/Chips.js"
-import { PickerModal } from "./components/PickerModal.js"
-import { SaveBar } from "./components/SaveBar.js"
-import { Switch } from "./components/Switch.js"
-import { Tabs, useTab } from "./components/Tabs.js"
-import { useAutoFocus, useDialog } from "./components/useDialog.js"
-import {
-  ALL_FIELDS,
-  DEFERRED,
-  FIELD_BY_KEY,
-  TAB_IDS,
-  TABS,
-  type Field,
-  type TabId,
-} from "./fields.js"
-import { errMsg, request } from "./http.js"
-import { useHostTheme } from "./theme.js"
+import type { BotProfile, ConnView, Payload, PayloadConfig } from "./api"
+import { Avatar } from "./components/Avatar"
+import { BotSwitchList } from "./components/BotSwitchList"
+import { Chips } from "./components/Chips"
+import { PickerModal } from "./components/PickerModal"
+import { SaveBar } from "./components/SaveBar"
+import { Switch } from "./components/Switch"
+import { Tabs, useTab } from "./components/Tabs"
+import { useAutoFocus, useDialog } from "./components/useDialog"
+import { ALL_FIELDS, DEFERRED, FIELD_BY_KEY, TAB_IDS, TABS, type Field, type TabId } from "./fields"
+import { errMsg, request } from "./http"
+import { useHostTheme } from "./theme"
 import {
   BTN,
   BTN_DANGER,
@@ -37,7 +29,7 @@ import {
   INPUT,
   MONO,
   toList,
-} from "./ui.js"
+} from "./ui"
 import "./styles.css"
 
 /**

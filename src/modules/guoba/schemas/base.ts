@@ -1,6 +1,6 @@
 /** @description 基础配置项：运行模式与其它杂项 */
 import { displayRange } from "@/config/units.js"
-import { group } from "./group.js"
+import { group } from "./group"
 
 /** @description 两个大小上限在面板里的取值区间，单位 MB（落盘仍是字节）。换算表在 config/units.ts */
 const SIZE_RANGE = displayRange("media_max_size")

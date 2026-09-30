@@ -6,7 +6,7 @@
 import path from "node:path"
 import { PluginPath } from "@/dir"
 import { openDb, type SqliteHandle } from "@/utils/sqlite"
-import type { Counters } from "./counters.js"
+import type { Counters } from "./counters"
 
 /** @description 一行明细 */
 export interface RelayRow extends Counters {

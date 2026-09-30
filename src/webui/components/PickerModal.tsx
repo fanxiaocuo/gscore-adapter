@@ -9,11 +9,11 @@
  * 依赖只能进 bundle，而这点逻辑不值一个包）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { TargetsPayload } from "../api.js"
-import { errMsg, request } from "../http.js"
-import { BTN, BTN_PRIMARY, INPUT } from "../ui.js"
-import { useAutoFocus, useDialog } from "./useDialog.js"
-import { Avatar } from "./Avatar.js"
+import type { TargetsPayload } from "../api"
+import { errMsg, request } from "../http"
+import { BTN, BTN_PRIMARY, INPUT } from "../ui"
+import { useAutoFocus, useDialog } from "./useDialog"
+import { Avatar } from "./Avatar"
 
 /**
  * 行高只有这一处定义，虚拟滑动的窗口计算与行元素的 minHeight 都读它

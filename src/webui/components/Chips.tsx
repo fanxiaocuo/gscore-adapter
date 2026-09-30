@@ -4,7 +4,7 @@
  * 注意：不校验形状，前缀里的 `#`、关键词的空格与大小写改一字就匹配不上（锅巴那边为此不加 valueFormatter，见 modules/guoba/schemas/filter.ts）；QQ 号 5-11 位、QQBot openid 32 位十六进制，卡长度会把非 QQ 平台的 ID 拦掉。
  */
 import { useRef, useState } from "react"
-import { FOCUS, MONO, toList } from "../ui.js"
+import { FOCUS, MONO, toList } from "../ui"
 
 /** 超过这个长度只显示前若干字，全文进 title */
 const MAX_SHOW = 18

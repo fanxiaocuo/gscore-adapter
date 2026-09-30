@@ -8,10 +8,10 @@
  * （签名不变）、sqlite 启动时灌入之后按脏标记定时回写（见 db.ts）；代价是掉电丢最后几秒计数，换热路径零开销。
  */
 import { makeLog } from "@/utils/compat"
-import { type Counters, zero, add, today } from "./counters.js"
-import * as db from "./db.js"
+import { type Counters, zero, add, today } from "./counters"
+import * as db from "./db"
 
-export type { Counters } from "./counters.js"
+export type { Counters } from "./counters"
 
 /** 累计（跨重启，= 全部明细之和） */
 const total = zero()

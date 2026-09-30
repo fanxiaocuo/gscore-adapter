@@ -18,7 +18,7 @@ import type {
   YunzaiSegment,
   AdapterEvent,
 } from "@/types"
-import { buttonsToGscore } from "./buttons.js"
+import { buttonsToGscore } from "./buttons"
 import { makeLog, toStr } from "@/utils/compat"
 
 const NODE_MARK = "[合并转发]"

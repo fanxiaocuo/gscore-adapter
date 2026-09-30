@@ -4,7 +4,7 @@
  * 注意：s() 不能从 message.ts 引（那边 import 了 @/config，会成 config↔bots 的环）
  * 注意：OneBotv11 先注册实例再异步填登录信息，uin getter 可能暂时为空，只以注册表自有键为准
  */
-import { isQQBotAppId } from "./platform.js"
+import { isQQBotAppId } from "./platform"
 
 export interface BotProfile {
   /** 账号（self_id） */

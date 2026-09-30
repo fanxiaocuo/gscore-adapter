@@ -3,7 +3,7 @@
  */
 import { config } from "@/config"
 import type { AdapterEvent } from "@/types"
-import { isChannel } from "./session.js"
+import { isChannel } from "./session"
 
 /**
  * @description 会话方向开关：私聊 / 群（含频道），默认都开，只有显式写 false 才拦

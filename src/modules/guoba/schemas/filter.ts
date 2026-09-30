@@ -1,5 +1,5 @@
 /** @description 消息过滤（仅影响 client 方向的上报） */
-import { group } from "./group.js"
+import { group } from "./group"
 
 /**
  * @description 用户黑名单「手动填」那栏的字段名 —— 一个不落盘的伪字段

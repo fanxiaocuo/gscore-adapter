@@ -5,11 +5,11 @@
  * 套同一套骨架会让两页长得几乎一样。连接数这类状态信息不在这页重复，留给状态页。
  * 注意：隐私边界见 env.ts 的 sysInfo —— 本机信息只取性能类，不取任何能定位机主的东西。
  */
-import type { Palette } from "../theme.js"
-import type { ReleaseType } from "../env.js"
-import type { Release } from "../changelog.js"
-import { Backdrop, Footer, Section } from "./Layout.js"
-import { fitFontSize } from "../metrics.js"
+import type { Palette } from "../theme"
+import type { ReleaseType } from "../env"
+import type { Release } from "../changelog"
+import { Backdrop, Footer, Section } from "./Layout"
+import { fitFontSize } from "../metrics"
 
 /** @description 一条环境信息 */
 export interface AboutRow {

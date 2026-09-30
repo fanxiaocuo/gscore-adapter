@@ -4,7 +4,7 @@
  * 注意：permisson / excute_ 是核心源码原文错拼，须逐字匹配，勿"修正"
  */
 
-import type { YunzaiSegment } from "./Event.js"
+import type { YunzaiSegment } from "./Event"
 
 /* ============================ 消息段 ============================ */
 

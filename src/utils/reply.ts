@@ -5,7 +5,7 @@
  * 注意：ICQQ 由 source 反算 id，source.rand 上游缺失时为 0，算出的 id 对不上，退化成「没有引用」不会更糟。
  */
 import type { AdapterEvent, YunzaiSegment } from "@/types"
-import { makeLog } from "./compat.js"
+import { makeLog } from "./compat"
 
 type ReplyMessagePart = string | YunzaiSegment
 

@@ -8,7 +8,7 @@ import http from "node:http"
 import type { AddressInfo } from "node:net"
 import { randomBytes } from "node:crypto"
 import { config } from "@/config"
-import { makeLog } from "./compat.js"
+import { makeLog } from "./compat"
 
 interface Entry {
   buf: Buffer

@@ -8,7 +8,7 @@ import fs from "node:fs"
 import os from "node:os"
 import { join } from "node:path"
 import { YunzaiPath } from "@/dir"
-import { branch } from "./version.js"
+import { branch } from "./version"
 
 /** @description 框架名，只有这两种；探测不到按喵崽算（它是缺功能的那一方，回退更安全） */
 export type FrameName = "TRSS-Yunzai" | "Miao-Yunzai"

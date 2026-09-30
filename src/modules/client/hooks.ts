@@ -7,9 +7,9 @@ import type { AdapterEvent } from "@/types"
 import { noticeToMeta } from "@/modules/notice"
 import { remember } from "@/modules/passive"
 import { makeLog } from "@/utils/compat"
-import { clients } from "./state.js"
-import { echoKey, isEcho } from "./echo.js"
-import { isMasterUser } from "./framework.js"
+import { clients } from "./state"
+import { echoKey, isEcho } from "./echo"
+import { isMasterUser } from "./framework"
 
 /**
  * @description 这条消息该不该上报给核心

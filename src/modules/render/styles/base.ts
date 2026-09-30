@@ -8,7 +8,7 @@
  * 注意：下面整段 CSS 是一个模板字符串，CSS 注释里也不能出现美元号紧跟花括号 —— 它会被当成插值求值，
  * 而报错信息里既没有行号也没有那段注释，排查时完全想不到是注释的问题。踩过一次。
  */
-import { CANVAS_WIDTH, FONT_STACK, V, cssVars, type Palette } from "../theme.js"
+import { CANVAS_WIDTH, FONT_STACK, V, cssVars, type Palette } from "../theme"
 
 /**
  * @description 把调色板落成 :root 上的自定义属性，其余各层只引用 V.* 里的 var()

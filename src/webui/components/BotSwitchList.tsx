@@ -10,10 +10,10 @@
  * 号码与状态都重复；一条连接绑两个号就是四行说三件事
  */
 import { useId } from "react"
-import type { BotProfile, RuntimeConnView } from "../api.js"
-import { DOT, MONO, TAG } from "../ui.js"
-import { Avatar } from "./Avatar.js"
-import { Switch } from "./Switch.js"
+import type { BotProfile, RuntimeConnView } from "../api"
+import { DOT, MONO, TAG } from "../ui"
+import { Avatar } from "./Avatar"
+import { Switch } from "./Switch"
 
 /** 平台标签：淡蓝底深蓝字，配色 token 在 styles.css 的 --chip */
 const CHIP = "flex-none rounded-[999px] bg-chip px-[8px] py-[1px] text-[11px] text-chip-fg"

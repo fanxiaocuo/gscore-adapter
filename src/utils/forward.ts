@@ -7,7 +7,7 @@
  * 注意：不写 `adapter_id === "Milky"` 这种名字分支（名字会被 fork 改掉）—— 改用「有没有包 getForwardMsg」选 action：包了的是 OneBot 家，没包的按 Milky 算
  */
 import type { AdapterEvent, YunzaiSegment } from "@/types"
-import { makeLog, toStr } from "./compat.js"
+import { makeLog, toStr } from "./compat"
 
 /**
  * @description 云崽 node 段载荷的一项：一条被转发的消息

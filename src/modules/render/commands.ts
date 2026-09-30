@@ -7,7 +7,7 @@
  * 注意：条目按「帮助展示顺序」排，rule 数组由 app 过滤派生 —— 全部正则两两不相交（test/commands.test.mjs 逐条扫过），顺序对派发无影响
  * 注意：设置 的空参数条目必须排在带参数那条前面 —— 现在 (.+) 要求至少一字符所以两者不重叠，但哪天有人放宽成 (.*)，这个顺序是唯一的兜底
  */
-import type { HelpGroup, HelpItem } from "./components/Help.js"
+import type { HelpGroup, HelpItem } from "./components/Help"
 
 /** 所有指令共用的前缀：# 可省，核心 可省 */
 const PREFIX = "^#?早柚(核心)?"

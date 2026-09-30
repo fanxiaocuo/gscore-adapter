@@ -2,7 +2,7 @@
  * @description 连接地址规范化，指令（apps/admin.ts）与 web 面板共用同一套规则
  * 注意：两处规则不一致时同一地址会被存成两个串，而 `find()` 按名字/序号定位看不出来。
  */
-import { readIds } from "./ids.js"
+import { readIds } from "./ids"
 
 /**
  * @description 早先版本生成的不带框架名的默认路径，现在只留作识别（新连接一律走 {@link framePathBase}）

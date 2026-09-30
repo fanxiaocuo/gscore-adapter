@@ -26,7 +26,7 @@ import type {
   SendSegment,
 } from "@/types"
 import { getBot } from "@/utils/bots.js"
-import { echoKey, markSent } from "./echo.js"
+import { echoKey, markSent } from "./echo"
 
 /**
  * @description 段类型摘要，例如 "image×1,text×1"

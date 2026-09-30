@@ -3,7 +3,7 @@
  */
 import { fromGscoreMedia } from "@/utils"
 import { GS_LOG_RE, LOG_LEVELS, LOG_ALIAS } from "@/constants"
-import { buttonsFromGscore } from "./buttons.js"
+import { buttonsFromGscore } from "./buttons"
 import { makeLog, toStr, makeForwardMsg, segFile } from "@/utils/compat"
 import type { SendSegment, SendTarget, YunzaiSegment } from "@/types"
 

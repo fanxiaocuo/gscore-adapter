@@ -14,8 +14,8 @@ import type { ReactElement } from "react"
 import { PluginName, YunzaiPath } from "@/dir"
 import type { YunzaiSendable } from "@/types"
 import { makeLog } from "@/utils/compat"
-import { buildCss } from "./styles/index.js"
-import { pickPalette, COOL, LIGHT, type Palette } from "./theme.js"
+import { buildCss } from "./styles/index"
+import { pickPalette, COOL, LIGHT, type Palette } from "./theme"
 
 /**
  * @description 自己生成的整页 HTML 放哪：每个页面一个固定文件名，不带时间戳

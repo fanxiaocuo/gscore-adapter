@@ -9,7 +9,7 @@
  * 而 Tailwind 对未注册的颜色不报错、直接不生成那个类，就地写死过的 `outline-primary` 曾静默失效
  * 成 currentcolor（这个面板上开关是主控件，聚焦环是键盘用户唯一的落点提示）
  */
-import { FOCUS } from "../ui.js"
+import { FOCUS } from "../ui"
 
 export function Switch({
   checked,

@@ -3,10 +3,10 @@
  * 注意：不做 transform:scale —— 本体 puppeteer 直接截 #container，缩放写进 DOM 会让截图尺寸算错。
  */
 import type { ReactNode } from "react"
-import type { Palette } from "../theme.js"
-import { FRAME_LOGO, PLUGIN_LOGO, imageDataUri } from "../assets.js"
-import { frameLabel, releaseType } from "../env.js"
-import { textWidth } from "../metrics.js"
+import type { Palette } from "../theme"
+import { FRAME_LOGO, PLUGIN_LOGO, imageDataUri } from "../assets"
+import { frameLabel, releaseType } from "../env"
+import { textWidth } from "../metrics"
 
 /**
  * @description 液态玻璃卡面：面 + 边 + 厚度三件套，全套卡片共用

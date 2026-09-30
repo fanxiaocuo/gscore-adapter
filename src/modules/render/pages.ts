@@ -13,25 +13,18 @@ import { readIds } from "@/utils/ids.js"
 import { inlineToken, redactUrl } from "@/utils/url.js"
 import { forName, snapshot } from "@/modules/stats/index.js"
 import { passiveCount } from "@/modules/passive/index.js"
-import { Help } from "./components/Help.js"
-import { Status, type ConnAccount, type ConnRow, type StatusPanel } from "./components/Status.js"
-import { Settings, type SettingFacts, type SettingGroup } from "./components/Settings.js"
-import { Changelog } from "./components/Changelog.js"
-import { About } from "./components/About.js"
+import { Help } from "./components/Help"
+import { Status, type ConnAccount, type ConnRow, type StatusPanel } from "./components/Status"
+import { Settings, type SettingFacts, type SettingGroup } from "./components/Settings"
+import { Changelog } from "./components/Changelog"
+import { About } from "./components/About"
 import type { Commit, UpdateInfo } from "@/modules/update/git.js"
-import { HELP_GROUPS } from "./commands.js"
-import { render } from "./index.js"
-import { versionLabel, version as bareVersion } from "./version.js"
-import { PLUGIN_LOGO, imageDataUri } from "./assets.js"
-import {
-  formatBytes,
-  formatDuration,
-  frameLabel,
-  nodeVersion,
-  releaseType,
-  sysInfo,
-} from "./env.js"
-import { currentRelease, type Release } from "./changelog.js"
+import { HELP_GROUPS } from "./commands"
+import { render } from "./index"
+import { versionLabel, version as bareVersion } from "./version"
+import { PLUGIN_LOGO, imageDataUri } from "./assets"
+import { formatBytes, formatDuration, frameLabel, nodeVersion, releaseType, sysInfo } from "./env"
+import { currentRelease, type Release } from "./changelog"
 
 // 注意：用 git describe 风格串而非裸 package.json 版本号 —— 三个分支裸版本号相同，区分不出来
 const version = versionLabel()

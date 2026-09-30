@@ -15,8 +15,8 @@ import fs from "node:fs"
 import { join } from "node:path"
 import { ResPath } from "@/dir"
 import { makeLog } from "@/utils/compat"
-import type { Palette } from "../theme.js"
-import { base } from "./base.js"
+import type { Palette } from "../theme"
+import { base } from "./base"
 
 /** @description 编译好的 Tailwind 产物。文件在进程生命周期里不会变，读一次就够（同 assets.ts 的缓存理由） */
 let twCache: string | undefined

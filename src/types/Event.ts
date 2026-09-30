@@ -39,7 +39,7 @@ export type { CustomEvent }
  * 不用 `MessageEvent`（`GroupEvent | PrivateEvent` 的闭合联合）：它不含 notice 字段（post_type / notice_type / operator_id / target_id）、
  * QQBot-Plugin 自加字段（channel_id / isGuild / avatar）、ICQQ 特有字段（source / member / friend）与本插件标记（gscore_origin / message_sent），用它每个读取点都要 `as any`。
  * 群私事件只有一边有的字段标可选，读出来是 `T | undefined` 而非 any；索引签名同时让 `MessageEvent` 能逆变赋值进来。
- * 注意：`message` 段允许 `Readable` 而 {@link import("./Media.js").FileLike} 不允许——前者是「段里能带什么」（ImageElem.file 可能是流），后者是「toBuffer 能读什么」；流只透传不读，真读的失败点在调用方
+ * 注意：`message` 段允许 `Readable` 而 {@link import("./Media").FileLike} 不允许——前者是「段里能带什么」（ImageElem.file 可能是流），后者是「toBuffer 能读什么」；流只透传不读，真读的失败点在调用方
  */
 export interface AdapterEvent {
   // ---- 事件元信息（post_type 系，message / notice / request 共有） ----
@@ -187,7 +187,7 @@ export interface AdapterEvent {
 /**
  * @description 云崽消息段（对应 ICQQ 的 MessageElem）：已知字段有类型，其余透传
  * 不用闭合的 `MessageElem` 联合：云崽消息段是开放集（markdown / button / raw / node 各适配器自造，QQBot-Plugin 还挂 qg_ 系平台字段），用它每个段都要先 `as any`。
- * 注意：`file` / `url` 允许 `Readable`（ImageElem.file 声明就是 `string | Buffer | Readable`），段里可能带流；流只透传不读，而 {@link import("./Media.js").FileLike} 收窄成 `string | Buffer` 是因为 `Bot.Buffer` 对流做 `String(data)` 会静默产出坏图
+ * 注意：`file` / `url` 允许 `Readable`（ImageElem.file 声明就是 `string | Buffer | Readable`），段里可能带流；流只透传不读，而 {@link import("./Media").FileLike} 收窄成 `string | Buffer` 是因为 `Bot.Buffer` 对流做 `String(data)` 会静默产出坏图
  */
 export interface YunzaiSegment {
   type: string

@@ -4,7 +4,7 @@
  * 留在那边就是一个循环引用
  */
 import { useState } from "react"
-import type { BotProfile } from "../api.js"
+import type { BotProfile } from "../api"
 
 export function Avatar({
   p,

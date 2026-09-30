@@ -10,8 +10,8 @@ import path from "node:path"
 import YAML from "yaml"
 import type { Document, ParsedNode } from "yaml"
 import { ConfigPath } from "@/dir"
-import { unflow } from "./yaml.js"
-import { readIdList, writeAccountBotId } from "./botmap.js"
+import { unflow } from "./yaml"
+import { readIdList, writeAccountBotId } from "./botmap"
 // compat 只 import 了一个 type，不会与本文件成环
 import { makeLog } from "@/utils/compat"
 

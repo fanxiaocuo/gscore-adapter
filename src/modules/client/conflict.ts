@@ -4,7 +4,7 @@
  * 判据是「每个来源派生出几条运行时连接」而不是比对错误文本：错误里混着不致命的告警，为一句告警取消保存太重。
  */
 import type { WsConnection } from "@/types"
-import { expandConnections } from "./expand.js"
+import { expandConnections } from "./expand"
 
 /** @description 来源下标 -> 它派生出的运行时连接数 */
 function tally(runtime: readonly { sourceIndex: number }[]): Map<number, number> {

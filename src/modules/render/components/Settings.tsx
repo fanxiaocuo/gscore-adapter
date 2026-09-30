@@ -6,9 +6,9 @@
  * 与 Help.tsx 的分工：那页列「有哪些指令」，这页列「每项现在是什么值」；这里的卡片是单列整宽的，因为开关必须
  * 在同一条竖线上对齐才扫得快。
  */
-import type { Palette } from "../theme.js"
-import { Icon, type IconName } from "./Icons.js"
-import { Footer, GLASS, Header, Page } from "./Layout.js"
+import type { Palette } from "../theme"
+import { Icon, type IconName } from "./Icons"
+import { Footer, GLASS, Header, Page } from "./Layout"
 
 /** @description 一项设置 */
 export interface SettingRow {

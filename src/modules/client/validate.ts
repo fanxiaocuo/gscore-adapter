@@ -9,7 +9,7 @@
 import type { RuntimeWsConnection, WsConnection } from "@/types"
 import { readIds } from "@/utils/ids.js"
 import { coreKey } from "@/utils/url.js"
-import { expandConnections, requireAccounts, sourceLabel } from "./expand.js"
+import { expandConnections, requireAccounts, sourceLabel } from "./expand"
 
 /**
  * @description 「本次操作要求保存后必须还在」的目标：某条来源、或它上头的某个账号必须在最终计划里有连接

@@ -13,9 +13,9 @@ import type { AdapterEvent, Config, WsConnection } from "@/types"
 import { isChannel } from "@/utils/session.js"
 import { guessPlatform, isQQBotAppId } from "@/utils/platform.js"
 import { getBot, botProfile, type BotProfile } from "@/utils/bots.js"
-import { unflow } from "./yaml.js"
-import { upgradeUserConfig } from "./upgrade.js"
-export { writeAccountBotId, writeAccountBotIds, syncConnectionAccounts } from "./botmap.js"
+import { unflow } from "./yaml"
+import { upgradeUserConfig } from "./upgrade"
+export { writeAccountBotId, writeAccountBotIds, syncConnectionAccounts } from "./botmap"
 
 /**
  * @description 默认值随插件发布（resources/config/），用户配置目录被 .gitignore 忽略，升级不覆盖用户改动；路径由 dir.ts 从 import.meta.url 推导，插件改名或换目录都不受影响

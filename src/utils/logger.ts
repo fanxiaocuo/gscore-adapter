@@ -3,7 +3,7 @@
  * 注意：绝大多数调用点直接写 `makeLog(..., "GsCore")`，这里的前缀只是 `log()` 的默认值，不是全局唯一真源。
  */
 import { config } from "@/config"
-import { makeLog, toStr } from "./compat.js"
+import { makeLog, toStr } from "./compat"
 
 /** 默认日志前缀，只作 log() 的默认参数 */
 const LOG_TAG = "GsCore"

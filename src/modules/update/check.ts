@@ -10,7 +10,7 @@ import { config } from "@/config"
 import { makeLog } from "@/utils/compat"
 import { renderChangelog } from "@/modules/render/pages"
 import type { YunzaiSendable } from "@/types"
-import { checkUpdate, log, type Commit, type UpdateInfo } from "./git.js"
+import { checkUpdate, log, type Commit, type UpdateInfo } from "./git"
 
 /** @description 已播报过的版本标记，值为「本地 HEAD + 远端落后数」。注意：进程内，重启后重新播报是有意的 */
 let announced = ""

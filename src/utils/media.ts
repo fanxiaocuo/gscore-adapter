@@ -8,9 +8,9 @@ import { pathToFileURL } from "node:url"
 import { config, onConfigReload } from "@/config"
 import type { FileLike, MediaInput } from "@/types"
 import { YunzaiPath } from "@/dir"
-import { logStr } from "./logger.js"
-import { makeLog, toStr, toBuffer, fileToUrl } from "./compat.js"
-import { serveFile, fileServerEnabled } from "./fileServer.js"
+import { logStr } from "./logger"
+import { makeLog, toStr, toBuffer, fileToUrl } from "./compat"
+import { serveFile, fileServerEnabled } from "./fileServer"
 
 /**
  * @description 消息段里的流先读成 Buffer，下游只见 `FileLike`

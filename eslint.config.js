@@ -72,11 +72,12 @@ export default ts.config(
     rules: { "@typescript-eslint/no-unused-vars": "off" },
   },
   {
-    // ESM 相对 import 必须带扩展名。src 是 ESM 产物（package.json "type":"module"）：
-    // 编译到 lib/ 后 Node 按相对路径原样找文件，扩展名得写全。约定是**手写就带 .js**
-    // （对应编译后的 .js，源文件虽是 .ts）——tsc-alias 只补 @ 别名、不补相对路径缺失的
-    // 扩展名，所以漏写 .js 编译期不报、运行时才 ERR_MODULE_NOT_FOUND。这条规则锁死约定。
-    // 只管 src/：test/ 与 scripts/ 是 .mjs、走 tsx，不受此约束。
+    // 相对 import 一律不写扩展名。源码按 TS 项目的主流写法走（tsconfig 的
+    // moduleResolution 是 bundler，省略扩展名是它的正常用法），补全交给构建：
+    // tsc-alias 的 resolveFullPaths 会把 ./x 改写成 ./x.js、把目录改写成 ./x/index.js，
+    // 所以产物仍是 Node ESM 能直接跑的完整路径（见 tsconfig.json 的 tsc-alias 段）。
+    // 注意：写 .ts/.tsx 会真的坏 —— tsc 原样输出，产物里留着 .ts，运行时 ERR_MODULE_NOT_FOUND。
+    // 只管 src/：test/ 与 scripts/ 是 .mjs、走 tsx，不受此约束。CSS 不在拦截范围（webui 要 import "./styles.css"）。
     files: ["src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
@@ -84,14 +85,14 @@ export default ts.config(
         {
           patterns: [
             {
-              // 相对 import 结尾无扩展名（./x、../a/b），漏了 .js
-              regex: "^\\.\\.?/(?:[^/]+/)*[^/.]+$",
-              message: "相对 import 要带扩展名：写 './x.js'，不是 './x'（ESM 产物按原样找文件，漏写运行时才报 ERR_MODULE_NOT_FOUND）。",
+              regex: "^\\.\\.?/.*\\.js$",
+              message:
+                "相对 import 不写扩展名：写 './x'，不是 './x.js'（构建时由 tsc-alias.resolveFullPaths 补全）。",
             },
             {
-              // 相对 import 写了源码扩展名（./x.ts），应指向编译产物 .js
               regex: "^\\.\\.?/.*\\.tsx?$",
-              message: "相对 import 要指向编译后的 .js，不是源码扩展名：写 './x.js'，不是 './x.ts'。",
+              message:
+                "相对 import 不写扩展名：写 './x'，不是 './x.ts'（源码扩展名会原样进产物，运行时 ERR_MODULE_NOT_FOUND）。",
             },
           ],
         },

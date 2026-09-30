@@ -3,10 +3,10 @@
  */
 import { config, configFile, enabled, getWsConnections, wsEnabled } from "@/config"
 import type { RuntimeWsConnection, WsConnection } from "@/types"
-import { GsCoreClient } from "./GsCoreClient.js"
-import { clients } from "./state.js"
-import { onYunzaiMessage, onYunzaiNotice } from "./hooks.js"
-import { expandConnections, type ExpandError } from "./expand.js"
+import { GsCoreClient } from "./GsCoreClient"
+import { clients } from "./state"
+import { onYunzaiMessage, onYunzaiNotice } from "./hooks"
+import { expandConnections, type ExpandError } from "./expand"
 import { routeKey } from "@/utils/url"
 import { makeLog } from "@/utils/compat"
 
