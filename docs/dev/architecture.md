@@ -42,8 +42,8 @@ src/
 WsConnection    →   expandConnections   →   RuntimeWsConnection  →  GsCoreClient
 （配置的一项）      （client/expand.ts）    （+ 账号、名字、地址）   （client/lifecycle.ts）
 
-url:  ws://host:8765                        /ws/Yunzai-账号A        连接名 [账号A]
-bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连接名 [账号B]
+url:  ws://host:8765                        /ws/TRSS-Yunzai-账号A   连接名 [账号A]
+bind: [账号A, 账号B]                         /ws/TRSS-Yunzai-账号B   连接名 [账号B]
 ```
 
 | 阶段 | 谁产出 | 关键点 |
@@ -57,7 +57,7 @@ bind: [账号A, 账号B]                         /ws/Yunzai-账号B        连�
 
 - 停用的（`enable === false`）直接跳过
 - 有效账号 = `bind` 减 `exclude`，去重保序；两边都写了的账号按 `exclude` 处理并记一条 error
-- 地址 pathname 为空或根 → **自动端点**，按每个有效账号派生一条，地址由 `materializeAccountUrl` 拼成 `/ws/Yunzai-<账号>`（账号只当一个 path segment，`/`、`?`、`#` 都被编码掉），运行时 `bind` 收窄成该单账号；一个有效账号都没有则整条跳过并记 error
+- 地址 pathname 为空或根 → **自动端点**，按每个有效账号派生一条，地址由 `materializeAccountUrl` 拼成 `/ws/<框架名>-<账号>`（框架名由 `framePathBase()` 按 `Bot.uin` 的形状判定：数组是 TRSS-Yunzai、单个数字是 Miao-Yunzai、探测不到则退回不带框架名的 `Yunzai`；账号只当一个 path segment，`/`、`?`、`#` 都被编码掉），运行时 `bind` 收窄成该单账号；一个有效账号都没有则整条跳过并记 error
 - 非根路径 → **兼容连接**，路径原样不动、只派生一条，`bind` 在它上头是转发过滤器（最终由 `GsCoreClient.accept` 判）
 - 两种地址里内联的 `?token=` 都在这里被摘回 token 字段，运行时地址本身不带凭据
 - 全局按 `routeKey`（协议 + host + pathname）判重，撞上了先到先得，被跳过的那条记一条 error
